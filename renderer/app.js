@@ -8,7 +8,7 @@ const TITLES = {
   chat: ["Conversas", "O agente usa ferramentas, memória e pede aprovação antes de enviar, apagar ou pagar."],
   assistants: ["Assistentes", "Cada assistente tem função, instruções, memória e conectores próprios. As conversas pertencem a um deles."],
   vault: ["Cofre", "Logins e chaves ficam criptografados neste computador. A senha não vai para o chat."],
-  mcp: ["Conectores", "Servidores MCP seus: Gmail, GitHub, ClickUp ou outro. O status vem de uma conexão real."],
+  mcp: ["Conectores", "Clique em Conectar, entre no navegador e volte. O token fica no cofre."],
   search: ["Pesquisa", "Resultados com a fonte ao lado, para você conferir."],
   memory: ["Memória", "Fatos estáveis sobre você. Segredos são recusados."],
   context: ["Contexto", "Exporte e importe o seu contexto (sem segredos), leia ClickUp e e-mail só para consulta e escolha as pastas do PC que o HELIOS pode usar."],
@@ -688,6 +688,7 @@ async function loadVault() {
   });
 }
 
+let mcpGallery = null;
 async function loadMcp() {
   const data = await call("GET", "/api/mcp");
   const rows = data.servers.map((server) => {
@@ -702,54 +703,51 @@ async function loadMcp() {
       <div class="row">${pending ? `<button type="button" class="btn primary" data-confirm="${esc(server.id)}">Confirmar comando</button>` : `<button type="button" class="btn" data-test="${esc(server.id)}">Testar</button>`}<button type="button" class="btn danger" data-rm="${esc(server.id)}">Remover</button></div>
     </div>`;
   }).join("");
-  shell(`
-    <div class="grid-2">
-      <form class="card stack" id="mcpForm">
-        <h2>Novo servidor</h2>
-        <label>Nome<input name="name" required placeholder="github"></label>
-        <label>Tipo<select name="type"><option value="stdio">stdio</option><option value="http">http</option></select></label>
-        <label>Comando<input name="command" placeholder="npx ou o executável"></label>
-        <label>Argumentos, um por linha<textarea name="args" placeholder="--stdio"></textarea></label>
-        <label>Variáveis só deste conector (stdio), NOME=valor, uma por linha<textarea name="env" placeholder="MINHA_API_URL=https://exemplo"></textarea></label>
-        <p class="muted">O servidor stdio recebe só um ambiente mínimo do Windows mais estas variáveis. As chaves do HELIOS (Cursor, Groq, Gemini) nunca são repassadas.</p>
-        <label>URL<input name="url" placeholder="https://exemplo/mcp"></label>
-        <button class="btn primary" type="submit">Adicionar</button>
-      </form>
-      <div class="card">${rows || `<div class="empty">Nenhum conector ainda.</div>`}</div>
-    </div>`);
-  $("mcpForm").onsubmit = async (event) => {
-    event.preventDefault();
-    const form = new FormData(event.target);
-    try {
-      await call("POST", "/api/mcp", {
-        name: form.get("name"),
-        type: form.get("type"),
-        command: form.get("command"),
-        args: String(form.get("args") || "").split(/\r?\n/).map((line) => line.trim()).filter(Boolean),
-        env: String(form.get("env") || ""),
-        url: form.get("url"),
-      });
-      await loadMcp();
-    } catch (err) {
-      banner(err.message);
-    }
+  const manual = rows
+    ? `<h2>Servidores</h2>${rows}`
+    : `<div class="empty">Nenhum servidor manual ainda.</div>`;
+  const paintMcp = () => {
+    const form = $("mcpForm");
+    if (form) form.onsubmit = async (event) => {
+      event.preventDefault();
+      const fields = new FormData(form);
+      try {
+        await call("POST", "/api/mcp", {
+          name: fields.get("name"),
+          type: fields.get("type"),
+          command: fields.get("command"),
+          args: String(fields.get("args") || "").split(/\r?\n/).map((line) => line.trim()).filter(Boolean),
+          env: String(fields.get("env") || ""),
+          url: fields.get("url"),
+        });
+        await loadMcp();
+      } catch (err) { banner(err.message); }
+    };
+    document.querySelectorAll("[data-confirm]").forEach((button) => {
+      button.onclick = async () => {
+        try { await call("POST", `/api/mcp/${button.dataset.confirm}/confirm`, {}); await loadMcp(); }
+        catch (err) { banner(err.message); }
+      };
+    });
+    document.querySelectorAll("[data-test]").forEach((button) => {
+      button.onclick = async () => {
+        button.disabled = true;
+        try { await call("POST", `/api/mcp/${button.dataset.test}/test`, {}); await loadMcp(); }
+        catch (err) { banner(err.message); }
+      };
+    });
+    document.querySelectorAll("[data-rm]").forEach((button) => {
+      button.onclick = async () => { await call("DELETE", `/api/mcp/${button.dataset.rm}`); await loadMcp(); };
+    });
   };
-  document.querySelectorAll("[data-confirm]").forEach((button) => {
-    button.onclick = async () => {
-      try { await call("POST", `/api/mcp/${button.dataset.confirm}/confirm`, {}); await loadMcp(); }
-      catch (err) { banner(err.message); }
-    };
-  });
-  document.querySelectorAll("[data-test]").forEach((button) => {
-    button.onclick = async () => {
-      button.disabled = true;
-      try { await call("POST", `/api/mcp/${button.dataset.test}/test`, {}); await loadMcp(); }
-      catch (err) { banner(err.message); }
-    };
-  });
-  document.querySelectorAll("[data-rm]").forEach((button) => {
-    button.onclick = async () => { await call("DELETE", `/api/mcp/${button.dataset.rm}`); await loadMcp(); };
-  });
+  if (window.HeliosConectores) {
+    if (mcpGallery) mcpGallery.stop();
+    mcpGallery = window.HeliosConectores.create({ call, shell, esc, banner, after: paintMcp });
+    await mcpGallery.load(manual);
+  } else {
+    shell(manual);
+    paintMcp();
+  }
 }
 
 function renderSearch(result) {

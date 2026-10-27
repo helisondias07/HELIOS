@@ -76,6 +76,10 @@
     if (!login || login.status === "done" || login.status === "cancelled") {
       return `<p class="muted" id="loginState">Abre o site do Cursor no seu navegador; você entra lá e o HELIOS recebe o acesso sozinho. Se não funcionar, use a chave de API abaixo.</p>`;
     }
+    if (login.needsKey) {
+      const page = login.keyPage ? `<a href="${esc(login.keyPage)}" target="_blank" rel="noreferrer">abrir a página de chaves do Cursor</a>` : "abra a página de chaves do Cursor";
+      return `<p id="loginState"><span class="chip bad">sem conta</span> ${esc(login.error || "O navegador não entregou uma conta.")} O HELIOS continua em demonstração até a chave existir. ${page}.</p>`;
+    }
     if (login.status === "waiting") {
       const link = login.url ? `<a href="${esc(login.url)}" target="_blank" rel="noreferrer">abrir o link de novo</a>` : "esperando o endereço do Cursor…";
       return `<p id="loginState">Aguardando você entrar no navegador e aprovar o HELIOS. Pode levar até 5 minutos. Se a página não abriu, ${link}. <button type="button" class="btn" id="cancelLogin">Cancelar</button></p>`;

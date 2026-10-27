@@ -167,6 +167,15 @@ main > header { position: relative; }
 }
 .file-list code { font-size: 13px; color: var(--sun); flex: none; }
 
+.connect-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: var(--sp-4, 12px); }
+.connect-card { animation: rise-in var(--dur-slow, 280ms) var(--ease, ease); }
+.connect-card[data-state="connected"] { box-shadow: inset 3px 0 0 var(--teal-bright, #2dd4bf); }
+.connect-card[data-state="reauth"] { box-shadow: inset 3px 0 0 var(--amber, #e08a3c); }
+.connect-card[data-state="error"] { box-shadow: inset 3px 0 0 var(--sunset-500, #c45c26); }
+.connect-card[data-state="waiting"] { box-shadow: inset 3px 0 0 var(--sun); }
+.connect-account { padding-top: 8px; border-top: 1px solid var(--border, transparent); }
+.connect-card .kicker { margin: 0; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 700; color: var(--sun); }
+
 @media (prefers-reduced-motion: reduce) {
   html[data-solar="thinking"] .sb-logo img,
   #pill:has(.dot.live) .mark,
@@ -181,6 +190,7 @@ main > header { position: relative; }
   .solar-bar,
   .voice-tip,
   .voice-state::before,
+  .connect-card,
   .skeleton::after,
   .dot.live,
   .sb,

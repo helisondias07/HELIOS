@@ -79,6 +79,7 @@ function publicServer(item) {
     error: item.error || "",
     checkedAt: item.checkedAt || null,
     confirmed: item.type !== "stdio" || item.confirmed === true,
+    connectionId: item.connectionId || "",
   };
 }
 
@@ -117,7 +118,7 @@ function cleanEnv(input) {
  * Se um bloco cifrado não abrir (outro usuário do Windows, cofre trocado), o conector fica com `secretsLocked`, o bloco é preservado
  * no disco e nunca é sobrescrito.
  */
-function createMcpRegistry(dataDir, { connect = connectMcp, sealer = null } = {}) {
+function createMcpRegistry(dataDir, { connect = connectMcp, sealer = null, headerFor = null } = {}) {
   const file = path.join(dataDir, "mcp.json");
   let items = readJson(file, []);
   if (!Array.isArray(items)) items = [];
@@ -270,10 +271,38 @@ function createMcpRegistry(dataDir, { connect = connectMcp, sealer = null } = {}
     return true;
   }
 
-  function configOf(item) {
+  async function configOf(item) {
     if (item.secretsLocked) throw lockedError();
-    if (item.type === "http") return { type: "http", url: item.url, headers: item.headers || {} };
+    if (item.type === "http") {
+      const headers = { ...(item.headers || {}) };
+      if (item.connectionId && headerFor) {
+        const bearer = await headerFor(item.connectionId);
+        if (bearer) headers.Authorization = bearer;
+      }
+      return { type: "http", url: item.url, headers };
+    }
     return { type: "stdio", command: item.command, args: item.args || [], env: item.env || {} };
+  }
+
+  /** Liga (ou atualiza) um MCP http a uma conta da galeria. O token não fica neste registro. */
+  function linkHttp({ name, url, connectionId }) {
+    const clean = cleanName(name);
+    const target = String(url || "").trim();
+    if (!/^https:\/\//i.test(target)) throw Object.assign(new Error("A URL do conector precisa ser https."), { status: 400 });
+    let item = items.find((entry) => entry.connectionId === connectionId) || items.find((entry) => entry.name === clean);
+    if (!item) {
+      item = {
+        id: newId("mcp"), name: clean, type: "http", command: "", args: [], url: target,
+        env: {}, headers: {}, connectionId, toolCount: 0, tools: [], error: "", checkedAt: null,
+        confirmed: true, status: "unknown",
+      };
+      items.push(item);
+    } else {
+      Object.assign(item, { name: clean, type: "http", url: target, connectionId, confirmed: true });
+    }
+    publish();
+    save();
+    return publicServer(item);
   }
 
   function confirm(id) {
@@ -292,7 +321,7 @@ function createMcpRegistry(dataDir, { connect = connectMcp, sealer = null } = {}
       throw Object.assign(new Error("Confirme o comando na janela do HELIOS antes de testar."), { status: 409 });
     }
     try {
-      const conn = await connect(item.name, configOf(item), { timeoutMs: 12000, initTimeoutMs: 8000 });
+      const conn = await connect(item.name, await configOf(item), { timeoutMs: 12000, initTimeoutMs: 8000 });
       item.status = "online";
       item.toolCount = conn.tools.length;
       item.tools = conn.tools.map((tool) => ({ name: tool.name, description: redact(String(tool.description || "")).slice(0, 180) }));
@@ -318,7 +347,7 @@ function createMcpRegistry(dataDir, { connect = connectMcp, sealer = null } = {}
     }
     let conn;
     try {
-      conn = await connect(item.name, configOf(item), { timeoutMs: 20000, initTimeoutMs: 8000 });
+      conn = await connect(item.name, await configOf(item), { timeoutMs: 20000, initTimeoutMs: 8000 });
     } catch (err) {
       throw safeError(err);
     }
@@ -339,7 +368,7 @@ function createMcpRegistry(dataDir, { connect = connectMcp, sealer = null } = {}
     return (item.tools || []).find((tool) => tool.name === toolName) || null;
   }
 
-  return { list, add, remove, confirm, test, call, findTool, ready: whenReady, flush: () => chain, file };
+  return { list, add, remove, confirm, test, call, findTool, linkHttp, ready: whenReady, flush: () => chain, file };
 }
 
 module.exports = { createMcpRegistry, publicServer };

@@ -20,7 +20,8 @@ const { createDictationPrefs } = require("./dictation-prefs");
 const { createDictationStats } = require("./dictation-stats");
 const { MORNING_TITLE, MORNING_MODEL, MORNING_PROMPT } = require("./routines");
 const { createActions } = require("./actions");
-const { createAccountStore, sdkAdapters, MAX_ACCOUNTS, SLOT_NAMES } = require("./accounts");
+const { createAccountStore, sdkAdapters, MAX_ACCOUNTS, SLOT_NAMES, KEY_PAGE } = require("./accounts");
+const { createConectores } = require("./conectores");
 const REAL_LIMIT_URL = "https://cursor.com/dashboard";
 const LOCAL_USAGE_NOTE = "Isto é só o que o HELIOS enviou nesta conta (mensagens e chamadas ao modelo). O limite semanal de verdade, que também conta o uso no Cursor e no Grok, só aparece no painel do Cursor ou do Grok: o SDK não informa esse número ao HELIOS.";
 const { createBot } = require("./bot");
@@ -42,6 +43,11 @@ const { redact, MAX_BODY_BYTES } = require("./util");
 
 const VERSION = "0.1.0";
 const HOST = "127.0.0.1";
+
+function readSdkAuthFile() {
+  try { return fs.readFileSync(path.join(os.homedir(), ".cursor", "sdk", "auth.json"), "utf8"); }
+  catch { return ""; }
+}
 
 // Depois de recusar um corpo grande, o resto ainda é lido e descartado (até este teto) e a conexão NÃO é fechada:
 // fechar com dados por ler faz o sistema mandar um "reset" e o cliente perderia a resposta 413.
@@ -111,7 +117,12 @@ async function startServer(opts = {}) {
   const dictationPrefs = createDictationPrefs(dataDir);
   const onboarding = createOnboarding({ dataDir, assistants, routines });
   const tasks = createTasks(dataDir);
-  const mcp = createMcpRegistry(dataDir, { ...(opts.connect ? { connect: opts.connect } : {}), sealer: opts.secretSealer || null });
+  const authHeaders = { authorization: async () => "" };
+  const mcp = createMcpRegistry(dataDir, {
+    ...(opts.connect ? { connect: opts.connect } : {}),
+    sealer: opts.secretSealer || null,
+    headerFor: (id) => authHeaders.authorization(id),
+  });
   // Abre as credenciais cifradas dos conectores (e migra as antigas em texto aberto) antes de o servidor atender qualquer pedido.
   await mcp.ready();
   const projectsDir = opts.projectsDir || path.join(dataDir, "projetos");
@@ -127,14 +138,23 @@ async function startServer(opts = {}) {
   const accounts = createAccountStore({
     initial: typeof opts.getAccounts === "function" ? opts.getAccounts() : {},
     persist: (snapshot) => opts.onAccountsChange?.(snapshot),
-    adapters: sdkAdapters({ mock }),
+    adapters: sdkAdapters({ mock, openExternal: mock ? null : opts.openExternal }),
+    allowDemoKeys: mock,
+    openKeyPage: mock ? null : (url) => opts.openExternal?.(url),
     log: (line) => (opts.log || (() => {}))(redact(line)),
   });
   if (!mock) accounts.addEnvKey(secret("CURSOR_API_KEY"));
-  accounts.events.on("login-url", (url) => {
-    /* Só abre o navegador no uso real; no modo demonstração o endereço é falso e não deve abrir nada. */
-    if (url && !mock) opts.openExternal?.(url);
+  const conectores = createConectores({
+    dataDir,
+    sealer: opts.secretSealer || null,
+    mcp,
+    fetchImpl: opts.fetch || globalThis.fetch,
+    openExternal: mock ? null : opts.openExternal,
+    listen: opts.listenLoopback,
+    now,
   });
+  authHeaders.authorization = (id) => conectores.authorization(id);
+  await conectores.ready();
 
   // Fase 2: pacote de contexto, fontes extras (só leitura) e pastas seguras do PC.
   const contextPack = createContextPack({ dataDir, memories, assistants, routines, contexts, store, mcp, autonomy, orchestration, now });
@@ -320,6 +340,36 @@ async function startServer(opts = {}) {
     }
     if (req.method === "POST" && pathName === "/api/accounts/login") return send(res, 200, { login: accounts.startLogin() });
     if (req.method === "POST" && pathName === "/api/accounts/login/cancel") return send(res, 200, { login: accounts.cancelLogin() });
+    if (req.method === "POST" && pathName === "/api/accounts/login/local") {
+      const raw = typeof opts.readSdkAuth === "function" ? opts.readSdkAuth() : readSdkAuthFile();
+      return send(res, 200, { account: await accounts.adoptLocal(raw) });
+    }
+    if (req.method === "POST" && pathName === "/api/accounts/chave") {
+      if (!mock && opts.openExternal) await opts.openExternal(KEY_PAGE);
+      return send(res, 200, { url: KEY_PAGE, demo: mock });
+    }
+    if (req.method === "POST" && pathName === "/api/accounts/colar") {
+      const text = typeof opts.readClipboard === "function" ? opts.readClipboard() : "";
+      return send(res, 200, await accounts.acceptClipboard(text));
+    }
+    if (req.method === "GET" && pathName === "/api/conectores") {
+      return send(res, 200, { ...conectores.view(), cursor: { login: accounts.loginStatus(), demo: mock, keyPage: KEY_PAGE } });
+    }
+    if (req.method === "POST" && (match = pathName.match(/^\/api\/conectores\/([a-z0-9-]+)\/conectar$/))) {
+      return send(res, 202, { connection: conectores.start(decodeURIComponent(match[1]), body) });
+    }
+    if (req.method === "POST" && (match = pathName.match(/^\/api\/conectores\/([^/]+)\/renomear$/))) {
+      return send(res, 200, { connection: conectores.rename(decodeURIComponent(match[1]), body.label) });
+    }
+    if (req.method === "POST" && (match = pathName.match(/^\/api\/conectores\/([^/]+)\/atualizar$/))) {
+      return send(res, 200, { connection: await conectores.refresh(decodeURIComponent(match[1])) });
+    }
+    if (req.method === "POST" && (match = pathName.match(/^\/api\/conectores\/([^/]+)\/cancelar$/))) {
+      return send(res, 200, { connection: conectores.cancel(decodeURIComponent(match[1])) });
+    }
+    if (req.method === "DELETE" && (match = pathName.match(/^\/api\/conectores\/([^/]+)$/))) {
+      return send(res, 200, { ok: conectores.remove(decodeURIComponent(match[1])) });
+    }
     if (req.method === "POST" && pathName === "/api/accounts/active") return send(res, 200, { account: accounts.setActive(body.id) });
     if (req.method === "DELETE" && (match = pathName.match(/^\/api\/accounts\/([^/]+)$/))) {
       return send(res, 200, accounts.remove(decodeURIComponent(match[1])));

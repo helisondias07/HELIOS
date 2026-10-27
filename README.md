@@ -224,7 +224,7 @@ No `mcp.json` do Cursor:
 
 - Windows 10 ou 11, 64 bits
 - [Node.js 22](https://nodejs.org/)
-- Uma chave de API do Cursor, se quiser o agente de verdade
+- Uma conta Cursor. O caminho principal é entrar pelo navegador (login oficial do SDK). A chave em [cursor.com/dashboard/api](https://cursor.com/dashboard/api) é o plano B, se o site entrar mas não emitir a chave
 - Chaves Groq e Gemini, se quiser transcrição, ditado e leitura de tela na reunião
 
 ## Rodar
@@ -244,7 +244,27 @@ GEMINI_API_KEY=
 HELIOS_PORT=47331
 ```
 
-Também dá para colar a chave do Cursor na aba **Conta Cursor**, ou entrar pelo navegador. As chaves Groq e Gemini ficam no **Cofre** e nas configurações da pílula.
+A aba **Conectores** entra na conta pelo navegador. A aba **Conta Cursor** continua aceitando a chave colada. As chaves Groq e Gemini ficam no **Cofre** e nas configurações da pílula.
+
+## Conectores
+
+A galeria tem um cartão por aplicativo. **Conectar** abre o navegador do sistema. O retorno do OAuth é só `http://127.0.0.1`, numa porta sorteada, no caminho `/callback`. O token e o refresh ficam cifrados no mesmo cofre das outras chaves (DPAPI no Windows). O arquivo `conectores.json` guarda o blob, não o texto. A API local não devolve token. Sem criptografia do sistema, o acesso fica só na memória daquela sessão e o cartão não marca o cofre como persistido. Dá para ter várias contas do mesmo aplicativo (vários Gmail, por exemplo), renomear e remover. O refresh é automático quando o acesso vence em menos de um minuto. Se o servidor recusar o refresh, o estado vira **precisa entrar de novo**. O HELIOS não inventa uma conta conectada.
+
+O cabeçalho `Authorization` do MCP http entra na hora da chamada. Ele não é gravado no `mcp.json`.
+
+**Cursor.** **Conectar** chama `Cursor.auth.login` do `@cursor/sdk`, o mesmo PKCE do `cursor-agent`. O endereço só abre se for `https`, sem o parâmetro de demonstração e sem o host falso do modo demo. A chave que o site entrega fica no cofre do HELIOS. O SDK é chamado com `store: null`, então essa entrada não grava `~/.cursor/sdk/auth.json`. Sem uma chave de verdade o chat continua em demonstração: era isso que acontecia quando o login “abria em demo” — o navegador voltava sem chave e o agente caía no mock. Se o pacote `@cursor/sdk` não estiver instalado, ou se o Cursor autenticar e não emitir a chave (um time pode bloquear user API keys), o HELIOS mostra o erro e abre a página oficial de chaves, `https://cursor.com/dashboard/api`. Não há um segundo login inventado. Enquanto essa página está aberta, se a área de transferência tiver uma chave `crsr_` ou `cursor_` e o `cursor.me` confirmar, ela entra no cofre. **Usar o login deste computador** só lê `~/.cursor/sdk/auth.json` no clique, e recusa chave vencida. `HELIOS_MOCK=1` não abre o site real.
+
+**Gmail.** O Google não oferece cadastro dinâmico de cliente. O HELIOS não traz um client id. No Google Cloud, crie um cliente OAuth do tipo computador (Desktop) e cole só o client id, que termina em `.apps.googleusercontent.com`. Não cole client secret. O fluxo é PKCE, com retorno em `127.0.0.1`, `access_type=offline` e `prompt=consent`. Os escopos são `openid`, `email` e `https://www.googleapis.com/auth/gmail.readonly` (só leitura). O parâmetro `resource` do MCP não é enviado ao Google.
+
+**ClickUp e Linear.** A descoberta segue o MCP Authorization (metadado do recurso e do servidor de autorização). Os dois publicam cadastro dinâmico de cliente público, PKCE S256 e escopos `read` e `write`. O HELIOS se cadastra sozinho e não pede client id.
+
+**GitHub.** O servidor de autorização não tem cadastro dinâmico. Crie um OAuth App e cole só o client id. O HELIOS usa o fluxo de dispositivo (um código curto na tela) e não guarda client secret. Escopos pedidos: `read:user`, `user:email` e `repo`.
+
+**Figma.** Existe cadastro dinâmico, mas o token exige client secret e a documentação restringe o MCP a clientes do catálogo. O HELIOS tenta o cadastro. Se a Figma recusar, o cartão fica em erro e nenhuma conta é marcada como conectada. Um `client_secret` devolvido no cadastro fica cifrado no cofre, nunca na tela.
+
+**Notion.** O preset aponta para `https://mcp.notion.com/mcp` e descobre os endereços na hora. A descoberta pode responder 403. Nesse caso o cartão mostra o erro. O HELIOS não grava um endpoint inventado.
+
+Um fluxo que ainda está no navegador vive só na memória (o `code_verifier` e o `device_code` não vão para o disco). Fechar o HELIOS no meio cancela essa tentativa.
 
 Atalhos do modo de reunião:
 
@@ -278,7 +298,7 @@ npm run lint
 npm run check
 ```
 
-`npm test` cobre o roteamento Auto, a memória, a pesquisa, o cofre sem vazar senha, o MCP de exemplo, o roteiro do livecoding, o ditado, as skills, o time, o digest da manhã, a proteção da pílula e o servidor local. Não precisa de chave de API.
+`npm test` cobre o roteamento Auto, a memória, a pesquisa, o cofre sem vazar senha, o MCP de exemplo, o roteiro do livecoding, o ditado, as skills, o time, o digest da manhã, a proteção da pílula, o login do Cursor e o OAuth da galeria (mock). Não precisa de chave de API.
 
 ## Ditado, skills, time e manhã
 

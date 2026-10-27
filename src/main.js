@@ -4,7 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const {
   app, BrowserWindow, Tray, Menu, ipcMain, shell, nativeImage, session,
-  desktopCapturer, globalShortcut, screen, dialog, safeStorage,
+  desktopCapturer, globalShortcut, screen, dialog, safeStorage, clipboard,
 } = require("electron");
 require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
 
@@ -265,6 +265,9 @@ function bootstrap() {
         blockedFolders: protectedFolders(),
         onFillLogin: (request) => fillLogin(vault, request),
         openExternal: (url) => shell.openExternal(url),
+        readClipboard: () => {
+          try { return clipboard.readText(); } catch { return ""; }
+        },
         onLiveSession: (session) => {
           const win = openMeeting();
           const send = () => win.webContents.send("livecoding:session", session);

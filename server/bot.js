@@ -20,6 +20,7 @@ const { planSummary, extractiveSummary, summaryPrompt, SUMMARY_MAX } = require("
 const { screenUserText } = require("./credentials");
 const { classifyAccountError, describeAccountIssue } = require("./accounts");
 const { loadCursorSdk } = require("./sdk-load");
+const { createSandboxGate } = require("./sdk-sandbox");
 
 const HISTORY = { rapido: [4, 400, 500], padrao: [8, 700, 800], avancado: [12, 1000, 1200] };
 
@@ -53,9 +54,11 @@ function createBot(deps) {
     getVaultIndex,
     onLivecoding,
     cwd,
+    dataDir = null,
     log = () => {},
   } = deps;
   const forceMock = () => Boolean(deps.mock);
+  const sandbox = createSandboxGate({ log, dataDir });
   const delegation = createDelegation({
     store,
     assistants,
@@ -71,6 +74,7 @@ function createBot(deps) {
     resolveAuth: () => resolveAuth(),
     catalogFor: (auth) => catalogFor(auth),
     makeBaseTools: (convId, ctx) => makeTools(convId, ctx),
+    sandboxDenied: (err) => sandbox.note(err),
     log,
   });
 
@@ -485,30 +489,38 @@ function createBot(deps) {
   async function openEphemeral({ name, selection, tools, auth }) {
     if (forceMock() || !auth?.apiKey) return createMockAgent({ tools });
     const sdk = await loadSdk();
-    return sdk.Agent.create({
-      name: String(name).slice(0, 80),
-      model: selection,
-      apiKey: auth.apiKey,
-      local: { cwd, settingSources: [], sandboxOptions: { enabled: true }, customTools: tools },
-      ...restrictedAgentOptions({ withCustomTools: Object.keys(tools || {}).length > 0 }),
+    return sandbox.run({
+      create: (opts) => sdk.Agent.create(opts),
+      opts: {
+        name: String(name).slice(0, 80),
+        model: selection,
+        apiKey: auth.apiKey,
+        local: { cwd, settingSources: [], customTools: tools },
+        ...restrictedAgentOptions({ withCustomTools: Object.keys(tools || {}).length > 0 }),
+      },
     });
   }
 
   async function openAgent(conv, auth, selection, tools, { forceNew = false } = {}) {
     if (forceMock() || !auth?.apiKey) return { agent: createMockAgent({ tools }), fresh: true };
     const sdk = await loadSdk();
-    const opts = {
+    const spec = {
       name: `HELIOS · ${conv.title}`.slice(0, 80),
       model: selection,
       apiKey: auth.apiKey,
-      local: { cwd, settingSources: [], sandboxOptions: { enabled: true }, customTools: tools },
+      local: { cwd, settingSources: [], customTools: tools },
       // As restrições não ficam gravadas na sessão: valem de novo em Agent.create e em Agent.resume.
       ...restrictedAgentOptions({ withCustomTools: Object.keys(tools || {}).length > 0 }),
     };
+    const start = (agentId) => sandbox.run({
+      create: (opts) => sdk.Agent.create(opts),
+      resume: agentId ? (opts) => sdk.Agent.resume(agentId, opts) : null,
+      opts: spec,
+    });
     const cached = agents.get(conv.id);
     if (forceNew) {
       await dispose(conv.id);
-      return { agent: await sdk.Agent.create(opts), fresh: true };
+      return { agent: await start(null), fresh: true };
     }
     if (cached?.agent && cached.accountId === auth.accountId && conv.agentModel === selection.id) {
       return { agent: cached.agent, fresh: false };
@@ -516,12 +528,12 @@ function createBot(deps) {
     if (cached?.agent) await dispose(conv.id);
     if (conv.agentId) {
       try {
-        return { agent: await sdk.Agent.resume(conv.agentId, opts), fresh: false };
+        return { agent: await start(conv.agentId), fresh: false };
       } catch (err) {
         log(`[bot] não retomou a sessão: ${redact(err.message || err)}`);
       }
     }
-    return { agent: await sdk.Agent.create(opts), fresh: true };
+    return { agent: await start(null), fresh: true };
   }
 
   /**
@@ -658,7 +670,20 @@ function createBot(deps) {
     let streamed = "";
     const turnStart = Date.now();
     try {
-      const run = await opened.agent.send(opened.fresh ? prompt : `${prompt}`, { model: picked.selection });
+      let run;
+      try {
+        run = await opened.agent.send(opened.fresh ? prompt : `${prompt}`, { model: picked.selection });
+      } catch (err) {
+        if (!sandbox.note(err)) throw err;
+        await dispose(convId);
+        opened = await openAgent(conv, auth, picked.selection, tools, { forceNew: true });
+        agents.set(convId, { agent: opened.agent, accountId: auth?.accountId || null });
+        store.update(convId, (item) => {
+          item.agentId = opened.agent.agentId || item.agentId;
+          item.agentModel = picked.selection.id;
+        });
+        run = await opened.agent.send(prompt, { model: picked.selection });
+      }
       if (typeof run.supports !== "function" || run.supports("stream")) {
         for await (const raw of run.stream()) {
           const msg = unwrapStreamEvent(raw);
@@ -949,12 +974,15 @@ function createBot(deps) {
     try {
       const sdk = await loadSdk();
       const selection = chooseModel({ text: pedido, override: "padrao" }).selection;
-      const agent = await sdk.Agent.create({
-        name: "HELIOS · plano",
-        apiKey: auth.apiKey,
-        model: selection,
-        local: { cwd: cwd || process.cwd(), settingSources: [], sandboxOptions: { enabled: true } },
-        ...restrictedAgentOptions({ withCustomTools: false }),
+      const agent = await sandbox.run({
+        create: (opts) => sdk.Agent.create(opts),
+        opts: {
+          name: "HELIOS · plano",
+          apiKey: auth.apiKey,
+          model: selection,
+          local: { cwd: cwd || process.cwd(), settingSources: [] },
+          ...restrictedAgentOptions({ withCustomTools: false }),
+        },
       });
       try {
         const prompt = [
@@ -995,7 +1023,7 @@ function createBot(deps) {
     };
   }
 
-  return { send, decide, answerQuestion, expireDue, proposeLivePlan, modelsView, dispose, resolveAuth };
+  return { send, decide, answerQuestion, expireDue, proposeLivePlan, modelsView, dispose, resolveAuth, sandboxStatus: () => sandbox.status() };
 }
 
 module.exports = { createBot };

@@ -225,10 +225,13 @@ test("digest da manhã entra pausado e a conversa fica só leitura", async () =>
   }
 });
 
-test("o agente que planeja o roteiro continua sem ferramenta e em sandbox", () => {
+test("o agente que planeja o roteiro continua sem ferramenta e pede sandbox", () => {
   const src = fs.readFileSync(path.join(__dirname, "..", "server", "bot.js"), "utf8");
+  const gate = fs.readFileSync(path.join(__dirname, "..", "server", "sdk-sandbox.js"), "utf8");
   assert.match(src, /withCustomTools:\s*false/);
-  assert.match(src, /sandboxOptions:\s*\{\s*enabled:\s*true\s*\}/);
+  assert.match(src, /sandbox\.run\(/);
+  assert.match(gate, /sandboxOptions:\s*\{\s*enabled:\s*Boolean\(enabled\)\s*\}/);
+  assert.match(gate, /sandboxing is not supported/);
   assert.equal(src.includes("writeFiles"), false);
   const meeting = fs.readFileSync(path.join(__dirname, "..", "renderer", "meeting", "app.js"), "utf8");
   assert.equal(/VS Code/.test(meeting), false);

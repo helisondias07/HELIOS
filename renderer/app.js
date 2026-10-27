@@ -1147,6 +1147,7 @@ async function loadAutonomy() {
     <section class="card">
       <h2>Autonomia por ação</h2>
       <p class="muted">“Pedir antes” abre um cartão e nada acontece até você aprovar. “Sozinho” faz na hora e deixa um registro na conversa. Vale para as conversas, as rotinas e o servidor MCP local. O que não está liberado continua pedindo.</p>
+      ${data.sandbox && data.sandbox.available === false ? `<p class="muted" id="sandboxNote">${esc(data.sandbox.notice)}</p>` : ""}
       ${rows}
     </section>
     <section class="card" style="margin-top:12px">

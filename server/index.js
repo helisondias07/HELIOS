@@ -195,6 +195,7 @@ async function startServer(opts = {}) {
     },
     mock,
     cwd: projectsDir,
+    dataDir,
     log: (line) => (opts.log || ((value) => console.error(value)))(redact(line)),
   });
   const mcpServer = createMcpServer({
@@ -315,7 +316,7 @@ async function startServer(opts = {}) {
       return send(res, 200, { entry });
     }
     if (req.method === "GET" && pathName === "/api/estacionadas") return send(res, 200, { items: parking.open() });
-    if (req.method === "GET" && pathName === "/api/autonomy") return send(res, 200, autonomy.view());
+    if (req.method === "GET" && pathName === "/api/autonomy") return send(res, 200, { ...autonomy.view(), sandbox: bot.sandboxStatus() });
     if (req.method === "POST" && pathName === "/api/autonomy") return send(res, 200, autonomy.set(body));
     if (req.method === "GET" && pathName === "/api/models") {
       return send(res, 200, await bot.modelsView(url.searchParams.get("text") || ""));

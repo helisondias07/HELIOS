@@ -37,6 +37,7 @@ function createDelegation(deps) {
     autonomy,
     usage = null,
     openEphemeral,
+    sandboxDenied = () => false,
     resolveAuth,
     catalogFor,
     makeBaseTools,
@@ -79,7 +80,17 @@ function createDelegation(deps) {
       const catalog = await catalogFor(auth);
       const picked = chooseModel({ text: prompt.slice(-400), override: level, catalog });
       agent = await openEphemeral({ name, selection: picked.selection, tools, auth });
-      run = await agent.send(prompt, { model: picked.selection });
+      try {
+        run = await agent.send(prompt, { model: picked.selection });
+      } catch (err) {
+        if (!sandboxDenied(err)) throw err;
+        try {
+          if (typeof agent[Symbol.asyncDispose] === "function") await agent[Symbol.asyncDispose]();
+          else agent.close?.();
+        } catch { /* o agente que o SDK recusou não precisa ser reaproveitado */ }
+        agent = await openEphemeral({ name, selection: picked.selection, tools, auth });
+        run = await agent.send(prompt, { model: picked.selection });
+      }
       let streamed = "";
       if (typeof run.supports !== "function" || run.supports("stream")) {
         for await (const raw of run.stream()) {

@@ -110,17 +110,22 @@
     const state = cardState(preset, mine, cursor);
     const [label, disabled] = buttonLabel(state);
     const broken = mine.find((item) => item.status === "error" || item.status === "reauth");
+    const loginFailed = preset.id === "cursor" && cursor?.login && (cursor.login.status === "error" || cursor.login.needsKey === true);
     const note = state === "soon"
       ? `<p class="connect-note">configuração do app pendente</p>`
-      : (preset.id === "cursor" && state === "error"
-        ? `<p class="connect-note">A entrada não terminou. Tente conectar de novo.</p>`
+      : (loginFailed
+        ? `<p class="connect-note">${esc(cursor.login.error || "A entrada não terminou. Tente conectar de novo.")}</p>`
         : (state !== "connected" && broken && broken.error ? `<p class="connect-note">${esc(broken.error)}</p>` : ""));
+    const keyButton = loginFailed ? `<button type="button" class="btn" data-keypage>Abrir página de chaves</button>` : "";
     return `<article class="card connect-card stack" data-preset="${esc(preset.id)}" data-name="${esc(`${preset.name} ${preset.blurb}`)}" data-state="${esc(state)}" style="animation-delay:${index * 40}ms">
       <span class="connect-logo">${mark(preset.id)}</span>
       <h2>${esc(preset.name)}</h2>
       <p>${esc(preset.blurb)}</p>
       ${note}
-      <button type="button" class="btn primary" data-connect="${esc(preset.id)}"${disabled ? " disabled" : ""}>${esc(label)}</button>
+      <div class="connect-card-actions">
+        <button type="button" class="btn primary" data-connect="${esc(preset.id)}"${disabled ? " disabled" : ""}>${esc(label)}</button>
+        ${keyButton}
+      </div>
     </article>`;
   }
 
@@ -214,6 +219,9 @@
     function bind() {
       doc.querySelectorAll("[data-connect]").forEach((button) => {
         button.onclick = () => { if (!button.disabled) connectPreset(button.dataset.connect); };
+      });
+      doc.querySelectorAll("[data-keypage]").forEach((button) => {
+        button.onclick = () => call("POST", "/api/accounts/chave", {}).catch((err) => banner(err.message));
       });
       doc.querySelectorAll("[data-add]").forEach((button) => {
         button.onclick = () => connectPreset(button.dataset.add);

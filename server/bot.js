@@ -19,6 +19,7 @@ const { createDelegation } = require("./delegation");
 const { planSummary, extractiveSummary, summaryPrompt, SUMMARY_MAX } = require("./summary");
 const { screenUserText } = require("./credentials");
 const { classifyAccountError, describeAccountIssue } = require("./accounts");
+const { loadCursorSdk } = require("./sdk-load");
 
 const HISTORY = { rapido: [4, 400, 500], padrao: [8, 700, 800], avancado: [12, 1000, 1200] };
 
@@ -47,7 +48,7 @@ function createBot(deps) {
     usage = null,
     skills = null,
     now = () => Date.now(),
-    loadSdk = () => import("@cursor/sdk"),
+    loadSdk = () => loadCursorSdk(),
     helperTimeoutMs,
     getVaultIndex,
     onLivecoding,

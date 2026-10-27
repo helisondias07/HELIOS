@@ -7,7 +7,8 @@
 const crypto = require("node:crypto");
 const os = require("node:os");
 const { EventEmitter } = require("node:events");
-const { redact } = require("./util");
+const { redact, appendHeliosLog } = require("./util");
+const { loadCursorSdk } = require("./sdk-load");
 const { findSecret } = require("./secret-scan");
 
 const ENV_ID = "acc_env";
@@ -29,10 +30,12 @@ function safeLoginUrl(value) {
   return parsed.toString();
 }
 
-/** Mensagem em português para uma falha do login pelo navegador, sem expor detalhes internos. */
+/** Mensagem em português para uma falha do login pelo navegador, com o código real do erro. */
 function friendlyLoginError(err) {
-  const raw = String((err && err.message) || err || "").slice(0, 160);
-  return `Não consegui concluir a entrada pelo navegador${raw ? ` (${raw})` : ""}. Tente de novo ou use a chave de API, que é o caminho mais firme.`;
+  const code = String(err?.code || "").replace(/[^\w.-]/g, "").slice(0, 48);
+  const raw = String(err?.message || err || "").split(/\r?\n/)[0].replace(/https?:\/\/\S+/gi, "[url]").replace(/\s+/g, " ").trim().slice(0, 160);
+  const detail = [code, raw].filter(Boolean).join(": ");
+  return `Não consegui concluir a entrada pelo navegador${detail ? ` (${detail})` : ""}. Tente de novo ou use a chave de API, que é o caminho mais firme.`;
 }
 const SLOT_NAMES = ["Conta A", "Conta B", "Conta C"];
 
@@ -92,17 +95,12 @@ function sdkAdapters({ mock = false, openExternal = null } = {}) {
   }
   return {
     async validateKey(apiKey) {
-      const { Cursor } = await import("@cursor/sdk");
+      const { Cursor } = await loadCursorSdk();
       const me = await Cursor.me({ apiKey });
       return { email: me.userEmail || null, keyName: me.apiKeyName || null };
     },
     async login({ onUrl, signal }) {
-      let Cursor;
-      try {
-        ({ Cursor } = await import("@cursor/sdk"));
-      } catch {
-        throw Object.assign(new Error("O pacote de login do Cursor não está disponível neste HELIOS."), { code: "SDK_AUSENTE" });
-      }
+      const { Cursor } = await loadCursorSdk();
       if (!Cursor?.auth?.login) throw Object.assign(new Error("Este SDK do Cursor não tem login pelo navegador."), { code: "SDK_AUSENTE" });
       const show = async (url) => {
         const safe = safeLoginUrl(url);
@@ -157,7 +155,7 @@ function parseAccountsSnapshot(raw) {
 
 const KIND_LABEL = { login: "Login do Cursor", apiKey: "Chave de API", env: "CURSOR_API_KEY do .env" };
 
-function createAccountStore({ initial, persist = null, adapters, log = () => {}, loginTimeoutMs = LOGIN_TIMEOUT_MS, allowDemoKeys = false, openKeyPage = null } = {}) {
+function createAccountStore({ initial, persist = null, adapters, log = () => {}, loginTimeoutMs = LOGIN_TIMEOUT_MS, allowDemoKeys = false, dataDir = null } = {}) {
   const events = new EventEmitter();
   const start = parseAccountsSnapshot(initial || {});
   let accounts = start.accounts;
@@ -305,6 +303,7 @@ function createAccountStore({ initial, persist = null, adapters, log = () => {},
       if (login !== mine || mine.status !== "waiting") return;
       controller.abort();
       Object.assign(mine, { status: "error", error: "O tempo para entrar acabou. Tente de novo ou use a chave de API." });
+      appendHeliosLog(dataDir, `[contas] login falhou code=TIMEOUT ${mine.error}`);
       events.emit("change");
     }, loginTimeoutMs);
     if (timeout.unref) timeout.unref();
@@ -333,16 +332,13 @@ function createAccountStore({ initial, persist = null, adapters, log = () => {},
       if (login !== mine || mine.status !== "waiting") return;
       const cancelled = controller.signal.aborted;
       const needsKey = !cancelled && (err?.code === "NEEDS_KEY" || err?.code === "SDK_AUSENTE" || /SDK API key failed|empty API key/i.test(String(err?.message || "")));
+      const error = cancelled ? "Login cancelado." : friendlyLoginError(err);
       Object.assign(mine, {
         status: cancelled ? "cancelled" : "error",
-        error: cancelled ? "Login cancelado." : (needsKey
-          ? "O login pelo navegador não entregou uma conta. O HELIOS continua em demonstração até existir uma chave de verdade. Abra a página de chaves do Cursor e copie a chave inteira."
-          : friendlyLoginError(err)),
+        error,
         needsKey,
       });
-      if (needsKey && openKeyPage) {
-        Promise.resolve(openKeyPage(KEY_PAGE)).catch(() => {});
-      }
+      if (!cancelled) appendHeliosLog(dataDir, `[contas] login falhou code=${err?.code || "sem-codigo"} ${error}`);
       events.emit("change");
     });
     return loginStatus();

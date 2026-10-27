@@ -153,19 +153,47 @@ test("refresh inválido pede para entrar de novo e não guarda o erro com o toke
   assert.equal(JSON.stringify(item).includes(REFRESH), false);
 });
 
-test("login do Cursor: chave demo não vira conta; a página oficial de chaves é o plano B", async () => {
-  const opened = [];
+test("login do Cursor: chave demo não vira conta e a página de chaves não abre sozinha", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "helios-login-log-"));
   const accounts = createAccountStore({
     allowDemoKeys: false,
-    openKeyPage: (url) => opened.push(url),
+    dataDir: dir,
     adapters: { async validateKey() { return { email: null }; }, async login() { return { apiKey: "demo_abcdef1234567890" }; } },
   });
   accounts.startLogin();
   await wait(30);
   assert.equal(accounts.list().length, 0);
-  assert.equal(accounts.loginStatus().needsKey, true);
-  assert.equal(opened[0], KEY_PAGE);
-  assert.match(accounts.loginStatus().error, /demonstração/);
+  const status = accounts.loginStatus();
+  assert.equal(status.needsKey, true);
+  assert.equal(status.keyPage, KEY_PAGE);
+  assert.match(status.error, /NEEDS_KEY/);
+  assert.match(status.error, /chave de API/);
+  const log = fs.readFileSync(path.join(dir, "logs", "helios.log"), "utf8");
+  assert.match(log, /NEEDS_KEY/);
+  assert.equal(log.includes("demo_abcdef"), false);
+  assert.equal(/https?:\/\//.test(log), false);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("falha ao carregar o SDK fica no cartão, com o código, e no log", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "helios-login-sdk-"));
+  const accounts = createAccountStore({
+    dataDir: dir,
+    adapters: {
+      async validateKey() { return { email: null }; },
+      async login() { throw Object.assign(new Error("Cannot find module 'zod/v3'"), { code: "MODULE_NOT_FOUND" }); },
+    },
+  });
+  accounts.startLogin();
+  await wait(20);
+  const status = accounts.loginStatus();
+  assert.equal(status.status, "error");
+  assert.match(status.error, /MODULE_NOT_FOUND/);
+  assert.match(status.error, /zod\/v3/);
+  const log = fs.readFileSync(path.join(dir, "logs", "helios.log"), "utf8");
+  assert.match(log, /MODULE_NOT_FOUND/);
+  assert.match(log, /zod\/v3/);
+  fs.rmSync(dir, { recursive: true, force: true });
 });
 
 test("colar e adotar login local não devolvem a chave", async () => {
@@ -303,4 +331,15 @@ test("a grade tem busca, contas conectadas e um botão só, sem campo técnico",
   assert.equal(html.includes("apiKey"), false);
   assert.equal(html.includes("name=\"url\""), true);
   assert.equal((html.match(/name="url"/g) || []).length, 1);
+
+  const failed = galleryHtml({
+    presets: [{ id: "cursor", name: "Cursor", blurb: "A conta que move o agente.", configured: true }],
+    connections: [],
+    cursor: { login: { status: "error", needsKey: true, error: "Não consegui concluir a entrada pelo navegador (MODULE_NOT_FOUND: Cannot find module 'zod/v3')." }, accounts: [] },
+  }, esc);
+  assert.match(failed, /MODULE_NOT_FOUND/);
+  assert.match(failed, /data-keypage/);
+  assert.match(failed, /Abrir página de chaves/);
+  assert.match(fs.readFileSync(path.join(__dirname, "..", "renderer", "conectores.js"), "utf8"), /\/api\/accounts\/chave/);
+  assert.equal(/openKeyPage\(/.test(fs.readFileSync(path.join(__dirname, "..", "server", "accounts.js"), "utf8")), false);
 });

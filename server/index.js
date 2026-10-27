@@ -141,7 +141,7 @@ async function startServer(opts = {}) {
     persist: (snapshot) => opts.onAccountsChange?.(snapshot),
     adapters: sdkAdapters({ mock, openExternal: mock ? null : opts.openExternal }),
     allowDemoKeys: mock,
-    openKeyPage: mock ? null : (url) => opts.openExternal?.(url),
+    dataDir,
     log: (line) => (opts.log || (() => {}))(redact(line)),
   });
   if (!mock) accounts.addEnvKey(secret("CURSOR_API_KEY"));

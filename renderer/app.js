@@ -8,7 +8,7 @@ const TITLES = {
   chat: ["Conversas", "O agente usa ferramentas, memória e pede aprovação antes de enviar, apagar ou pagar."],
   assistants: ["Assistentes", "Cada assistente tem função, instruções, memória e conectores próprios. As conversas pertencem a um deles."],
   vault: ["Cofre", "Logins e chaves ficam criptografados neste computador. A senha não vai para o chat."],
-  mcp: ["Conectores", "Clique em Conectar, entre no navegador e volte. O token fica no cofre."],
+  mcp: ["Conectores", "Escolha um aplicativo, entre no navegador e volte."],
   search: ["Pesquisa", "Resultados com a fonte ao lado, para você conferir."],
   memory: ["Memória", "Fatos estáveis sobre você. Segredos são recusados."],
   context: ["Contexto", "Exporte e importe o seu contexto (sem segredos), leia ClickUp e e-mail só para consulta e escolha as pastas do PC que o HELIOS pode usar."],

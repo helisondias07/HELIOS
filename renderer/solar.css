@@ -167,14 +167,69 @@ main > header { position: relative; }
 }
 .file-list code { font-size: 13px; color: var(--sun); flex: none; }
 
-.connect-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: var(--sp-4, 12px); }
-.connect-card { animation: rise-in var(--dur-slow, 280ms) var(--ease, ease); }
+.connect-search { position: relative; display: block; }
+.connect-search svg { position: absolute; left: 14px; top: 13px; width: 18px; height: 18px; color: var(--muted); pointer-events: none; }
+.connect-search input {
+  width: 100%;
+  height: 44px;
+  border-radius: 999px;
+  border: var(--bw) solid var(--border);
+  background: var(--surface);
+  padding: 0 16px 0 42px;
+  transition: border-color 160ms var(--ease, ease), box-shadow 160ms var(--ease, ease);
+}
+.connect-search input:focus { border-color: var(--sun); box-shadow: 0 0 0 3px rgb(224 180 74 / 0.22); }
+.connect-catalog-title { margin: 0; font-size: var(--fs-sm); letter-spacing: 0.04em; text-transform: uppercase; color: var(--sun); }
+.connect-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: var(--sp-4, 12px); }
+.connect-card {
+  min-height: 196px;
+  animation: rise-in var(--dur-slow, 280ms) var(--ease, ease) both;
+  transition: transform 180ms var(--ease, ease), border-color 180ms var(--ease, ease), box-shadow 180ms var(--ease, ease);
+}
+.connect-card:hover { transform: translateY(-2px); }
+.connect-card h2 { margin: 0; }
+.connect-card p { margin: 0; }
+.connect-card .btn { margin-top: auto; width: 100%; }
 .connect-card[data-state="connected"] { box-shadow: inset 3px 0 0 var(--teal-bright, #2dd4bf); }
+.connect-card[data-state="connected"] .btn { background: transparent; color: var(--teal-bright, #2dd4bf); border-color: var(--teal-bright, #2dd4bf); }
 .connect-card[data-state="reauth"] { box-shadow: inset 3px 0 0 var(--amber, #e08a3c); }
 .connect-card[data-state="error"] { box-shadow: inset 3px 0 0 var(--sunset-500, #c45c26); }
 .connect-card[data-state="waiting"] { box-shadow: inset 3px 0 0 var(--sun); }
-.connect-account { padding-top: 8px; border-top: 1px solid var(--border, transparent); }
-.connect-card .kicker { margin: 0; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 700; color: var(--sun); }
+.connect-card[data-state="soon"] .btn { opacity: 0.72; }
+.connect-logo { width: 40px; height: 40px; display: block; flex: none; }
+.connect-logo svg { width: 40px; height: 40px; display: block; }
+.connect-note { margin: 0; color: var(--muted); font-size: var(--fs-xs); line-height: var(--lh-xs); }
+.connect-live-wrap h2 { margin: 0; }
+.connect-group { display: flex; flex-direction: column; gap: 8px; }
+.connect-account {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: var(--bw) solid var(--border);
+  background: var(--surface);
+  animation: rise-in var(--dur-slow, 280ms) var(--ease, ease) both;
+}
+.connect-account-copy { min-width: 0; }
+.connect-account-copy .muted, .connect-account-copy .connect-note { margin: 2px 0 0; }
+.connect-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+.connect-rename { display: flex; gap: 6px; margin-top: 6px; }
+.connect-rename input { min-width: 0; flex: 1; }
+.btn.slim { min-height: 32px; padding: 0 10px; }
+.btn.connect-add, .connect-advanced button {
+  background: none;
+  border: 0;
+  color: var(--muted);
+  padding: 0;
+  min-height: 0;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  width: fit-content;
+}
+.connect-advanced { margin: 0; }
+.connect-empty { margin: 0; color: var(--muted); }
 
 @media (prefers-reduced-motion: reduce) {
   html[data-solar="thinking"] .sb-logo img,
@@ -191,6 +246,8 @@ main > header { position: relative; }
   .voice-tip,
   .voice-state::before,
   .connect-card,
+  .connect-account,
+  .connect-card:hover,
   .skeleton::after,
   .dot.live,
   .sb,
@@ -198,4 +255,5 @@ main > header { position: relative; }
     animation: none;
   }
   .solar-bar { transform: none; opacity: 1; }
+  .connect-card:hover { transform: none; }
 }

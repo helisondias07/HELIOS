@@ -22,6 +22,7 @@ const { MORNING_TITLE, MORNING_MODEL, MORNING_PROMPT } = require("./routines");
 const { createActions } = require("./actions");
 const { createAccountStore, sdkAdapters, MAX_ACCOUNTS, SLOT_NAMES, KEY_PAGE } = require("./accounts");
 const { createConectores } = require("./conectores");
+const { loadOAuthClients } = require("./oauth-clients");
 const REAL_LIMIT_URL = "https://cursor.com/dashboard";
 const LOCAL_USAGE_NOTE = "Isto é só o que o HELIOS enviou nesta conta (mensagens e chamadas ao modelo). O limite semanal de verdade, que também conta o uso no Cursor e no Grok, só aparece no painel do Cursor ou do Grok: o SDK não informa esse número ao HELIOS.";
 const { createBot } = require("./bot");
@@ -152,6 +153,7 @@ async function startServer(opts = {}) {
     openExternal: mock ? null : opts.openExternal,
     listen: opts.listenLoopback,
     now,
+    oauthClients: opts.oauthClients || loadOAuthClients(),
   });
   authHeaders.authorization = (id) => conectores.authorization(id);
   await conectores.ready();
@@ -353,10 +355,16 @@ async function startServer(opts = {}) {
       return send(res, 200, await accounts.acceptClipboard(text));
     }
     if (req.method === "GET" && pathName === "/api/conectores") {
-      return send(res, 200, { ...conectores.view(), cursor: { login: accounts.loginStatus(), demo: mock, keyPage: KEY_PAGE } });
+      return send(res, 200, {
+        ...conectores.view(),
+        cursor: { login: accounts.loginStatus(), accounts: accounts.list(), demo: mock },
+      });
     }
     if (req.method === "POST" && (match = pathName.match(/^\/api\/conectores\/([a-z0-9-]+)\/conectar$/))) {
       return send(res, 202, { connection: conectores.start(decodeURIComponent(match[1]), body) });
+    }
+    if (req.method === "POST" && (match = pathName.match(/^\/api\/conectores\/([^/]+)\/reconectar$/))) {
+      return send(res, 202, { connection: conectores.reconnect(decodeURIComponent(match[1])) });
     }
     if (req.method === "POST" && (match = pathName.match(/^\/api\/conectores\/([^/]+)\/renomear$/))) {
       return send(res, 200, { connection: conectores.rename(decodeURIComponent(match[1]), body.label) });

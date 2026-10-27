@@ -6,7 +6,9 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const http = require("node:http");
-const { createConectores } = require("../server/conectores");
+const { createConectores, GITHUB_LOOPBACK_PORT } = require("../server/conectores");
+const { loadOAuthClients } = require("../server/oauth-clients");
+const { galleryHtml } = require("../renderer/conectores");
 const { createAccountStore, KEY_PAGE } = require("../server/accounts");
 const { listenLoopback, pkce, sameState } = require("../server/oauth-flow");
 const { createMcpRegistry } = require("../server/mcp-registry");
@@ -87,6 +89,7 @@ test("OAuth de galeria: cadastro, PKCE, cofre e refresh sem vazar o token", asyn
     sealer: sealer(),
     mcp,
     fetchImpl,
+    oauthClients: { google: "123456-abc.apps.googleusercontent.com" },
     openExternal: async (url) => { box.url = url; box.state = new URL(url).searchParams.get("state"); },
     listen: async () => ({ redirectUri: "http://127.0.0.1:53682/callback", wait: async () => ({ code: "codigo", state: box.state }), close() {} }),
   });
@@ -113,7 +116,7 @@ test("OAuth de galeria: cadastro, PKCE, cofre e refresh sem vazar o token", asyn
   assert.equal(await gallery.authorization(done.id), "Bearer access-novo-de-teste");
   const renamed = gallery.rename(done.id, "Equipe");
   assert.equal(renamed.label, "Equipe");
-  const second = gallery.start("gmail", { label: "Pessoal", clientId: "123-abc.apps.googleusercontent.com" });
+  const second = gallery.start("gmail", { label: "Pessoal", clientId: "nao-usar.apps.googleusercontent.com" });
   assert.equal(second.presetId, "gmail");
   assert.equal(gallery.remove(done.id), true);
   assert.equal(gallery.view().connections.some((item) => item.id === done.id), false);
@@ -178,4 +181,126 @@ test("colar e adotar login local não devolvem a chave", async () => {
   assert.equal(adopted.kind, "login");
   assert.equal(JSON.stringify(adopted).includes("cursor_login_local"), false);
   await assert.rejects(() => accounts.adoptLocal("{}"), /Não achei/);
+});
+
+test("sem client id no aplicativo o cartão não pede nada e o id não sai na API", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "helios-cfg-"));
+  const googleId = "123456-helios.apps.googleusercontent.com";
+  const slackSecret = "aa11bb22cc33dd44ee";
+  const empty = createConectores({ dataDir: dir });
+  assert.equal(empty.view().presets.find((item) => item.id === "gmail").configured, false);
+  assert.equal(empty.view().presets.find((item) => item.id === "github").configured, false);
+  assert.equal(empty.view().presets.find((item) => item.id === "slack").configured, false);
+  assert.equal(empty.view().presets.find((item) => item.id === "clickup").configured, true);
+  assert.throws(() => empty.start("gmail", { clientId: googleId }), /não está disponível/);
+  assert.equal(empty.view().connections.length, 0);
+  const ready = createConectores({
+    dataDir: fs.mkdtempSync(path.join(os.tmpdir(), "helios-cfg2-")),
+    oauthClients: { google: googleId, slack: "1234567890.1234567890", slackSecret },
+  });
+  const view = JSON.stringify(ready.view());
+  assert.equal(ready.view().presets.find((item) => item.id === "gmail").configured, true);
+  assert.equal(ready.view().presets.find((item) => item.id === "gcalendar").configured, true);
+  assert.equal(ready.view().presets.find((item) => item.id === "slack").configured, true);
+  assert.equal(view.includes(googleId), false);
+  assert.equal(view.includes(slackSecret), false);
+  assert.equal(view.includes("clientId"), false);
+});
+
+test("o Gmail abre o navegador com o client id do aplicativo, não com um id colado", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "helios-gmail-"));
+  const googleId = "123456-helios.apps.googleusercontent.com";
+  const box = {};
+  const fetchImpl = scriptedFetch([
+    { match: (url) => url === "https://gmailmcp.googleapis.com/mcp/v1", reply: () => jsonRes(401, {}, { "www-authenticate": 'Bearer resource_metadata="https://mcp.exemplo.test/.well-known/oauth-protected-resource"' }) },
+    { match: (url) => url.includes("oauth-protected-resource"), reply: () => jsonRes(200, { resource: "https://gmailmcp.googleapis.com/mcp/v1", authorization_servers: ["https://accounts.google.com/"] }) },
+    { match: (url) => url.includes("accounts.google.com"), reply: () => jsonRes(200, { authorization_endpoint: "https://accounts.google.com/o/oauth2/v2/auth", token_endpoint: "https://oauth2.googleapis.com/token" }) },
+  ]);
+  const gallery = createConectores({
+    dataDir: dir,
+    oauthClients: { google: googleId },
+    fetchImpl,
+    openExternal: async (url) => { box.url = url; },
+    listen: async () => ({ redirectUri: "http://127.0.0.1:9/callback", wait: () => new Promise(() => {}), close() {} }),
+  });
+  const started = gallery.start("gmail", { clientId: "evil.apps.googleusercontent.com" });
+  assert.equal(started.label, "pessoal");
+  for (let i = 0; i < 20 && !box.url; i += 1) await wait(15);
+  assert.match(box.url, /client_id=123456-helios/);
+  assert.equal(box.url.includes("evil"), false);
+  assert.match(box.url, /access_type=offline/);
+  assert.equal(box.url.includes("resource="), false);
+});
+
+test("o GitHub volta numa porta fixa, para o callback cadastrado uma vez", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "helios-gh-"));
+  const box = {};
+  const gallery = createConectores({
+    dataDir: dir,
+    oauthClients: { github: "Iv1.abcdef0123456789" },
+    fetchImpl: async () => { throw new Error("não chegou a descobrir"); },
+    listen: async (opts) => { box.port = opts.port; throw Object.assign(new Error("parar"), { code: "STOP" }); },
+  });
+  gallery.start("github");
+  for (let i = 0; i < 20 && box.port === undefined; i += 1) await wait(10);
+  assert.equal(box.port, GITHUB_LOOPBACK_PORT);
+  assert.equal(GITHUB_LOOPBACK_PORT, 47332);
+});
+
+test("a configuração lê o arquivo, a pasta de dados e a variável, e descarta id inválido", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "helios-oauth-"));
+  const shipped = path.join(dir, "shipped.json");
+  const user = path.join(dir, "user.json");
+  fs.writeFileSync(shipped, JSON.stringify({ google: "111111-shipped.apps.googleusercontent.com", github: "Iv1.shipped012345" }));
+  fs.writeFileSync(user, JSON.stringify({ github: "Iv1.userfile012345", slackSecret: "aa11bb22cc33dd44ee" }));
+  const fromFile = loadOAuthClients({ file: shipped, userFile: user, env: {} });
+  assert.equal(fromFile.google, "111111-shipped.apps.googleusercontent.com");
+  assert.equal(fromFile.github, "Iv1.userfile012345");
+  assert.equal(fromFile.slackSecret, "aa11bb22cc33dd44ee");
+  const fromEnv = loadOAuthClients({
+    file: shipped,
+    userFile: user,
+    env: { HELIOS_GOOGLE_CLIENT_ID: "222222-env.apps.googleusercontent.com", HELIOS_GITHUB_CLIENT_ID: "cole uma chave" },
+  });
+  assert.equal(fromEnv.google, "222222-env.apps.googleusercontent.com");
+  assert.equal(fromEnv.github, "Iv1.userfile012345");
+  const bad = loadOAuthClients({ file: shipped, env: { HELIOS_GOOGLE_CLIENT_ID: "não é um client id" } });
+  assert.equal(bad.google, "111111-shipped.apps.googleusercontent.com");
+});
+
+test("a grade tem busca, contas conectadas e um botão só, sem campo técnico", () => {
+  const esc = (value) => String(value ?? "").replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
+  const html = galleryHtml({
+    presets: [
+      { id: "gmail", name: "Gmail", blurb: "Lê a caixa de entrada.", configured: true },
+      { id: "github", name: "GitHub", blurb: "Repositórios e perfil.", configured: false },
+      { id: "clickup", name: "ClickUp", blurb: "Tarefas e documentos.", configured: true },
+      { id: "cursor", name: "Cursor", blurb: "A conta que move o agente.", configured: true },
+    ],
+    connections: [
+      { id: "g1", presetId: "gmail", label: "pessoal", status: "connected", accountHint: "ana@exemplo.test", error: "" },
+      { id: "g2", presetId: "gmail", label: "agenciaoasis", status: "reauth", accountHint: "", error: "Esta conta precisa entrar de novo." },
+      { id: "c1", presetId: "clickup", label: "trabalho", status: "waiting", accountHint: "", error: "" },
+    ],
+    cursor: { login: { status: "idle" }, accounts: [{ id: "acc_1", label: "Helison", email: "h@exemplo.test" }] },
+  }, esc);
+  assert.match(html, /id="connectSearch"/);
+  assert.match(html, /Buscar conector/);
+  assert.match(html, /Conectados/);
+  assert.match(html, /Gmail — pessoal/);
+  assert.match(html, /Gmail — agenciaoasis/);
+  assert.match(html, /Adicionar outra conta/);
+  assert.match(html, /Renomear/);
+  assert.match(html, /Reconectar/);
+  assert.match(html, /Remover/);
+  assert.match(html, /Conectado/);
+  assert.match(html, /Conectando…/);
+  assert.match(html, /Em breve/);
+  assert.match(html, /configuração do app pendente/);
+  assert.match(html, /id="connectAdvanced"/);
+  assert.match(html, /connectAdvancedPanel" hidden/);
+  assert.equal(html.includes("clientId"), false);
+  assert.equal(html.includes("apiKey"), false);
+  assert.equal(html.includes("name=\"url\""), true);
+  assert.equal((html.match(/name="url"/g) || []).length, 1);
 });

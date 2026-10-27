@@ -244,27 +244,43 @@ GEMINI_API_KEY=
 HELIOS_PORT=47331
 ```
 
-A aba **Conectores** entra na conta pelo navegador. A aba **Conta Cursor** continua aceitando a chave colada. As chaves Groq e Gemini ficam no **Cofre** e nas configurações da pílula.
+A aba **Conectores** é a galeria: busca, cartão com o logo e um botão **Conectar**. Quem usa o HELIOS não cola client id, chave, URL nem JSON nessa tela. A aba **Conta Cursor** continua aceitando a chave colada, como plano B. As chaves Groq e Gemini ficam no **Cofre** e nas configurações da pílula.
 
 ## Conectores
 
-A galeria tem um cartão por aplicativo. **Conectar** abre o navegador do sistema. O retorno do OAuth é só `http://127.0.0.1`, numa porta sorteada, no caminho `/callback`. O token e o refresh ficam cifrados no mesmo cofre das outras chaves (DPAPI no Windows). O arquivo `conectores.json` guarda o blob, não o texto. A API local não devolve token. Sem criptografia do sistema, o acesso fica só na memória daquela sessão e o cartão não marca o cofre como persistido. Dá para ter várias contas do mesmo aplicativo (vários Gmail, por exemplo), renomear e remover. O refresh é automático quando o acesso vence em menos de um minuto. Se o servidor recusar o refresh, o estado vira **precisa entrar de novo**. O HELIOS não inventa uma conta conectada.
+No topo, a busca. Em seguida, **Conectados** lista cada conta já ligada (Gmail — pessoal, Gmail — agenciaoasis) com renomear, reconectar, remover e **Adicionar outra conta**. A grade traz Gmail, Google Calendar, Google Drive, ClickUp, GitHub, Figma, Notion, Slack, Linear e Cursor. **Conectar** abre o navegador. Quando a pessoa volta, o cartão passa a **Conectado** sozinho. Enquanto espera, o botão fica **Conectando…**. Sessão vencida vira **reautenticar**. Falha mostra uma frase curta, sem jargão.
 
-O cabeçalho `Authorization` do MCP http entra na hora da chamada. Ele não é gravado no `mcp.json`.
+O retorno do OAuth é `http://127.0.0.1`, no caminho `/callback`. O token e o refresh ficam cifrados no mesmo cofre (DPAPI no Windows). `conectores.json` guarda o blob, não o texto. A API local não devolve token nem client id. Sem criptografia do sistema, o acesso fica só na memória daquela sessão. O refresh é automático quando o acesso vence em menos de um minuto. O cabeçalho `Authorization` do MCP http entra na hora da chamada e não é gravado no `mcp.json`. Um fluxo ainda no navegador vive só na memória. Fechar o HELIOS no meio cancela essa tentativa.
 
-**Cursor.** **Conectar** chama `Cursor.auth.login` do `@cursor/sdk`, o mesmo PKCE do `cursor-agent`. O endereço só abre se for `https`, sem o parâmetro de demonstração e sem o host falso do modo demo. A chave que o site entrega fica no cofre do HELIOS. O SDK é chamado com `store: null`, então essa entrada não grava `~/.cursor/sdk/auth.json`. Sem uma chave de verdade o chat continua em demonstração: era isso que acontecia quando o login “abria em demo” — o navegador voltava sem chave e o agente caía no mock. Se o pacote `@cursor/sdk` não estiver instalado, ou se o Cursor autenticar e não emitir a chave (um time pode bloquear user API keys), o HELIOS mostra o erro e abre a página oficial de chaves, `https://cursor.com/dashboard/api`. Não há um segundo login inventado. Enquanto essa página está aberta, se a área de transferência tiver uma chave `crsr_` ou `cursor_` e o `cursor.me` confirmar, ela entra no cofre. **Usar o login deste computador** só lê `~/.cursor/sdk/auth.json` no clique, e recusa chave vencida. `HELIOS_MOCK=1` não abre o site real.
+O link **Avançado**, discreto no fim da tela, abre um conector personalizado: nome e URL de um MCP. O resto da grade não tem esse campo.
 
-**Gmail.** O Google não oferece cadastro dinâmico de cliente. O HELIOS não traz um client id. No Google Cloud, crie um cliente OAuth do tipo computador (Desktop) e cole só o client id, que termina em `.apps.googleusercontent.com`. Não cole client secret. O fluxo é PKCE, com retorno em `127.0.0.1`, `access_type=offline` e `prompt=consent`. Os escopos são `openid`, `email` e `https://www.googleapis.com/auth/gmail.readonly` (só leitura). O parâmetro `resource` do MCP não é enviado ao Google.
+**Onde colar o client id (uma vez, quem monta o HELIOS).** O Google e o GitHub não deixam o aplicativo se cadastrar sozinho. O usuário final não vê esse campo. Preencha `config/oauth-clients.json` antes de `npm run dist:win` (o arquivo entra no instalador). Para experimentar sem gerar outro instalador, o mesmo JSON em `%APPDATA%\HELIOS\oauth-clients.json` vale mais que o do build. Variável de ambiente vale mais que os dois: `HELIOS_GOOGLE_CLIENT_ID` e `HELIOS_GITHUB_CLIENT_ID`. Enquanto o id daquele serviço estiver vazio, o cartão mostra **Em breve** e a linha “configuração do app pendente”. Não cole client secret do Google nem do GitHub. Se o valor não tiver o formato certo, o HELIOS ignora e o cartão continua em breve.
 
-**ClickUp e Linear.** A descoberta segue o MCP Authorization (metadado do recurso e do servidor de autorização). Os dois publicam cadastro dinâmico de cliente público, PKCE S256 e escopos `read` e `write`. O HELIOS se cadastra sozinho e não pede client id.
+**Google (Gmail, Calendar e Drive usam o mesmo id).**
 
-**GitHub.** O servidor de autorização não tem cadastro dinâmico. Crie um OAuth App e cole só o client id. O HELIOS usa o fluxo de dispositivo (um código curto na tela) e não guarda client secret. Escopos pedidos: `read:user`, `user:email` e `repo`.
+1. Em [Google Cloud Console](https://console.cloud.google.com/), crie ou escolha um projeto.
+2. Ative as APIs Gmail, Google Calendar e Google Drive.
+3. Em **APIs e serviços → Tela de consentimento OAuth**, configure o app (externo serve para as contas que vão entrar).
+4. Em **Credenciais → Criar credenciais → ID do cliente OAuth**, escolha o tipo **Computador** (Desktop).
+5. Copie só o **ID do cliente**. Ele termina em `.apps.googleusercontent.com`. Cole em `"google"` no JSON. Não cole o segredo: o retorno é PKCE em `127.0.0.1`, com `access_type=offline` e `prompt=consent`.
+6. Os escopos pedidos são só leitura: `gmail.readonly`, `calendar.readonly` e `drive.readonly`, mais `openid` e `email`.
 
-**Figma.** Existe cadastro dinâmico, mas o token exige client secret e a documentação restringe o MCP a clientes do catálogo. O HELIOS tenta o cadastro. Se a Figma recusar, o cartão fica em erro e nenhuma conta é marcada como conectada. Um `client_secret` devolvido no cadastro fica cifrado no cofre, nunca na tela.
+**GitHub.**
 
-**Notion.** O preset aponta para `https://mcp.notion.com/mcp` e descobre os endereços na hora. A descoberta pode responder 403. Nesse caso o cartão mostra o erro. O HELIOS não grava um endpoint inventado.
+1. Em GitHub, **Settings → Developer settings → OAuth Apps → New OAuth App**.
+2. Homepage URL pode ser `http://127.0.0.1`.
+3. Authorization callback URL, exatamente: `http://127.0.0.1:47332/callback`. A porta é fixa para esse cadastro valer sempre.
+4. Copie só o **Client ID** para `"github"`. Não cole o client secret. O HELIOS entra pelo navegador com PKCE. Escopos: `read:user`, `user:email` e `repo`.
 
-Um fluxo que ainda está no navegador vive só na memória (o `code_verifier` e o `device_code` não vão para o disco). Fechar o HELIOS no meio cancela essa tentativa.
+**Cursor.** **Conectar** chama `Cursor.auth.login` do `@cursor/sdk`, o mesmo PKCE do `cursor-agent`. O endereço só abre se for `https`, sem o parâmetro de demonstração. A chave fica no cofre do HELIOS (`store: null`). Sem uma chave de verdade o chat continua em demonstração. Se o SDK não estiver instalado, ou se o Cursor entrar e não emitir a chave, o HELIOS não finge a conta: a grade diz que a entrada não terminou, e o plano B (página `https://cursor.com/dashboard/api` e a chave na aba **Conta Cursor**) continua fora dessa grade. `HELIOS_MOCK=1` não abre o site real.
+
+**ClickUp e Linear.** Cadastro dinâmico de cliente público e PKCE. Escopos `read` e `write`. Não precisam de id no JSON.
+
+**Figma.** O cadastro dinâmico existe, mas a Figma restringe o MCP a clientes do catálogo. Se recusar, o cartão fica em erro e nada é marcado como conectado. Um segredo devolvido no cadastro fica cifrado no cofre.
+
+**Notion.** O preset aponta para `https://mcp.notion.com/mcp` e descobre os endereços na hora. A descoberta pode responder 403. O cartão mostra que o serviço recusou. Nenhum endpoint é inventado.
+
+**Slack.** O servidor não tem cadastro dinâmico e o token exige client secret (`client_secret_post`). Por isso o cartão fica **Em breve** até existirem `"slack"` e `"slackSecret"` no mesmo JSON (ou `HELIOS_SLACK_CLIENT_ID` e `HELIOS_SLACK_CLIENT_SECRET`). O segredo não aparece na tela nem na API. Não commite o `slackSecret` preenchido; prefira o arquivo em `%APPDATA%\HELIOS` ou a variável de ambiente.
 
 Atalhos do modo de reunião:
 

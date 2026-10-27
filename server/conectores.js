@@ -2,80 +2,106 @@
 
 /**
  * Galeria de conectores. O token e o refresh ficam cifrados no cofre (o mesmo sealer do DPAPI).
- * A lista pública não devolve segredo. Várias contas do mesmo preset são registros separados.
+ * A lista pública não devolve segredo nem client id. Várias contas do mesmo preset são registros separados.
+ * O client id, quando o serviço exige, vem da configuração do aplicativo — nunca da tela.
  */
 const path = require("node:path");
 const { newId, readJson, writeJson } = require("./util");
 const { findSecret } = require("./secret-scan");
 const flow = require("./oauth-flow");
+const { normalizeOAuthClients } = require("./oauth-clients");
+
+const GITHUB_LOOPBACK_PORT = 47332;
 
 const PRESETS = [
   {
-    id: "cursor",
-    name: "Cursor",
-    blurb: "Entra pelo navegador com o login oficial do SDK. Sem chave colada.",
-    needsClientId: false,
-    kind: "cursor",
-  },
-  {
     id: "gmail",
     name: "Gmail",
-    blurb: "Lê a caixa. Várias contas Google, cada uma com o próprio nome.",
-    needsClientId: true,
-    clientHint: "Client id do app Desktop (….apps.googleusercontent.com)",
+    blurb: "Lê a caixa de entrada.",
     kind: "google",
+    clientKey: "google",
     mcpUrl: "https://gmailmcp.googleapis.com/mcp/v1",
     scopes: ["openid", "email", "https://www.googleapis.com/auth/gmail.readonly"],
-    limitation: "O Google não deixa um aplicativo de terceiros se cadastrar sozinho. Crie um cliente OAuth do tipo computador no Google Cloud e cole só o client id. O HELIOS não pede client secret: o retorno é PKCE em 127.0.0.1. O escopo é só leitura.",
+    includeResource: false,
+  },
+  {
+    id: "gcalendar",
+    name: "Google Calendar",
+    blurb: "Lê a agenda.",
+    kind: "google",
+    clientKey: "google",
+    mcpUrl: "https://calendarmcp.googleapis.com/mcp/v1",
+    scopes: ["openid", "email", "https://www.googleapis.com/auth/calendar.readonly"],
+    includeResource: false,
+  },
+  {
+    id: "gdrive",
+    name: "Google Drive",
+    blurb: "Lê os arquivos.",
+    kind: "google",
+    clientKey: "google",
+    mcpUrl: "https://drivemcp.googleapis.com/mcp/v1",
+    scopes: ["openid", "email", "https://www.googleapis.com/auth/drive.readonly"],
+    includeResource: false,
   },
   {
     id: "clickup",
     name: "ClickUp",
-    blurb: "Tarefas e documentos. O cadastro do HELIOS é automático.",
-    needsClientId: false,
+    blurb: "Tarefas e documentos.",
     kind: "mcp",
     mcpUrl: "https://mcp.clickup.com/mcp",
     scopes: ["read", "write"],
   },
   {
+    id: "github",
+    name: "GitHub",
+    blurb: "Repositórios e perfil.",
+    kind: "github",
+    clientKey: "github",
+    mcpUrl: "https://api.githubcopilot.com/mcp/",
+    scopes: ["read:user", "user:email", "repo"],
+    redirectPort: GITHUB_LOOPBACK_PORT,
+    includeResource: false,
+  },
+  {
+    id: "figma",
+    name: "Figma",
+    blurb: "Arquivos de design.",
+    kind: "mcp",
+    mcpUrl: "https://mcp.figma.com/mcp",
+    scopes: ["mcp:connect"],
+  },
+  {
+    id: "notion",
+    name: "Notion",
+    blurb: "Páginas e bases.",
+    kind: "mcp",
+    mcpUrl: "https://mcp.notion.com/mcp",
+    scopes: [],
+  },
+  {
+    id: "slack",
+    name: "Slack",
+    blurb: "Canais e conversas.",
+    kind: "slack",
+    clientKey: "slack",
+    needsSecret: true,
+    mcpUrl: "https://mcp.slack.com/mcp",
+    scopes: ["channels:history", "channels:read", "users:read", "users:read.email", "search:read.public"],
+  },
+  {
     id: "linear",
     name: "Linear",
-    blurb: "Issues. O cadastro do HELIOS é automático.",
-    needsClientId: false,
+    blurb: "Issues do time.",
     kind: "mcp",
     mcpUrl: "https://mcp.linear.app/mcp",
     scopes: ["read", "write"],
   },
   {
-    id: "github",
-    name: "GitHub",
-    blurb: "Repositórios. Você cola o client id de um OAuth App.",
-    needsClientId: true,
-    clientHint: "Client id do OAuth App",
-    kind: "device",
-    mcpUrl: "https://api.githubcopilot.com/mcp/",
-    scopes: ["read:user", "user:email", "repo"],
-    limitation: "O GitHub não oferece cadastro dinâmico. Crie um OAuth App e cole só o client id. O HELIOS abre o fluxo de dispositivo (um código curto na tela) e não guarda client secret.",
-  },
-  {
-    id: "figma",
-    name: "Figma",
-    blurb: "Arquivos. O cadastro é tentado; a Figma pode recusar.",
-    needsClientId: false,
-    kind: "mcp",
-    mcpUrl: "https://mcp.figma.com/mcp",
-    scopes: ["mcp:connect"],
-    limitation: "A Figma publica cadastro dinâmico, mas só libera clientes do catálogo dela. Se recusar, o cartão mostra o erro e nada fica conectado.",
-  },
-  {
-    id: "notion",
-    name: "Notion",
-    blurb: "Páginas. Depende da descoberta OAuth responder.",
-    needsClientId: false,
-    kind: "mcp",
-    mcpUrl: "https://mcp.notion.com/mcp",
-    scopes: [],
-    limitation: "A descoberta da Notion às vezes responde 403. Nesse caso o HELIOS avisa e não inventa um token.",
+    id: "cursor",
+    name: "Cursor",
+    blurb: "A conta que move o agente.",
+    kind: "cursor",
   },
 ];
 
@@ -90,26 +116,39 @@ function cleanLabel(raw, fallback) {
   return value;
 }
 
-function cleanClientId(preset, raw) {
-  const value = String(raw || "").trim();
-  if (!preset.needsClientId) return "";
-  if (!value) throw Object.assign(new Error(`Para ${preset.name}, cole o client id. O HELIOS não traz um embutido.`), { status: 400 });
-  if (/\s/.test(value) || value.length > 200 || /secret|gsk_|crsr_|cursor_/i.test(value)) {
-    throw Object.assign(new Error("Isso não parece um client id. Não cole chave nem client secret."), { status: 400 });
-  }
-  if (preset.kind === "google" && !/\.apps\.googleusercontent\.com$/i.test(value)) {
-    throw Object.assign(new Error("O client id do Gmail termina em .apps.googleusercontent.com."), { status: 400 });
-  }
-  return value;
+function humanError(err) {
+  if (err && err.code === "EADDRINUSE") return "A entrada não conseguiu abrir o retorno neste computador. Feche o outro HELIOS e tente de novo.";
+  const text = flow.safeError(err);
+  if (/recusou o cadastro/i.test(text)) return "Este aplicativo recusou o HELIOS. Nada ficou conectado.";
+  if (/403/.test(text)) return "O serviço recusou a conexão. Tente de novo mais tarde.";
+  if (/tempo para autorizar/i.test(text)) return "O tempo para entrar acabou. Tente de novo.";
+  if (/cancelad/i.test(text)) return "A entrada foi cancelada.";
+  if (/não confere/i.test(text)) return "O retorno do navegador não confere. Tente de novo.";
+  return text;
 }
 
-function createConectores({ dataDir, sealer = null, mcp, fetchImpl = globalThis.fetch, openExternal = null, listen = flow.listenLoopback, now = () => Date.now() } = {}) {
+function createConectores({ dataDir, sealer = null, mcp, fetchImpl = globalThis.fetch, openExternal = null, listen = flow.listenLoopback, now = () => Date.now(), oauthClients = {} } = {}) {
   const file = path.join(dataDir, "conectores.json");
+  const clients = normalizeOAuthClients(oauthClients);
   let items = readJson(file, []);
   if (!Array.isArray(items)) items = [];
   const memory = new Map();
   const pending = new Map();
   const sealerOn = () => Boolean(sealer && typeof sealer.available === "function" && sealer.available());
+
+  function embedded(preset) {
+    const id = preset.clientKey ? clients[preset.clientKey] || "" : "";
+    const secret = preset.needsSecret ? clients.slackSecret || "" : "";
+    return { id, secret };
+  }
+
+  function isReady(preset) {
+    if (!preset || !preset.clientKey) return true;
+    const got = embedded(preset);
+    if (!got.id) return false;
+    if (preset.needsSecret && !got.secret) return false;
+    return true;
+  }
 
   function publicItem(item) {
     const secret = memory.get(item.id);
@@ -120,8 +159,6 @@ function createConectores({ dataDir, sealer = null, mcp, fetchImpl = globalThis.
       status: item.status,
       accountHint: item.accountHint || "",
       error: item.error || "",
-      userCode: item.userCode || "",
-      needsClientId: Boolean(presetById(item.presetId)?.needsClientId),
       persisted: item.persisted === true,
       mcpId: item.mcpId || "",
       hasRefresh: Boolean(secret?.refreshToken),
@@ -197,35 +234,44 @@ function createConectores({ dataDir, sealer = null, mcp, fetchImpl = globalThis.
 
   function fail(item, err) {
     item.status = err?.code === "REAUTH" ? "reauth" : "error";
-    item.error = flow.safeError(err);
+    item.error = humanError(err);
     item.userCode = "";
     save();
   }
 
-  async function runCodeFlow(item, preset, clientId) {
-    const loop = await listen({ timeoutMs: 5 * 60 * 1000 });
+  async function runCodeFlow(item, preset) {
+    let loop;
     try {
-      const metadata = await flow.discover(preset.mcpUrl, fetchImpl);
-      const redirectUri = loop.redirectUri;
-      let clientSecret = "";
-      let usedClient = clientId;
-      if (metadata.registrationEndpoint && !preset.needsClientId) {
-        const registered = await flow.registerClient(metadata, redirectUri, fetchImpl);
-        usedClient = registered.clientId;
-        clientSecret = registered.clientSecret;
+      try {
+        loop = await listen({ timeoutMs: 5 * 60 * 1000, port: preset.redirectPort || 0 });
+      } catch (err) {
+        if (err && err.code === "EADDRINUSE") {
+          throw Object.assign(new Error("porta de retorno ocupada"), { code: "EADDRINUSE" });
+        }
+        throw err;
       }
+      const metadata = await flow.discover(preset.mcpUrl, fetchImpl);
+      const got = embedded(preset);
+      let clientSecret = got.secret;
+      let usedClient = got.id;
+      if (!usedClient && metadata.registrationEndpoint) {
+        const registered = await flow.registerClient(metadata, loop.redirectUri, fetchImpl);
+        usedClient = registered.clientId;
+        clientSecret = registered.clientSecret || clientSecret;
+      }
+      if (!usedClient) throw Object.assign(new Error("Este conector ainda não está disponível neste HELIOS."), { status: 409 });
       const code = flow.pkce();
       const state = flow.randomState();
       const url = flow.authorizeUrl({
         metadata,
         clientId: usedClient,
-        redirectUri,
+        redirectUri: loop.redirectUri,
         challenge: code.challenge,
         state,
         scopes: scopesFor(preset, metadata),
         google: preset.kind === "google",
+        includeResource: preset.includeResource !== false,
       });
-      item.authorizeUrl = url;
       if (openExternal) await openExternal(url);
       const back = await loop.wait();
       if (!flow.sameState(back.state, state)) throw Object.assign(new Error("O retorno do navegador não confere."), { status: 400 });
@@ -234,40 +280,35 @@ function createConectores({ dataDir, sealer = null, mcp, fetchImpl = globalThis.
         clientId: usedClient,
         clientSecret,
         code: back.code,
-        redirectUri,
+        redirectUri: loop.redirectUri,
         verifier: code.verifier,
         fetchImpl,
       });
       await finish(item, token, { clientId: usedClient, clientSecret, tokenEndpoint: metadata.tokenEndpoint });
     } finally {
-      loop.close();
+      if (loop) loop.close();
     }
   }
 
-  async function runDeviceFlow(item, preset, clientId) {
-    const metadata = await flow.discover(preset.mcpUrl, fetchImpl);
-    const device = await flow.beginDevice({ metadata, clientId, scopes: scopesFor(preset, metadata), fetchImpl });
-    item.userCode = device.userCode;
-    item.status = "waiting";
-    save();
-    if (openExternal) await openExternal(device.verificationUri);
-    const controller = pending.get(item.id);
-    const token = await flow.pollDevice({
-      tokenEndpoint: metadata.tokenEndpoint,
-      clientId,
-      deviceCode: device.deviceCode,
-      intervalMs: device.intervalMs,
-      fetchImpl,
-      signal: controller?.signal,
-    });
-    await finish(item, token, { clientId, clientSecret: "", tokenEndpoint: metadata.tokenEndpoint });
+  function defaultLabel(preset) {
+    const count = items.filter((item) => item.presetId === preset.id).length;
+    return count === 0 ? "pessoal" : `conta ${count + 1}`;
+  }
+
+  function launch(item, preset) {
+    const controller = new AbortController();
+    pending.set(item.id, controller);
+    const job = runCodeFlow(item, preset)
+      .catch((err) => { if (item.status === "waiting") fail(item, err); })
+      .finally(() => pending.delete(item.id));
+    job.catch(() => {});
   }
 
   function start(presetId, input = {}) {
     const preset = presetById(presetId);
     if (!preset || preset.kind === "cursor") throw Object.assign(new Error("Conector desconhecido."), { status: 404 });
-    const clientId = cleanClientId(preset, input.clientId);
-    const label = cleanLabel(input.label, `${preset.name} ${items.filter((item) => item.presetId === preset.id).length + 1}`);
+    if (!isReady(preset)) throw Object.assign(new Error("Este conector ainda não está disponível neste HELIOS."), { status: 409 });
+    const label = cleanLabel(input.label, defaultLabel(preset));
     const item = {
       id: newId("con"),
       presetId: preset.id,
@@ -278,19 +319,28 @@ function createConectores({ dataDir, sealer = null, mcp, fetchImpl = globalThis.
       userCode: "",
       mcpUrl: preset.mcpUrl,
       mcpId: "",
-      clientId,
+      clientId: "",
       tokenEndpoint: "",
       secretsEnc: "",
       persisted: false,
     };
     items.push(item);
     save();
-    const controller = new AbortController();
-    pending.set(item.id, controller);
-    const job = (preset.kind === "device" ? runDeviceFlow(item, preset, clientId) : runCodeFlow(item, preset, clientId))
-      .catch((err) => { if (item.status === "waiting") fail(item, err); })
-      .finally(() => pending.delete(item.id));
-    job.catch(() => {});
+    launch(item, preset);
+    return publicItem(item);
+  }
+
+  function reconnect(id) {
+    const item = items.find((entry) => entry.id === id);
+    if (!item) throw Object.assign(new Error("conta não encontrada"), { status: 404 });
+    const preset = presetById(item.presetId);
+    if (!preset || !isReady(preset)) throw Object.assign(new Error("Este conector ainda não está disponível neste HELIOS."), { status: 409 });
+    pending.get(id)?.abort();
+    item.status = "waiting";
+    item.error = "";
+    item.userCode = "";
+    save();
+    launch(item, preset);
     return publicItem(item);
   }
 
@@ -378,16 +428,14 @@ function createConectores({ dataDir, sealer = null, mcp, fetchImpl = globalThis.
         id: item.id,
         name: item.name,
         blurb: item.blurb,
-        needsClientId: item.needsClientId,
-        clientHint: item.clientHint || "",
-        limitation: item.limitation || "",
         kind: item.kind,
+        configured: isReady(item),
       })),
       connections: items.map(publicItem),
     };
   }
 
-  return { ready, view, start, cancel, rename, remove, refresh, authorization, file, PRESETS: view().presets };
+  return { ready, view, start, reconnect, cancel, rename, remove, refresh, authorization, file, PRESETS: view().presets };
 }
 
-module.exports = { createConectores, PRESETS, presetById };
+module.exports = { createConectores, PRESETS, presetById, GITHUB_LOOPBACK_PORT };

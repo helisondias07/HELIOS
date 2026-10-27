@@ -15,6 +15,7 @@ const { registerDictation } = require("./dictation-host");
 const { createSettings } = require("./settings-store");
 const { meetingBrowserOptions, applyMeetingProtection, closeMeetingWindow, mainBrowserOptions, applyMainWindowTheme } = require("./meeting-window");
 const { startServer } = require("../server/index");
+const { loadOAuthClients } = require("../server/oauth-clients");
 const { registerMeeting } = require("./meeting-host");
 const { registerVoice } = require("./voice-host");
 const { createContextHost, protectedFolders } = require("./context-host");
@@ -265,6 +266,10 @@ function bootstrap() {
         blockedFolders: protectedFolders(),
         onFillLogin: (request) => fillLogin(vault, request),
         openExternal: (url) => shell.openExternal(url),
+        oauthClients: loadOAuthClients({
+          file: path.join(__dirname, "..", "config", "oauth-clients.json"),
+          userFile: path.join(dir, "oauth-clients.json"),
+        }),
         readClipboard: () => {
           try { return clipboard.readText(); } catch { return ""; }
         },

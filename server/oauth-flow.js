@@ -122,7 +122,7 @@ async function registerClient(metadata, redirectUri, fetchImpl) {
   return { clientId: String(body.client_id), clientSecret: body.client_secret ? String(body.client_secret) : "" };
 }
 
-function authorizeUrl({ metadata, clientId, redirectUri, challenge, state, scopes, google = false }) {
+function authorizeUrl({ metadata, clientId, redirectUri, challenge, state, scopes, google = false, includeResource = true }) {
   const url = new URL(metadata.authorizationEndpoint);
   url.searchParams.set("response_type", "code");
   url.searchParams.set("client_id", clientId);
@@ -131,7 +131,7 @@ function authorizeUrl({ metadata, clientId, redirectUri, challenge, state, scope
   url.searchParams.set("code_challenge_method", "S256");
   url.searchParams.set("state", state);
   if (scopes.length) url.searchParams.set("scope", scopes.join(" "));
-  if (!google) url.searchParams.set("resource", metadata.resource);
+  if (includeResource && !google) url.searchParams.set("resource", metadata.resource);
   if (google) {
     url.searchParams.set("access_type", "offline");
     url.searchParams.set("prompt", "consent");
@@ -208,7 +208,7 @@ async function refreshAccess({ tokenEndpoint, clientId, clientSecret, refreshTok
   return token;
 }
 
-function listenLoopback({ timeoutMs = 5 * 60 * 1000 } = {}) {
+function listenLoopback({ timeoutMs = 5 * 60 * 1000, port = 0 } = {}) {
   let settled;
   const done = new Promise((resolve, reject) => { settled = { resolve, reject }; });
   const server = http.createServer((req, res) => {
@@ -241,7 +241,7 @@ function listenLoopback({ timeoutMs = 5 * 60 * 1000 } = {}) {
   });
   return new Promise((resolve, reject) => {
     server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => {
+    server.listen(port, "127.0.0.1", () => {
       const { port } = server.address();
       const timer = setTimeout(() => {
         settled.reject(Object.assign(new Error("O tempo para autorizar acabou."), { status: 408 }));

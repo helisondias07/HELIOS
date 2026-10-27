@@ -91,10 +91,14 @@
       <div id="liveTab" class="hidden">
         <form id="liveForm">
           <input id="liveInput" placeholder="O que vamos construir com o estagiário?" autocomplete="off">
-          <button type="submit" class="mini primary">Montar plano</button>
+          <button type="submit" class="mini primary">Montar roteiro</button>
         </form>
-        <div id="livePlan"><div class="empty">Descreva o que vamos construir. O HELIOS abre o VS Code e espera o <b>Próximo passo</b>.</div></div>
-        <button id="btnNext" class="wide-next" disabled>Próximo passo, 1 de 1</button>
+        <div id="livePlan"><div class="empty">Descreva o que vamos construir. O roteiro aparece aqui para você digitar. Nada é gravado e nenhum editor abre.</div></div>
+        <div class="solar-progress" id="liveProgress" hidden><span id="liveBar"></span></div>
+        <div class="roteiro-nav">
+          <button id="btnPrev" class="mini" type="button" disabled>Anterior</button>
+          <button id="btnNext" class="wide-next" disabled>Próximo, 1 de 1</button>
+        </div>
       </div>
     </div>
 

@@ -19,4 +19,7 @@ contextBridge.exposeInMainWorld("helios", {
   voiceStatus: () => ipcRenderer.invoke("voice:status"),
   voiceTranscribe: (buf, mime) => ipcRenderer.invoke("voice:transcribe", buf, mime),
   voiceSpeak: (text) => ipcRenderer.invoke("voice:speak", text),
+  dictationRefresh: () => ipcRenderer.invoke("dictation:refresh"),
+  onDictationPhase: (cb) => ipcRenderer.on("dictation:phase", (_event, phase) => cb(phase)),
+  onDictationNotice: (cb) => ipcRenderer.on("dictation:notice", (_event, text) => cb(text)),
 });

@@ -11,6 +11,7 @@ require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
 const { createVault, editorView } = require("./vault-store");
 const { importKeyFile } = require("./import-keys");
 const { injectLogin } = require("./vault-inject");
+const { registerDictation } = require("./dictation-host");
 const { createSettings } = require("./settings-store");
 const { meetingBrowserOptions, applyMeetingProtection, closeMeetingWindow, mainBrowserOptions, applyMainWindowTheme } = require("./meeting-window");
 const { startServer } = require("../server/index");
@@ -298,6 +299,15 @@ function bootstrap() {
     });
 
     registerVoice({ ipcMain, vault });
+    registerDictation({
+      ipcMain,
+      globalShortcut,
+      BrowserWindow,
+      vault,
+      serverUrl: () => server.url,
+      getApiToken: () => vault.apiToken(),
+      getMainWindow: () => mainWindow,
+    });
 
     ipcMain.handle("api", async (_event, { method, pathname, body }) => {
       if (!isLocalApiPath(pathname) || !["GET", "POST", "DELETE"].includes(method)) {

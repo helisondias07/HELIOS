@@ -158,8 +158,9 @@ function createMcpServer({ tasks, routines, store, memory, memories, assistants,
     return { status: "ok", conversa: conv.id, resposta: redact(assistant?.text || "") };
   }
 
-  async function runPrompt(title, prompt, esperarMs, level, assistantId) {
+  async function runPrompt(title, prompt, esperarMs, level, assistantId, readOnly) {
     const conv = store.create(title, assistantId);
+    if (readOnly) store.update(conv.id, (current) => { current.readOnly = true; });
     bot.send(conv.id, prompt, { level });
     return outcome(await waitTurn(conv.id, esperarMs));
   }
@@ -191,7 +192,7 @@ function createMcpServer({ tasks, routines, store, memory, memories, assistants,
       const routine = routines.list().find((item) => item.id === id);
       if (!routine) return textResult("Rotina não encontrada.", true);
       routines.markRan(id);
-      return textResult(await runPrompt(`Rotina: ${routine.title}`, routine.prompt, input.esperarMs, "rapido", routine.assistantId || undefined));
+      return textResult(await runPrompt(`Rotina: ${routine.title}`, routine.prompt, input.esperarMs, "rapido", routine.assistantId || undefined, routine.readOnly === true));
     }
     if (name === "helios_sugerir_assistente") {
       try {

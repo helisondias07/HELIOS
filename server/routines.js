@@ -33,6 +33,7 @@ function dispatchDue({ routines, store, send, at = Date.now() }) {
     let conv = store.list().find((entry) => entry.title === `Rotina: ${item.title}`);
     if (!conv) conv = store.create(`Rotina: ${item.title}`, item.assistantId || undefined);
     try {
+      if (item.readOnly) store.update(conv.id, (current) => { current.readOnly = true; });
       send(conv.id, item.prompt, { level: "rapido" });
       routines.markRan(item.id, at);
       ran.push(item.id);
@@ -51,6 +52,8 @@ function view(item) {
     everyMinutes: item.everyMinutes,
     clock: item.clock,
     enabled: item.enabled,
+    readOnly: item.readOnly === true,
+    modelo: item.modelo || null,
     assistantId: item.assistantId || null,
     lastRun: item.lastRun,
     createdAt: item.createdAt,
@@ -60,6 +63,16 @@ function view(item) {
 /** Teto de rotinas (ativas e pausadas) e intervalo mínimo das rotinas pedidas por bots. Os dois são configuráveis em Atividade › Limites. */
 const DEFAULT_MAX_ROUTINES = 20;
 const DEFAULT_BOT_MIN_EVERY = 15;
+
+const MORNING_TITLE = "Digest da manhã";
+const MORNING_MODEL = "digest-manha";
+const MORNING_PROMPT = [
+  "Rotina da manhã do Helison, da Agência Oasis.",
+  "Só leitura: o resultado fica nesta conversa e o Helison é quem age fora dela.",
+  "Não use o cofre.",
+  "Olhe e-mail e mensagens recentes pelos conectores de leitura, e o que houver no X se o conector existir.",
+  "Entregue um resumo curto: o que chegou, o que parece urgente e o que pode esperar.",
+].join(" ");
 
 function createRoutines(dataDir) {
   const file = path.join(dataDir, "routines.json");
@@ -102,6 +115,8 @@ function createRoutines(dataDir) {
       everyMinutes: clean.everyMinutes,
       clock: clean.clock,
       enabled: input.enabled !== false,
+      readOnly: input.readOnly === true,
+      modelo: input.modelo ? String(input.modelo).slice(0, 40) : null,
       assistantId: input.assistantId ? String(input.assistantId).slice(0, 40) : null,
       lastRun: null,
       createdAt: nowIso(),
@@ -132,6 +147,27 @@ function createRoutines(dataDir) {
     return items.filter((item) => isDue(item, at)).map(view);
   }
 
+  function installMorning() {
+    const existing = items.find((item) => item.modelo === MORNING_MODEL || item.title === MORNING_TITLE);
+    if (existing) return view(existing);
+    const item = {
+      id: newId("rot"),
+      title: MORNING_TITLE,
+      prompt: MORNING_PROMPT,
+      everyMinutes: null,
+      clock: "08:00",
+      enabled: false,
+      readOnly: true,
+      modelo: MORNING_MODEL,
+      assistantId: null,
+      lastRun: null,
+      createdAt: nowIso(),
+    };
+    items.push(item);
+    save();
+    return view(item);
+  }
+
   function markRan(id, at = Date.now()) {
     const item = items.find((entry) => entry.id === id);
     if (!item) return;
@@ -139,7 +175,10 @@ function createRoutines(dataDir) {
     save();
   }
 
-  return { list: () => items.map(view), add, checkLimits, update, remove, due, markRan, file };
+  return { list: () => items.map(view), add, checkLimits, update, remove, due, markRan, installMorning, file };
 }
 
-module.exports = { createRoutines, isDue, dispatchDue, DEFAULT_MAX_ROUTINES, DEFAULT_BOT_MIN_EVERY };
+module.exports = {
+  createRoutines, isDue, dispatchDue, DEFAULT_MAX_ROUTINES, DEFAULT_BOT_MIN_EVERY,
+  MORNING_TITLE, MORNING_MODEL, MORNING_PROMPT,
+};

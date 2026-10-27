@@ -148,6 +148,7 @@ function createDelegation(deps) {
     const helperConv = store.create(`Ajudante: ${oneLine(task, 50)}`, parent.id);
     store.update(helperConv.id, (conv) => {
       conv.helper = { id: entry.id, parentConvId: convId, rootConvId: ctx.rootConvId, depth, task: oneLine(task, 200), done: false };
+      if (store.get(convId)?.readOnly) conv.readOnly = true;
     });
     const helperCtx = { kind: "ajudante", assistantId: parent.id, rootConvId: ctx.rootConvId, depth, chain: ctx.chain, allowed: new Set(names) };
     const all = makeBaseTools(helperConv.id, helperCtx);

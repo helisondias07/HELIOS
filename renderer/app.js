@@ -13,12 +13,14 @@ const TITLES = {
   memory: ["Memória", "Fatos estáveis sobre você. Segredos são recusados."],
   context: ["Contexto", "Exporte e importe o seu contexto (sem segredos), leia ClickUp e e-mail só para consulta e escolha as pastas do PC que o HELIOS pode usar."],
   routines: ["Rotinas", "Um horário ou um intervalo. Ação irreversível continua pedindo aprovação."],
+  ditado: ["Ditado", "Segure ou alterne um atalho e o texto entra na janela em foco. O áudio não fica salvo."],
+  time: ["Montar time", "Descreva o objetivo. O HELIOS propõe assistentes que já existem e só cria depois do seu clique."],
   activity: ["Atividade", "Ajudantes temporários, consultas entre assistentes, limites e o tamanho do contexto de cada assistente."],
   autonomy: ["Autonomia", "Para cada tipo de ação, escolha se o HELIOS pede antes ou faz sozinho. Pagar e usar senha do cofre sempre pedem."],
   account: ["Conta Cursor", "Até 3 contas. As chaves ficam no cofre e você escolhe qual está ativa. O modo Auto escolhe o modelo mais barato que der conta."],
 };
 
-const state = { switched: {}, view: "chat", conversations: [], current: null, level: "auto", error: "", poll: null, assistants: [], assistantId: "default", memoryAssistant: "default" };
+const state = { switched: {}, view: "chat", conversations: [], current: null, level: "auto", error: "", poll: null, assistants: [], assistantId: "default", memoryAssistant: "default", dictationPhase: "idle" };
 
 const voice = window.HeliosVoice ? window.HeliosVoice.createController({
   banner: (text) => banner(text),
@@ -27,6 +29,7 @@ const voice = window.HeliosVoice ? window.HeliosVoice.createController({
   speakRemote: (text) => helios.voiceSpeak(text),
   sendText: (text) => sendText(text),
   getMessage: (index) => (state.current ? state.current.messages[index] : null),
+  onPhase: () => syncSolar(),
 }) : null;
 
 function banner(text) {
@@ -43,6 +46,26 @@ async function call(method, pathname, body) {
   return res.data;
 }
 
+function syncSolar() {
+  const html = document.documentElement;
+  const phase = voice && voice.phase ? voice.phase() : "off";
+  const dict = state.dictationPhase || "idle";
+  const busy = Boolean(state.current && state.current.busy) || phase === "thinking" || dict === "transcribing";
+  html.dataset.solar = busy ? "thinking" : "idle";
+  const heard = phase === "listening" || phase === "speaking" ? phase : (dict === "recording" ? "listening" : "");
+  if (heard) html.dataset.voice = heard;
+  else delete html.dataset.voice;
+  const bar = $("solarBar");
+  if (bar) bar.hidden = !busy;
+}
+
+function dawn() {
+  const view = $("view");
+  view.classList.remove("is-dawn");
+  void view.offsetWidth;
+  view.classList.add("is-dawn");
+}
+
 function setView(view) {
   state.view = view;
   if (voice && view !== "chat") voice.stopAll();
@@ -51,9 +74,13 @@ function setView(view) {
   $("title").textContent = title;
   $("eyebrow").textContent = eyebrow;
   banner("");
+  dawn();
+  syncSolar();
   if (view === "chat") loadChat().catch((err) => banner(err.message));
   else if (view === "inbox") loadInbox().catch((err) => banner(err.message));
   else if (view === "assistants") loadAssistants().catch((err) => banner(err.message));
+  else if (view === "ditado") loadDitado().catch((err) => banner(err.message));
+  else if (view === "time") loadTime().catch((err) => banner(err.message));
   else if (view === "vault") loadVault().catch((err) => banner(err.message));
   else if (view === "mcp") loadMcp().catch((err) => banner(err.message));
   else if (view === "search") renderSearch({ query: "", results: [], error: "" });
@@ -131,6 +158,7 @@ function renderChat() {
       <span>${esc(conv.preview || "sem mensagens")}</span>
     </button>`).join("");
   const messages = current ? current.messages.map(renderMessage).join("") : `<div class="empty">Escreva a primeira mensagem. Sem conta do Cursor, o HELIOS responde em modo demonstração.</div>`;
+  syncSolar();
   shell(`
     <div class="layout">
       <div class="panel list">
@@ -144,6 +172,7 @@ function renderChat() {
         <header>
           <strong>${esc(current ? current.title : "Nova conversa")}</strong>
           <span class="chip" id="threadAssistant">${esc(assistantName(current ? current.assistantId : state.assistantId))}</span>
+          ${current && current.readOnly ? `<span class="chip">só leitura</span>` : ""}
           ${current && current.summary && current.summary.active ? `<span class="chip summary" id="threadSummary" tabindex="0" title="${esc(`Conversa longa: o assistente recebe um resumo (${current.summary.chars} caracteres, cobre ${current.summary.covered} mensagens) mais as últimas mensagens. Resumo: ${current.summary.text}`)}">contexto resumido</span>` : ""}
           ${voice ? voice.ui.options() : ""}
           <label>Nível
@@ -767,7 +796,7 @@ async function loadRoutines() {
   await refreshAssistants();
   const data = await call("GET", "/api/routines");
   const rows = data.routines.map((item) => `
-    <div class="status-line"><div><strong>${esc(item.title)}</strong><div class="muted">${item.clock ? esc(item.clock) : "a cada " + esc(item.everyMinutes) + " min"} · ${item.enabled ? "ligada" : "pausada"} · ${esc(assistantName(item.assistantId || "default"))} · ${item.lastRun ? "última vez " + esc(new Date(item.lastRun).toLocaleString("pt-BR")) : "ainda não rodou"}</div><div>${esc(item.prompt)}</div></div>
+    <div class="status-line"><div><strong>${esc(item.title)}</strong>${item.readOnly ? ` <span class="chip">só leitura</span>` : ""}<div class="muted">${item.clock ? esc(item.clock) : "a cada " + esc(item.everyMinutes) + " min"} · ${item.enabled ? "ligada" : "pausada"} · ${esc(assistantName(item.assistantId || "default"))} · ${item.lastRun ? "última vez " + esc(new Date(item.lastRun).toLocaleString("pt-BR")) : "ainda não rodou"}</div><div>${esc(item.prompt)}</div></div>
       <div class="row"><button type="button" class="btn" data-toggle="${esc(item.id)}" data-enabled="${item.enabled ? "1" : "0"}">${item.enabled ? "Pausar" : "Ligar"}</button><button type="button" class="btn danger" data-remove="${esc(item.id)}">Apagar</button></div></div>`).join("");
   shell(`
     <form class="card stack" id="rotForm"><h2>Nova rotina</h2>
@@ -775,8 +804,14 @@ async function loadRoutines() {
       <label>O que fazer<input name="prompt" required placeholder="Me lembre de revisar o PR"></label>
       <label>Assistente<select name="assistantId">${assistantOptions("default")}</select></label>
       <div class="row"><label>Horário<input name="clock" placeholder="09:30"></label><label>Ou a cada minutos<input name="everyMinutes" type="number" min="1"></label></div>
-      <button class="btn primary" type="submit">Agendar</button></form>
+      <button class="btn primary" type="submit">Agendar</button>
+      <button type="button" class="btn" id="installMorning">Instalar digest da manhã</button>
+      <p class="muted">O digest entra pausado, às 08:00, e a conversa fica só leitura.</p></form>
     <div class="card" style="margin-top:12px">${rows || `<div class="empty">Nenhuma rotina.</div>`}</div>`);
+  $("installMorning").onclick = async () => {
+    try { await call("POST", "/api/routines/digest-manha", {}); await loadRoutines(); }
+    catch (err) { banner(err.message); }
+  };
   $("rotForm").onsubmit = async (event) => {
     event.preventDefault();
     const form = new FormData(event.target);
@@ -802,7 +837,12 @@ async function loadRoutines() {
 let assistantDraft = null;
 
 async function loadAssistants() {
-  const [data, mcp, aut] = await Promise.all([refreshAssistants(), call("GET", "/api/mcp"), call("GET", "/api/autonomy")]);
+  const [data, mcp, aut, skillData] = await Promise.all([
+    refreshAssistants(),
+    call("GET", "/api/mcp"),
+    call("GET", "/api/autonomy"),
+    call("GET", "/api/skills").catch(() => ({ skills: [] })),
+  ]);
   const servers = mcp.servers.map((server) => server.name);
   const draft = assistantDraft;
   const cards = data.assistants.map((item) => `
@@ -822,6 +862,7 @@ async function loadAssistants() {
         <div class="muted">${esc(item.role || "sem função definida")} · ainda não existe: aprove ou negue na Caixa de entrada.</div></div>
     </div>`).join("");
   const templates = data.templates.map((item) => `<button type="button" class="btn" data-ast-tpl="${esc(item.id)}" title="${esc(item.role)}">${esc(item.name)}</button>`).join("");
+  const skillRows = (skillData.skills || []).map((item) => `<div class="status-line"><div><strong>${esc(item.name)}</strong><div class="muted">${esc(item.description)}</div></div><button type="button" class="btn danger" data-skill-del="${esc(item.id)}">Remover</button></div>`).join("");
   const form = draft || { id: "", name: "", role: "", instructions: "", mcp: null, autonomy: {} };
   const autRows = aut.modes.map((row) => `
     <label>${esc(row.label)}
@@ -856,7 +897,16 @@ async function loadAssistants() {
         ${autRows}
       </fieldset>
       <div class="row"><button class="btn primary" type="submit">${form.id ? "Salvar" : "Criar assistente"}</button>${form.id || draft ? `<button type="button" class="btn" id="astCancel">Cancelar</button>` : ""}</div>
-    </form>`);
+    </form>
+    <section class="card stack" style="margin-top:12px">
+      <h2>Skills</h2>
+      <p class="muted">Texto de instrução, lido sob demanda. Não executa nada e não ganha ferramenta nem autonomia.</p>
+      ${skillRows || `<div class="empty">Nenhuma skill instalada.</div>`}
+      <div class="row"><button type="button" class="btn" id="skillOasis">Instalar exemplo da landing</button></div>
+      <label>Importar SKILL.md<textarea id="skillMd" rows="6" placeholder="---&#10;name: nome&#10;description: para que serve&#10;---&#10;Instruções em português."></textarea></label>
+      <div class="row"><button type="button" class="btn" id="skillPreview">Ver prévia</button><button type="button" class="btn primary" id="skillApply" disabled>Gravar skill</button></div>
+      <pre id="skillOut" class="muted"></pre>
+    </section>`);
   const bySel = (selector) => document.querySelectorAll(selector);
   bySel("[data-ast-tpl]").forEach((button) => {
     button.onclick = async () => {
@@ -901,6 +951,35 @@ async function loadAssistants() {
       await loadAssistants();
     } catch (err) { banner(err.message); }
   };
+  let skillDraft = null;
+  $("skillPreview").onclick = async () => {
+    try {
+      const preview = await call("POST", "/api/skills/importar/previa", { markdown: $("skillMd").value });
+      skillDraft = preview.preview;
+      $("skillOut").textContent = `${skillDraft.name}\n${skillDraft.description}\n\n${skillDraft.instrucoes}\n\n${(skillDraft.avisos || []).join(" ")} ${skillDraft.note || ""}`;
+      $("skillApply").disabled = false;
+    } catch (err) { banner(err.message); }
+  };
+  $("skillApply").onclick = async () => {
+    if (!skillDraft) return;
+    try {
+      await call("POST", "/api/skills/importar/aplicar", { markdown: $("skillMd").value, confirmar: true });
+      banner("Skill gravada. Nada foi executado.");
+      await loadAssistants();
+    } catch (err) { banner(err.message); }
+  };
+  $("skillOasis").onclick = async () => {
+    try {
+      await call("POST", "/api/skills/modelo/pagina-oasis", { confirmar: true });
+      await loadAssistants();
+    } catch (err) { banner(err.message); }
+  };
+  document.querySelectorAll("[data-skill-del]").forEach((button) => {
+    button.onclick = async () => {
+      await call("DELETE", `/api/skills/${button.dataset.skillDel}`);
+      await loadAssistants();
+    };
+  });
 }
 
 const fmtDuration = (ms) => {
@@ -1102,6 +1181,94 @@ async function loadAutonomy() {
   });
 }
 
+async function loadDitado() {
+  const data = await call("GET", "/api/ditado");
+  const prefs = data.prefs;
+  const stats = data.stats || {};
+  const hoje = stats.hoje || {};
+  shell(`
+    <section class="card stack hero">
+      <p class="eyebrow">Sol no teclado</p>
+      <h2 class="hero-title">Ditado na janela em foco</h2>
+      <p>Desligado por padrão. O áudio vai para a Groq e o texto é digitado na hora. O HELIOS não guarda o que você falou.</p>
+      <div class="proof"><span class="chip">${esc(hoje.words || 0)} palavras hoje</span><span class="chip">${esc(stats.streak || 0)} dias seguidos</span><span class="chip">${esc(hoje.fixes || 0)} ajustes hoje</span></div>
+    </section>
+    <form class="card stack" id="ditadoForm" style="margin-top:12px">
+      <label class="check"><input type="checkbox" name="enabled"${prefs.enabled ? " checked" : ""}> Ligar o ditado global</label>
+      <label>Atalho<input name="accelerator" value="${esc(prefs.accelerator)}" placeholder="CommandOrControl+Shift+D"></label>
+      <label>Modo<select name="mode"><option value="alternar"${prefs.mode === "alternar" ? " selected" : ""}>Alternar</option><option value="segurar"${prefs.mode === "segurar" ? " selected" : ""}>Segurar (só no Windows)</option></select></label>
+      <label>Estilo<select name="style"><option value="padrao">Padrão</option><option value="cursor"${prefs.style === "cursor" ? " selected" : ""}>Cursor</option><option value="whatsapp"${prefs.style === "whatsapp" ? " selected" : ""}>WhatsApp</option><option value="email"${prefs.style === "email" ? " selected" : ""}>E-mail</option></select></label>
+      <label class="check"><input type="checkbox" name="cleanup"${prefs.cleanup ? " checked" : ""}> Limpar vícios de fala neste computador</label>
+      <label>Glossário<textarea name="glossary" rows="3" placeholder="HELIOS = HELIOS">${esc(prefs.glossary || "")}</textarea></label>
+      <label>Atalhos de texto<textarea name="snippets" rows="3" placeholder="oasis = Agência Oasis">${esc(prefs.snippets || "")}</textarea></label>
+      <button class="btn primary" type="submit">Salvar ditado</button>
+      <p class="muted">${esc(stats.note || "")}</p>
+    </form>`);
+  $("ditadoForm").onsubmit = async (event) => {
+    event.preventDefault();
+    const form = new FormData(event.target);
+    try {
+      await call("POST", "/api/ditado", {
+        enabled: form.get("enabled") === "on",
+        accelerator: form.get("accelerator"),
+        mode: form.get("mode"),
+        style: form.get("style"),
+        cleanup: form.get("cleanup") === "on",
+        glossary: form.get("glossary"),
+        snippets: form.get("snippets"),
+      });
+      if (helios.dictationRefresh) await helios.dictationRefresh();
+      banner("Ditado salvo.");
+      await loadDitado();
+    } catch (err) { banner(err.message); }
+  };
+}
+
+async function loadTime() {
+  const [check, assistants] = await Promise.all([
+    call("GET", "/api/onboarding"),
+    call("GET", "/api/assistants"),
+  ]);
+  const items = (check.itens || []).map((item) => `<li><label class="check"><input type="checkbox" data-check="${esc(item.id)}"${item.done ? " checked" : ""}${item.id === "voz" ? "" : " disabled"}> ${esc(item.label)}</label></li>`).join("");
+  const have = (assistants.assistants || []).filter((item) => !item.builtin).map((item) => `<span class="chip">${esc(item.name)}</span>`).join(" ") || `<span class="muted">Ainda só o HELIOS.</span>`;
+  shell(`
+    <section class="card stack hero">
+      <p class="eyebrow">Nascer do time</p>
+      <h2 class="hero-title">Quem entra no gabinete</h2>
+      <p>Descreva o trabalho. A proposta usa os modelos que já existem. Nada é criado antes do clique.</p>
+      <div class="proof">${have}</div>
+    </section>
+    <form class="card stack" id="timeForm" style="margin-top:12px">
+      <label>Objetivo<textarea name="texto" rows="4" placeholder="Quero triar e-mail, organizar a agenda e pesquisar referências."></textarea></label>
+      <button class="btn primary" type="submit">Propor time</button>
+      <div id="timeOut"></div>
+    </form>
+    <section class="card" style="margin-top:12px"><h2>Checklist</h2><ul class="stack">${items}</ul></section>`);
+  document.querySelectorAll("[data-check='voz']").forEach((box) => {
+    box.onchange = async () => {
+      try { await call("POST", "/api/onboarding/checklist", { voz: box.checked }); }
+      catch (err) { banner(err.message); }
+    };
+  });
+  $("timeForm").onsubmit = async (event) => {
+    event.preventDefault();
+    const texto = new FormData(event.target).get("texto");
+    try {
+      const plan = await call("POST", "/api/onboarding/propor", { texto });
+      const boxes = (plan.propostas || []).map((item) => `<label class="check"><input type="checkbox" data-modelo="${esc(item.id)}" checked> ${esc(item.name)} <span class="muted">${esc(item.role)} · ${esc(item.porque)}</span></label>`).join("");
+      $("timeOut").innerHTML = `${plan.aviso ? `<p class="banner">${esc(plan.aviso)}</p>` : ""}<p>${esc(plan.note || "")}</p><div class="stack">${boxes}</div><button type="button" class="btn primary" id="timeApply">Criar os marcados</button>`;
+      $("timeApply").onclick = async () => {
+        const modelos = [...document.querySelectorAll("[data-modelo]")].filter((box) => box.checked).map((box) => box.dataset.modelo);
+        try {
+          const done = await call("POST", "/api/onboarding/aplicar", { modelos });
+          banner(`Criei ${done.created.length}. ${done.skipped.length ? done.skipped.length + " já existiam." : ""}`);
+          await loadTime();
+        } catch (err) { banner(err.message); }
+      };
+    } catch (err) { banner(err.message); }
+  };
+}
+
 const contasView = window.HeliosContas.create({ call, shell: (html) => shell(html), esc, banner, helios });
 function loadAccount() {
   return contasView.load();
@@ -1115,3 +1282,12 @@ document.querySelectorAll(".meeting-open").forEach((button) => {
 });
 setView("chat");
 refreshInbox().catch(() => {});
+if (typeof helios.onDictationPhase === "function") {
+  helios.onDictationPhase((phase) => {
+    state.dictationPhase = phase || "idle";
+    syncSolar();
+  });
+}
+if (typeof helios.onDictationNotice === "function") {
+  helios.onDictationNotice((text) => banner(text));
+}

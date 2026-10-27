@@ -14,6 +14,11 @@ const { createMcpRegistry } = require("./mcp-registry");
 const { createMcpServer, isLoopbackAddress, bearerOk } = require("./mcp-server");
 const { dispatchDue } = require("./routines");
 const { createLivecoding } = require("./livecoding");
+const { createSkills } = require("./skills");
+const { createOnboarding } = require("./onboarding");
+const { createDictationPrefs } = require("./dictation-prefs");
+const { createDictationStats } = require("./dictation-stats");
+const { MORNING_TITLE, MORNING_MODEL, MORNING_PROMPT } = require("./routines");
 const { createActions } = require("./actions");
 const { createAccountStore, sdkAdapters, MAX_ACCOUNTS, SLOT_NAMES } = require("./accounts");
 const REAL_LIMIT_URL = "https://cursor.com/dashboard";
@@ -102,6 +107,9 @@ async function startServer(opts = {}) {
   const memory = memories.for("default");
   const assistants = createAssistants(dataDir);
   const routines = createRoutines(dataDir);
+  const skills = createSkills(dataDir);
+  const dictationPrefs = createDictationPrefs(dataDir);
+  const onboarding = createOnboarding({ dataDir, assistants, routines });
   const tasks = createTasks(dataDir);
   const mcp = createMcpRegistry(dataDir, { ...(opts.connect ? { connect: opts.connect } : {}), sealer: opts.secretSealer || null });
   // Abre as credenciais cifradas dos conectores (e migra as antigas em texto aberto) antes de o servidor atender qualquer pedido.
@@ -110,6 +118,7 @@ async function startServer(opts = {}) {
   const autonomy = createAutonomy(dataDir);
   const orchestration = createOrchestration(dataDir);
   const now = typeof opts.now === "function" ? opts.now : () => Date.now();
+  const dictationStats = createDictationStats(dataDir, { now });
   const parking = createParking(dataDir, { now });
   const ledger = createLedger(dataDir, { now });
   const usage = createUsage(dataDir, { now, globalCallsPerDay: () => orchestration.limits().usoGlobalChamadasDia, activeAccountId: () => accounts?.active()?.id || null });
@@ -134,8 +143,6 @@ async function startServer(opts = {}) {
   let bot;
   const livecoding = createLivecoding({
     rootDir: projectsDir,
-    openEditor: opts.openEditor,
-    runAgentStep: (payload) => bot.runLiveStep(payload),
     proposePlan: (description) => bot.proposeLivePlan(description),
   });
   bot = createBot({
@@ -154,6 +161,7 @@ async function startServer(opts = {}) {
     parking,
     ledger,
     usage,
+    skills,
     now,
     helperTimeoutMs: opts.helperTimeoutMs,
     loadSdk: opts.loadSdk,
@@ -337,6 +345,7 @@ async function startServer(opts = {}) {
     if (req.method === "DELETE" && (match = pathName.match(/^\/api\/assistants\/([^/]+)$/))) {
       const id = decodeURIComponent(match[1]);
       if (!assistants.remove(id)) return send(res, 404, { error: "assistente não encontrado" });
+      skills.detach(id);
       const moved = store.reassign(id, "default");
       memories.drop(id);
       contexts.drop(id);
@@ -419,7 +428,31 @@ async function startServer(opts = {}) {
       if (req.method === "GET" && match[2] === "arquivo") return send(res, 200, safeFolders.read(id, rel));
       if (req.method === "POST" && match[2] === "arquivo") return send(res, 200, safeFolders.write(id, rel, body.conteudo));
       if (req.method === "POST" && match[2] === "lixeira") return send(res, 200, await safeFolders.trash(id, rel));
-    }    if (req.method === "GET" && pathName === "/api/routines") return send(res, 200, { routines: routines.list() });
+    }
+    if (req.method === "GET" && pathName === "/api/ditado") {
+      return send(res, 200, { prefs: dictationPrefs.view(), stats: dictationStats.view() });
+    }
+    if (req.method === "POST" && pathName === "/api/ditado") return send(res, 200, { prefs: dictationPrefs.update(body) });
+    if (req.method === "POST" && pathName === "/api/ditado/uso") return send(res, 200, { stats: dictationStats.record(body) });
+    if (req.method === "GET" && pathName === "/api/skills") return send(res, 200, { skills: skills.list(body.assistantId || url.searchParams.get("assistant") || "") });
+    if (req.method === "POST" && pathName === "/api/skills/importar/previa") return send(res, 200, { preview: skills.preview(body) });
+    if (req.method === "POST" && pathName === "/api/skills/importar/aplicar") return send(res, 201, { skill: skills.apply(body) });
+    if (req.method === "POST" && pathName === "/api/skills/modelo/pagina-oasis") {
+      if (body.confirmar !== true) return send(res, 400, { error: "Confirme para instalar a skill de exemplo." });
+      return send(res, 201, { skill: skills.installOasis() });
+    }
+    if (req.method === "DELETE" && (match = pathName.match(/^\/api\/skills\/([^/]+)$/))) {
+      return send(res, 200, { ok: skills.remove(decodeURIComponent(match[1])) });
+    }
+    if (req.method === "GET" && pathName === "/api/onboarding") return send(res, 200, onboarding.checklist());
+    if (req.method === "POST" && pathName === "/api/onboarding/propor") return send(res, 200, onboarding.propose(body.texto || body.text || ""));
+    if (req.method === "POST" && pathName === "/api/onboarding/aplicar") return send(res, 201, onboarding.aplicar(body.modelos));
+    if (req.method === "POST" && pathName === "/api/onboarding/checklist") return send(res, 200, onboarding.mark(body));
+    if (req.method === "GET" && pathName === "/api/routines/modelos") {
+      return send(res, 200, { modelos: [{ id: MORNING_MODEL, title: MORNING_TITLE, prompt: MORNING_PROMPT, clock: "08:00", readOnly: true, enabled: false }] });
+    }
+    if (req.method === "POST" && pathName === "/api/routines/digest-manha") return send(res, 201, { routine: routines.installMorning() });
+    if (req.method === "GET" && pathName === "/api/routines") return send(res, 200, { routines: routines.list() });
     if (req.method === "POST" && pathName === "/api/routines") {
       if (body.assistantId && !assistants.get(String(body.assistantId))) return send(res, 404, { error: "assistente não encontrado" });
       return send(res, 201, { routine: routines.add(body) });
@@ -457,6 +490,9 @@ async function startServer(opts = {}) {
     }
     if (req.method === "POST" && (match = pathName.match(/^\/api\/livecoding\/([^/]+)\/next$/))) {
       return send(res, 200, { session: await livecoding.next(decodeURIComponent(match[1])) });
+    }
+    if (req.method === "POST" && (match = pathName.match(/^\/api\/livecoding\/([^/]+)\/anterior$/))) {
+      return send(res, 200, { session: livecoding.prev(decodeURIComponent(match[1])) });
     }
     return send(res, 404, { error: "não encontrado" });
   }

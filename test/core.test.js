@@ -141,52 +141,55 @@ test("rotina não marca lastRun se o envio falha", () => {
   assert.notEqual(routines.list()[0].lastRun, before);
 });
 
-test("livecoding pausa entre passos, grava o plano e abre o VS Code", async () => {
+test("livecoding mostra o roteiro e não grava arquivo nem abre editor", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "helios-live-"));
   const opened = [];
-  const agentCalls = [];
   const live = createLivecoding({
     rootDir: dir,
     openEditor: (folder) => {
       opened.push(folder);
       return { ok: true, cmd: "code", folder };
     },
-    runAgentStep: async ({ folder, step }) => {
-      agentCalls.push(step.n);
-      const { writeFiles } = require("../server/livecoding");
-      writeFiles(folder, step.files || []);
-      return { via: "agente", text: step.explicacao };
-    },
   });
   const session = await live.start("página de apresentação do estágio");
-  assert.equal(opened.length, 1);
-  assert.equal(fs.existsSync(path.join(session.folder, "index.html")), false);
-  assert.equal(fs.existsSync(path.join(session.folder, "PLANO.md")), true);
-  assert.equal(session.steps[0].status, "current");
-  assert.match(fs.readFileSync(path.join(session.folder, "PLANO.md"), "utf8"), /passo/);
+  assert.equal(opened.length, 0);
+  assert.equal(session.gravouDisco, false);
+  assert.equal(session.abriuEditor, false);
+  assert.equal(session.tela, "mapa");
+  assert.equal(session.status, "paused");
+  assert.equal(fs.existsSync(path.join(dir, "index.html")), false);
+  assert.equal(fs.existsSync(path.join(dir, "PLANO.md")), false);
+  assert.equal(fs.existsSync(path.join(dir, "sessions.json")), true);
   const step1 = await live.next(session.id);
-  assert.deepEqual(agentCalls, [1]);
-  assert.equal(fs.existsSync(path.join(session.folder, "index.html")), true);
-  assert.equal(fs.existsSync(path.join(session.folder, "style.css")), false);
+  assert.equal(step1.tela, "secao");
   assert.equal(step1.status, "paused");
-  assert.match(step1.lastNote, /esqueleto|HTML|estrutura/i);
+  assert.match(step1.atual.explicacao, /esqueleto|HTML|estrutura/i);
+  assert.equal(fs.existsSync(path.join(dir, "index.html")), false);
+  const back = await live.prev(session.id);
+  assert.equal(back.tela, "mapa");
+  assert.equal(back.status, "paused");
+  await live.next(session.id);
   await live.next(session.id);
   await live.next(session.id);
   const done = await live.next(session.id);
   assert.equal(done.status, "done");
-  assert.equal(fs.existsSync(path.join(session.folder, "script.js")), true);
-  assert.equal(opened[0], session.folder);
+  assert.equal(fs.existsSync(path.join(dir, "script.js")), false);
 });
 
 test("o plano do livecoding nasce do pedido e recusa JSON inválido", async () => {
   const draft = draftPlanFromRequest("calculadora de desconto do tênis");
-  assert.match(draft.steps.map((step) => `${step.titulo} ${step.explicacao}`).join("\n"), /calculadora de desconto/);
-  assert.equal(draft.steps[0].files[0].path, "index.html");
-  assert.equal(draft.steps.at(-1).files.length, 0);
-  const parsed = parsePlanJson("segue\n```json\n{\"title\":\"Lista\",\"steps\":[{\"titulo\":\"HTML\",\"explicacao\":\"Monta a lista.\",\"files\":[{\"path\":\"index.html\",\"contents\":\"<h1>lista</h1>\"}]},{\"titulo\":\"Revisar\",\"explicacao\":\"Parar aqui.\",\"files\":[]}]}\n```");
+  assert.match(`${draft.visao} ${draft.secoes.map((sec) => sec.explicacao).join(" ")}`, /calculadora de desconto/);
+  assert.equal(draft.arquivos[0].path, "index.html");
+  assert.equal(draft.secoes.at(-1).codigo, "");
+  const apiLesson = draftPlanFromRequest("preciso fazer uma importação de API");
+  assert.equal(apiLesson.arquivos.filter((file) => file.linguagem === "html").length, 2);
+  assert.equal(apiLesson.arquivos.filter((file) => file.linguagem === "js").length, 2);
+  assert.equal(apiLesson.arquivos.filter((file) => file.linguagem === "css").length, 1);
+  const parsed = parsePlanJson("segue\n```json\n{\"title\":\"Lista\",\"visao\":\"Monta uma lista pequena para estudar.\",\"arquivos\":[{\"path\":\"index.html\",\"papel\":\"A página\"}],\"secoes\":[{\"titulo\":\"HTML\",\"explicacao\":\"Monta a lista na página.\",\"arquivo\":\"index.html\",\"onde\":\"Arquivo novo.\",\"codigo\":\"<h1>lista</h1>\"},{\"titulo\":\"Revisar\",\"explicacao\":\"Parar aqui com o estagiário.\",\"arquivo\":\"\",\"onde\":\"\",\"codigo\":\"\"}]}\n```");
   assert.equal(normalizePlan(parsed).title, "Lista");
   assert.equal(normalizePlan({ title: "só um" }), null);
-  assert.equal(normalizePlan({ title: "Ruim", steps: [{ titulo: "A", explicacao: "B", files: [{ path: "../segredo.txt", contents: "x" }] }, { titulo: "C", explicacao: "D", files: [] }] }), null);
+  assert.equal(normalizePlan({ title: "Ruim", steps: [{ titulo: "A", explicacao: "B", files: [{ path: "../segredo.txt", contents: "x" }] }] }), null);
+  assert.equal(normalizePlan({ title: "Ruim", visao: "Visão curta do trabalho.", arquivos: [{ path: "../segredo.txt", papel: "fora" }], secoes: [{ titulo: "A", explicacao: "Explica o bastante.", codigo: "x" }, { titulo: "B", explicacao: "Também explica.", codigo: "" }] }), null);
 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "helios-plano-"));
   const live = createLivecoding({
@@ -194,22 +197,27 @@ test("o plano do livecoding nasce do pedido e recusa JSON inválido", async () =
     openEditor: () => ({ ok: true, cmd: "code", folder: dir }),
     proposePlan: async (description) => ({
       title: "Quadro",
-      steps: [
-        { titulo: "HTML do quadro", explicacao: `Lista para: ${description}`, files: [{ path: "index.html", contents: "<h1>tarefas</h1>" }] },
-        { titulo: "Revisar", explicacao: "Parar e ler junto.", files: [] },
+      visao: "Um quadro simples para acompanhar tarefas.",
+      arquivos: [{ path: "index.html", papel: "A lista de tarefas." }],
+      secoes: [
+        { titulo: "HTML do quadro", explicacao: `Lista para: ${description}`, arquivo: "index.html", onde: "Arquivo novo index.html.", codigo: "<h1>tarefas</h1>" },
+        { titulo: "Revisar", explicacao: "Parar e ler junto.", arquivo: "", onde: "", codigo: "" },
       ],
     }),
   });
   const session = await live.start("quadro do estagiário");
-  assert.equal(session.steps[0].titulo, "HTML do quadro");
-  assert.match(session.steps[0].explicacao, /quadro do estagiário/);
+  const first = await live.next(session.id);
+  assert.equal(first.atual.titulo, "HTML do quadro");
+  assert.match(first.atual.explicacao, /quadro do estagiário/);
+  assert.equal(first.gravouDisco, false);
   const fallback = createLivecoding({
     rootDir: dir,
     openEditor: () => ({ ok: true }),
     proposePlan: async () => ({ title: "incompleto" }),
   });
   const local = await fallback.start("página de apoio");
-  assert.match(local.steps[0].explicacao, /esqueleto|HTML|estrutura/i);
+  const localStep = await fallback.next(local.id);
+  assert.match(localStep.atual.explicacao, /esqueleto|HTML|estrutura/i);
 });
 
 test("conector MCP stdio responde de verdade", async () => {

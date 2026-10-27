@@ -51,7 +51,7 @@ html[data-sb="collapsed"] .sb-group + .sb-group { padding-top: var(--sp-2); bord
 
 /* item de navegação: ícone fixo à esquerda; o rótulo some quando recolhido */
 .sb-item { width: 100%; height: var(--item-h); display: flex; align-items: center; gap: var(--sp-3); padding: 0 var(--sb-ipad); border-radius: var(--r-md); color: var(--fg-muted); text-align: left; min-width: var(--sp-0); font-size: var(--fs-sm); line-height: var(--lh-sm); }
-.sb-item.active, .sb-item[aria-current="page"] { color: var(--fg-strong); font-weight: var(--fw-semibold); }   /* ativo: só tom e peso (mais o ícone dourado) */
+.sb-item.active, .sb-item[aria-current="page"] { color: var(--fg-strong); font-weight: var(--fw-semibold); box-shadow: inset 2px 0 0 var(--sun); }
 .sb-item.active::before, .sb-item[aria-current="page"]::before { opacity: 1; }
 .sb-item.active .sb-ico, .sb-item[aria-current="page"] .sb-ico { color: var(--accent); }
 .sb-lbl { position: relative; flex: 1; min-width: var(--sp-0); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: opacity var(--dur-base) var(--ease); }

@@ -225,7 +225,7 @@ $out | ConvertTo-Json -Compress
 const SEGREDOS = {
   CURSOR_API_KEY: "crsr_segredo_de_teste_000000",
   GROQ_API_KEY: "gsk_segredo_de_teste_000000",
-  GEMINI_API_KEY: "AIza_segredo_de_teste_000000",
+  GEMINI_API_KEY: "gemini_segredo_de_teste_000000",
   GITHUB_TOKEN: "ghp_segredo_de_teste_000000",
   MINHA_SENHA_BANCO: "senha-do-ambiente",
 };

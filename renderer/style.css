@@ -1,5 +1,6 @@
 @import url("tokens.css");
 @import url("scrollbar.css");
+@import url("solar.css");
 
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--ink); font-family: var(--font); font-size: var(--fs-sm); line-height: var(--lh-sm); font-variant-numeric: normal; -webkit-font-smoothing: antialiased; }
@@ -63,7 +64,7 @@ textarea:focus, input:focus, select:focus { border-color: var(--sun); background
 .card > h2 + p:not(.muted) { margin-top: var(--sp-2); }
 .card > p, .card > .muted { margin-bottom: var(--sp-0); }
 .card > .eyebrow { margin-bottom: var(--sp-0); }
-.card.pending { border-color: var(--sun); }
+.card.pending { border-color: rgb(224 180 74 / 0.55); background: linear-gradient(180deg, var(--accent-soft), var(--surface)); box-shadow: inset 3px 0 0 var(--sun); }
 .card .card, .card .panel { border-radius: calc(var(--r-lg) - var(--sp-1)); }
 
 /* ---------- botões ---------- */
@@ -72,9 +73,10 @@ textarea:focus, input:focus, select:focus { border-color: var(--sun); background
 .btn:hover::before { opacity: var(--op-hover); }
 .btn:active { transform: scale(var(--press-scale)); }
 .btn:disabled { opacity: var(--op-disabled); cursor: not-allowed; }
-.btn.primary { background: var(--bg-inverse); color: var(--fg-inverse); border-color: transparent; font-weight: var(--fw-semibold); }
+.btn.primary { background: linear-gradient(180deg, var(--gold-300), var(--sun)); color: var(--sun-ink); border-color: transparent; font-weight: var(--fw-semibold); }
 .btn.primary::before { display: none; }
-.btn.primary:hover { opacity: 0.88; }
+.btn.primary:hover { opacity: 0.92; }
+.btn.primary:focus-visible { outline-color: var(--sun); }
 .btn.danger { color: var(--bad); background: transparent; }
 .btn[data-qopt], .btn[data-ast-tpl] { white-space: normal; text-align: left; padding-top: var(--sp-1_5); padding-bottom: var(--sp-1_5); }
 .row { display: flex; gap: var(--sp-3); align-items: center; flex-wrap: wrap; min-width: 0; }

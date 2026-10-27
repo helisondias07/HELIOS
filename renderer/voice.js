@@ -9,6 +9,7 @@
   const APPROVAL_NOTICE = "Há uma aprovação pendente na tela.";
   const NO_KEY_MESSAGE = "Para conversar por voz, coloque a chave da Groq no Cofre (aba Cofre, em “Chaves de reunião”) e tente de novo.";
   const PREFS_KEY = "helios.voice";
+  const DICTATION_TIP = "Ditado global (Ctrl+Shift+D, desligado por padrão) digita na janela em foco. Este microfone fala com o chat.";
   const PHASE_LABELS = {
     listening: "Ouvindo…",
     transcribing: "Transcrevendo…",
@@ -344,6 +345,7 @@
     function setPhase(phase) {
       if (st.phase === phase) return;
       st.phase = phase;
+      if (deps.onPhase) deps.onPhase(phase);
       emit();
     }
 
@@ -552,7 +554,7 @@
       // Sem espaços nem quebras de linha: a bolha usa white-space: pre-wrap.
       speakButton: (index) => `<div class="voice-actions"><button type="button" class="btn-voice" data-speak="${escAttr(index)}" aria-label="Ouvir esta resposta">Ouvir</button></div>`,
       options: () => `<div class="voice-opts"><label><input type="checkbox" id="voiceAuto"> Ler respostas automaticamente</label><label>Voz<select id="voiceEngine" aria-label="Voz da leitura"><option value="windows">Windows</option><option value="gemini">Gemini</option></select></label></div>`,
-      mic: () => `<div class="voice-mic"><button type="button" class="btn mic" id="micBtn" aria-pressed="false">Conversar por voz</button><span class="voice-state" id="voiceState" role="status"></span></div>`,
+      mic: () => `<div class="voice-mic"><button type="button" class="btn mic" id="micBtn" aria-pressed="false">Conversar por voz</button><span class="voice-state" id="voiceState" role="status"></span><p class="voice-tip">${DICTATION_TIP}</p></div>`,
     };
 
     function paint() {
@@ -620,12 +622,14 @@
       stopConversation,
       prefs: () => ({ ...prefs }),
       state: () => ({ ...st }),
+      phase: () => st.phase,
     };
   }
 
   const api = {
     APPROVAL_NOTICE,
     NO_KEY_MESSAGE,
+    DICTATION_TIP,
     cleanForSpeech,
     splitSentences,
     pickVoice,

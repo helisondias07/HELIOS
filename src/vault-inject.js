@@ -106,4 +106,66 @@ function injectLogin(entry, deps = {}) {
   return Promise.resolve({ ok: false, error: "O preenchimento automático por teclado está disponível no Windows." });
 }
 
-module.exports = { injectLogin, SCRIPT, CLIPBOARD_HELPERS, encodeScript };
+const TEXT_SCRIPT = `
+$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.Windows.Forms
+${CLIPBOARD_HELPERS}
+$code = 0
+try {
+  $raw = [Console]::In.ReadToEnd().Trim()
+  if (-not $raw) { exit 0 }
+  $in = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($raw)) | ConvertFrom-Json
+  $texto = [string]$in.texto
+  if (-not $texto) { exit 0 }
+  Set-ProtectedClipboard $texto
+  Start-Sleep -Milliseconds 60
+  [System.Windows.Forms.SendKeys]::SendWait('^v')
+  Start-Sleep -Milliseconds 80
+} catch {
+  $code = 1
+} finally {
+  $in = $null
+  $raw = $null
+  $texto = $null
+  try { [System.Windows.Forms.Clipboard]::Clear() } catch { $code = 1 }
+}
+exit $code
+`.trim();
+
+const MAX_INJECT = 8000;
+
+function injectText(entry, deps = {}) {
+  const texto = String(entry?.texto ?? "").slice(0, MAX_INJECT);
+  if (!texto.trim()) return Promise.resolve({ ok: false, error: "Não há texto para digitar." });
+  const platform = deps.platform || process.platform;
+  if (platform === "win32") {
+    const spawnImpl = deps.spawn || require("node:child_process").spawn;
+    return new Promise((resolve) => {
+      let child;
+      try {
+        child = spawnImpl("powershell.exe", ["-NoProfile", "-NonInteractive", "-STA", "-EncodedCommand", encodeScript(TEXT_SCRIPT)], {
+          stdio: ["pipe", "ignore", "ignore"],
+          windowsHide: true,
+        });
+      } catch {
+        resolve({ ok: false, error: "Não consegui digitar na janela em foco." });
+        return;
+      }
+      child.on("error", () => resolve({ ok: false, error: "Não consegui digitar na janela em foco." }));
+      child.on("close", (code) => {
+        resolve(code === 0 ? { ok: true, method: "teclas" } : { ok: false, error: "Não consegui digitar na janela em foco." });
+      });
+      child.stdin.on?.("error", () => {});
+      child.stdin.write(Buffer.from(JSON.stringify({ texto }), "utf8").toString("base64"));
+      child.stdin.end();
+    });
+  }
+  if (deps.clipboard) {
+    deps.clipboard.writeText(texto);
+    deps.clipboard.clear();
+    return Promise.resolve({ ok: true, method: "clipboard" });
+  }
+  return Promise.resolve({ ok: false, error: "Digitar na janela em foco está disponível no Windows." });
+}
+
+module.exports = { injectLogin, injectText, SCRIPT, TEXT_SCRIPT, CLIPBOARD_HELPERS, encodeScript, MAX_INJECT };

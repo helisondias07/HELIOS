@@ -4,16 +4,18 @@ const fs = require("node:fs");
 const path = require("node:path");
 const {
   app, BrowserWindow, Tray, Menu, ipcMain, shell, nativeImage, session,
-  desktopCapturer, globalShortcut, screen, dialog, safeStorage,
+  desktopCapturer, globalShortcut, screen, dialog, safeStorage, clipboard,
 } = require("electron");
 require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
 
 const { createVault, editorView } = require("./vault-store");
 const { importKeyFile } = require("./import-keys");
 const { injectLogin } = require("./vault-inject");
+const { registerDictation } = require("./dictation-host");
 const { createSettings } = require("./settings-store");
 const { meetingBrowserOptions, applyMeetingProtection, closeMeetingWindow, mainBrowserOptions, applyMainWindowTheme } = require("./meeting-window");
 const { startServer } = require("../server/index");
+const { loadOAuthClients } = require("../server/oauth-clients");
 const { registerMeeting } = require("./meeting-host");
 const { registerVoice } = require("./voice-host");
 const { createContextHost, protectedFolders } = require("./context-host");
@@ -264,6 +266,13 @@ function bootstrap() {
         blockedFolders: protectedFolders(),
         onFillLogin: (request) => fillLogin(vault, request),
         openExternal: (url) => shell.openExternal(url),
+        oauthClients: loadOAuthClients({
+          file: path.join(__dirname, "..", "config", "oauth-clients.json"),
+          userFile: path.join(dir, "oauth-clients.json"),
+        }),
+        readClipboard: () => {
+          try { return clipboard.readText(); } catch { return ""; }
+        },
         onLiveSession: (session) => {
           const win = openMeeting();
           const send = () => win.webContents.send("livecoding:session", session);
@@ -298,6 +307,15 @@ function bootstrap() {
     });
 
     registerVoice({ ipcMain, vault });
+    registerDictation({
+      ipcMain,
+      globalShortcut,
+      BrowserWindow,
+      vault,
+      serverUrl: () => server.url,
+      getApiToken: () => vault.apiToken(),
+      getMainWindow: () => mainWindow,
+    });
 
     ipcMain.handle("api", async (_event, { method, pathname, body }) => {
       if (!isLocalApiPath(pathname) || !["GET", "POST", "DELETE"].includes(method)) {

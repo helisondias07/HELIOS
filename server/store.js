@@ -55,6 +55,7 @@ function publicConv(conv) {
     title: conv.title,
     assistantId: conv.assistantId || "default",
     busy: Boolean(conv.busy),
+    readOnly: conv.readOnly === true,
     summary: conv.summary && conv.summary.text
       ? { active: true, text: conv.summary.text, chars: conv.summary.text.length, covered: conv.summary.covered || 0, updatedAt: conv.summary.updatedAt || null, rollovers: conv.summary.rollovers || 0 }
       : null,

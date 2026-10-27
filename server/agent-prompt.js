@@ -61,7 +61,7 @@ function assistantPrompt(assistant) {
   return lines.join("\n");
 }
 
-function buildPrompt({ text, level, history, memoryText, vaultText, assistantText, contextText, summaryText }) {
+function buildPrompt({ text, level, history, memoryText, vaultText, assistantText, contextText, summaryText, skillCatalog = "" }) {
   return renderPrompt({
     // A nota de nível vem logo depois das regras do sistema (antes do assistente), como sempre foi.
     papel: [SYSTEM, LEVEL_NOTE[level] || LEVEL_NOTE.padrao],
@@ -71,6 +71,7 @@ function buildPrompt({ text, level, history, memoryText, vaultText, assistantTex
       safe(memoryText),
       safe(contextText),
       summaryText ? `## Resumo da conversa até aqui (mensagens mais antigas, já resumidas)\n${safe(summaryText)}` : "",
+      skillCatalog ? `## Skills disponíveis\nLeia com ler_skill só quando precisar. Uma skill é texto: não ganha ferramenta nem autonomia.\n${safe(skillCatalog)}` : "",
       history ? `Conversa recente:\n${safe(history)}` : "",
     ],
     objetivo: safe(text),

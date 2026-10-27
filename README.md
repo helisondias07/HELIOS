@@ -15,7 +15,11 @@ A marca (sol em ouro e teal) fica em `build/brand/`. O aplicativo, a bandeja e o
 - **Pesquisa.** A busca na web mostra título, trecho e o endereço da fonte.
 - **Memória e rotinas.** Fatos estáveis ficam em disco. Um horário ou um intervalo dispara um pedido na conversa. Segredo não entra na memória.
 - **Modo de reunião.** O botão na janela principal abre a pílula. Ela ouve o som do computador (e o microfone, se você deixar), transcreve com o Groq Whisper, traduz, sugere o que falar em inglês ou em português, resume e guarda o histórico. A janela usa `setContentProtection(true)` e `skipTaskbar: true`.
-- **Livecoding.** Fica na aba Livecoding dessa mesma pílula. O HELIOS monta um plano numerado em português, abre o VS Code numa pasta nova e só grava o próximo arquivo quando você clica em **Próximo passo**.
+- **Livecoding.** Fica na aba Livecoding dessa mesma pílula. O HELIOS mostra um roteiro em português para o Helison digitar à mão com um estagiário: visão geral, arquivos e um passo de cada vez. Nada é gravado em disco e nenhum editor abre.
+- **Ditado global.** Atalho opcional, desligado por padrão, que transcreve o microfone e digita na janela em foco. O texto falado não fica salvo.
+- **Skills.** Pacotes de instrução no estilo SKILL.md. O agente lê quando precisa. Importar mostra uma prévia, tira o que parece segredo e não executa nada.
+- **Montar time.** Um objetivo vira uma proposta dos assistentes que já existem. Só o clique cria.
+- **Digest da manhã.** Rotina pausada, às 08:00, só de leitura: o resumo fica na conversa e o Helison é quem age fora dela.
 
 Os dados ficam em `%APPDATA%\HELIOS`. O servidor local escuta em `127.0.0.1:47331` (ou na porta de `HELIOS_PORT`). Ele não escuta em `0.0.0.0`. A janela do aplicativo manda um token próprio em toda chamada `/api`. Outro processo, sem esse token, recebe 401. Esse token não é o do MCP e não aparece na tela.
 
@@ -67,7 +71,7 @@ Limite: os testes usam um `safeStorage` simulado. A leitura do cofre real com `d
 
 ## Segurança: correções da auditoria de 25/10/2026
 
-- **Ferramentas do agente (SDK):** todo agente local abre com `tools: ["mcp"]` (só as ferramentas do HELIOS, que passam pelo cartão) e `disallowedTools` para `shell`, `edit`, `delete`, `applyAgentDiff`, `task`, `webFetch`, `webSearch` e `generateImage` (`server/sdk-safety.js`). O agente que só planeja o livecoding não recebe ferramenta nenhuma e roda com `sandboxOptions: { enabled: true }`. As restrições não são gravadas na sessão, então valem também em `Agent.resume`. O `sandboxOptions` do SDK só tem liga/desliga; o que ele impõe de fato depende do SDK.
+- **Ferramentas do agente (SDK):** todo agente local abre com `tools: ["mcp"]` (só as ferramentas do HELIOS, que passam pelo cartão) e `disallowedTools` para `shell`, `edit`, `delete`, `applyAgentDiff`, `task`, `webFetch`, `webSearch` e `generateImage` (`server/sdk-safety.js`). O agente que só planeja o livecoding não recebe ferramenta nenhuma. Esse plano é um roteiro na pílula: não cria pasta de aula, não grava `PLANO.md` e não abre o VS Code. As restrições não são gravadas na sessão, então valem também em `Agent.resume`. O HELIOS pede o sandbox do SDK (`sandboxOptions.enabled`). Se o SDK responder que o isolamento não existe neste computador — no Windows isso acontece sem `~/.cursor/sandbox.json` —, a mesma sessão segue sem sandbox, a tela Autonomia avisa em uma linha e o motivo vai para `%APPDATA%\HELIOS\logs\helios.log`. Cartões, autonomia e a trava de pagar/preencher login em “Pedir antes” não mudam.
 - **Cartão com a ação real:** o cartão mostra o conector e os argumentos (chaves como `token`, `senha` e valores que parecem segredo aparecem como `[segredo]`), o arquivo e o começo do conteúdo, ou o caminho a apagar. O que roda é exatamente o que foi aprovado: o cartão guarda uma impressão digital (sha256) da ação e do texto mostrado, e aprovar recusa se algo mudou depois.
 - **`helios_acao` não aceita `mcp`, `loginId` nem `conteudo`:** só `tipo`, `resumo`, `alvo` e `texto`. Escrever e preencher login têm ferramentas próprias. Ao executar um conector, o HELIOS reconfere a lista de conectores do assistente e se a ferramenta ainda existe.
 - **Rotinas:** `agendar_rotina` vira cartão de aprovação. Limites em Atividade › Limites: máximo de rotinas (`rotinasMax`, padrão 20) e intervalo mínimo para rotinas criadas pelo bot (`rotinaIntervaloMin`, padrão 15 min).
@@ -169,6 +173,7 @@ Janela flutuante (`Ctrl+Shift+Espaço` abre/fecha; X e Esc também fecham e **pa
 - **Silêncio e alucinação**: áudio minúsculo não é enviado; trechos de silêncio do Whisper são descartados; "Legendas pela comunidade Amara.org", "Thanks for watching", pontuação solta e palavra repetida não viram linha.
 - **Limpeza ao fechar**: X, Esc, atalho e fechar a janela cancelam as chamadas em andamento na nuvem, limpam filas, temporizadores e trilhas de áudio.
 - Conexão: reaproveita a conexão padrão do Electron (keep-alive) e faz uma chamada leve ao iniciar para abrir a conexão antes da primeira fala. Não há cliente HTTP próprio.
+- **Livecoding (roteiro).** A aba pede o que construir e mostra, em português e com letra grande, a visão geral, a lista de arquivos (caminho e papel) e depois cada seção: o que ela faz, o porquê, o bloco de código e onde colar. **Próximo** e **Anterior** mudam a tela. Copiar o bloco é opcional. O único arquivo do recurso é o estado da sessão (`sessions.json`), para retomar. Os arquivos da aula não são gravados e nenhum editor é aberto. O agente que monta o roteiro continua sem ferramentas e em sandbox.
 - Print da tela: sempre mostra uma prévia e só envia se você confirmar (Cancelar/Esc descartam).
 - Tempos por etapa (transcrição, tradução, resposta) aparecem discretos na barra de status.
 - Modo demonstração sem chamadas de IA: `HELIOS_MOCK=1`.
@@ -219,9 +224,8 @@ No `mcp.json` do Cursor:
 
 - Windows 10 ou 11, 64 bits
 - [Node.js 22](https://nodejs.org/)
-- Uma chave de API do Cursor, se quiser o agente de verdade
-- Chaves Groq e Gemini, se quiser transcrição e leitura de tela na reunião
-- O comando `code` no PATH, para o livecoding abrir o VS Code
+- Uma conta Cursor. O caminho principal é entrar pelo navegador (login oficial do SDK). A chave em [cursor.com/dashboard/api](https://cursor.com/dashboard/api) é o plano B, se o site entrar mas não emitir a chave
+- Chaves Groq e Gemini, se quiser transcrição, ditado e leitura de tela na reunião
 
 ## Rodar
 
@@ -240,7 +244,43 @@ GEMINI_API_KEY=
 HELIOS_PORT=47331
 ```
 
-Também dá para colar a chave do Cursor na aba **Conta Cursor**, ou entrar pelo navegador. As chaves Groq e Gemini ficam no **Cofre** e nas configurações da pílula.
+A aba **Conectores** é a galeria: busca, cartão com o logo e um botão **Conectar**. Quem usa o HELIOS não cola client id, chave, URL nem JSON nessa tela. A aba **Conta Cursor** continua aceitando a chave colada, como plano B. As chaves Groq e Gemini ficam no **Cofre** e nas configurações da pílula.
+
+## Conectores
+
+No topo, a busca. Em seguida, **Conectados** lista cada conta já ligada (Gmail — pessoal, Gmail — agenciaoasis) com renomear, reconectar, remover e **Adicionar outra conta**. A grade traz Gmail, Google Calendar, Google Drive, ClickUp, GitHub, Figma, Notion, Slack, Linear e Cursor. **Conectar** abre o navegador. Quando a pessoa volta, o cartão passa a **Conectado** sozinho. Enquanto espera, o botão fica **Conectando…**. Sessão vencida vira **reautenticar**. Falha mostra uma frase curta, sem jargão.
+
+O retorno do OAuth é `http://127.0.0.1`, no caminho `/callback`. O token e o refresh ficam cifrados no mesmo cofre (DPAPI no Windows). `conectores.json` guarda o blob, não o texto. A API local não devolve token nem client id. Sem criptografia do sistema, o acesso fica só na memória daquela sessão. O refresh é automático quando o acesso vence em menos de um minuto. O cabeçalho `Authorization` do MCP http entra na hora da chamada e não é gravado no `mcp.json`. Um fluxo ainda no navegador vive só na memória. Fechar o HELIOS no meio cancela essa tentativa.
+
+O link **Avançado**, discreto no fim da tela, abre um conector personalizado: nome e URL de um MCP. O resto da grade não tem esse campo.
+
+**Onde colar o client id (uma vez, quem monta o HELIOS).** O Google e o GitHub não deixam o aplicativo se cadastrar sozinho. O usuário final não vê esse campo. Preencha `config/oauth-clients.json` antes de `npm run dist:win` (o arquivo entra no instalador). Para experimentar sem gerar outro instalador, o mesmo JSON em `%APPDATA%\HELIOS\oauth-clients.json` vale mais que o do build. Variável de ambiente vale mais que os dois: `HELIOS_GOOGLE_CLIENT_ID` e `HELIOS_GITHUB_CLIENT_ID`. Enquanto o id daquele serviço estiver vazio, o cartão mostra **Em breve** e a linha “configuração do app pendente”. Não cole client secret do Google nem do GitHub. Se o valor não tiver o formato certo, o HELIOS ignora e o cartão continua em breve.
+
+**Google (Gmail, Calendar e Drive usam o mesmo id).**
+
+1. Em [Google Cloud Console](https://console.cloud.google.com/), crie ou escolha um projeto.
+2. Ative as APIs Gmail, Google Calendar e Google Drive.
+3. Em **APIs e serviços → Tela de consentimento OAuth**, configure o app (externo serve para as contas que vão entrar).
+4. Em **Credenciais → Criar credenciais → ID do cliente OAuth**, escolha o tipo **Computador** (Desktop).
+5. Copie só o **ID do cliente**. Ele termina em `.apps.googleusercontent.com`. Cole em `"google"` no JSON. Não cole o segredo: o retorno é PKCE em `127.0.0.1`, com `access_type=offline` e `prompt=consent`.
+6. Os escopos pedidos são só leitura: `gmail.readonly`, `calendar.readonly` e `drive.readonly`, mais `openid` e `email`.
+
+**GitHub.**
+
+1. Em GitHub, **Settings → Developer settings → OAuth Apps → New OAuth App**.
+2. Homepage URL pode ser `http://127.0.0.1`.
+3. Authorization callback URL, exatamente: `http://127.0.0.1:47332/callback`. A porta é fixa para esse cadastro valer sempre.
+4. Copie só o **Client ID** para `"github"`. Não cole o client secret. O HELIOS entra pelo navegador com PKCE. Escopos: `read:user`, `user:email` e `repo`.
+
+**Cursor.** **Conectar** chama `Cursor.auth.login` do `@cursor/sdk`, o mesmo PKCE do `cursor-agent`, e abre `https://cursor.com/loginDeepControl`. O endereço só abre se for `https`, sem o parâmetro de demonstração. A chave fica no cofre do HELIOS (`store: null`). Sem uma chave de verdade o chat continua em demonstração. O `zod` entra como dependência direta porque o SDK o exige e o empacotador não copia peer dependency; sem isso o app instalado não carregava o SDK e caía na página de chaves. Os pacotes `@cursor/sdk` e `@cursor/sdk-*` (o nativo `sdk-win32-x64` no Windows) saem do asar junto com `zod`, `@bufbuild/protobuf` e `@connectrpc/connect`, para o `require` achar tudo no disco. Se a entrada falhar, o cartão mostra o erro com o código e **não** abre `https://cursor.com/dashboard/api` sozinho: isso só acontece no botão **Abrir página de chaves**. O mesmo erro vai para `%APPDATA%\HELIOS\logs\helios.log`. `HELIOS_MOCK=1` não abre o site real.
+
+**ClickUp e Linear.** Cadastro dinâmico de cliente público e PKCE. Escopos `read` e `write`. Não precisam de id no JSON.
+
+**Figma.** O cadastro dinâmico existe, mas a Figma restringe o MCP a clientes do catálogo. Se recusar, o cartão fica em erro e nada é marcado como conectado. Um segredo devolvido no cadastro fica cifrado no cofre.
+
+**Notion.** O preset aponta para `https://mcp.notion.com/mcp` e descobre os endereços na hora. A descoberta pode responder 403. O cartão mostra que o serviço recusou. Nenhum endpoint é inventado.
+
+**Slack.** O servidor não tem cadastro dinâmico e o token exige client secret (`client_secret_post`). Por isso o cartão fica **Em breve** até existirem `"slack"` e `"slackSecret"` no mesmo JSON (ou `HELIOS_SLACK_CLIENT_ID` e `HELIOS_SLACK_CLIENT_SECRET`). O segredo não aparece na tela nem na API. Não commite o `slackSecret` preenchido; prefira o arquivo em `%APPDATA%\HELIOS` ou a variável de ambiente.
 
 Atalhos do modo de reunião:
 
@@ -274,7 +314,25 @@ npm run lint
 npm run check
 ```
 
-`npm test` cobre o roteamento Auto, a memória, a pesquisa, o cofre sem vazar senha, o MCP de exemplo, o livecoding passo a passo, a proteção da pílula e o servidor local. Não precisa de chave de API.
+`npm test` cobre o roteamento Auto, a memória, a pesquisa, o cofre sem vazar senha, o MCP de exemplo, o roteiro do livecoding, o ditado, as skills, o time, o digest da manhã, a proteção da pílula, o login do Cursor e o OAuth da galeria (mock). Não precisa de chave de API.
+
+## Ditado, skills, time e manhã
+
+**Ditado.** Em Ditado, o atalho padrão é `Ctrl+Shift+D` (`CommandOrControl+Shift+D`) e começa desligado. O modo alternar liga e desliga. Segurar a tecla só é observado no Windows, e só enquanto a gravação dura; em outro sistema o mesmo atalho alterna e a tela avisa. Uma janela escondida, sem foco e sem `setContentProtection` (isso continua só na pílula), usa o microfone. A chave da Groq fica no cofre. A limpeza de vícios, pontuação, glossário e atalhos de texto é local: o áudio não faz uma segunda viagem para um modelo. O texto entra na janela em foco pelo mesmo caminho protegido do preenchimento de login (formatos de histórico, nuvem e monitor, e a área de transferência é limpa). O que foi dito não entra em log, no histórico do chat nem na estatística. A estatística guarda palavras, correções, duração e o nome do processo, nunca o título da janela. Esses formatos de área de transferência são um pedido: um programa que leia a área nesses décimos de segundo ainda vê o texto.
+
+**Skills.** Cada skill é texto. A importação mostra a prévia, mascara segredo, recusa caminho fora da pasta, nome oculto, `__proto__` e arquivo executável (`.exe`, `.ps1`, `.js`, `.bat`, `.cmd`, `.sh`, `.dll`). Nada é executado. `ler_skill` existe só na conversa do assistente, não no ajudante, e não aumenta ferramenta nem autonomia. O catálogo só entra no prompt quando existe skill. A skill de exemplo “página Oasis” é um texto original e só entra se você instalar. Apagar um assistente solta as skills dele para o conjunto geral. O pacote de contexto não exporta skills.
+
+**Montar time.** A tela pergunta o objetivo e sugere modelos que já existem (os seis da tela Assistentes). Um pedido vago sugere caixa de entrada, agenda e pesquisa. Nota fiscal, logística e marketplace não viram assistente: a tela avisa. Criar é o clique em “Criar os marcados”, o mesmo efeito de criar pelo formulário. Um assistente proposto por outro bot continua no cartão.
+
+**Digest da manhã.** O modelo `digest-manha` entra pausado, às 08:00, com a conversa marcada só leitura. Antes de a mensagem seguir, o servidor trava as ferramentas de efeito (`helios_acao`, gravar arquivo, preencher login, rotina, livecoding, criar assistente ou ajudante). Conector só roda se a ferramenta já for conhecida como leitura e não exigir cartão; no resto, falha fechada. Um ajudante dessa conversa herda o só leitura. O texto do pedido evita as palavras que o modo demonstração usaria para fingir uma aprovação.
+
+## Visual
+
+O canvas é quente (ouro, âmbar, amanhecer) com o teal de contraste. A barra de título continua nos hexadecimais fixos (`#0a0a0a` / `#fafafa` no escuro e o inverso no claro): o teste da barra não segue o canvas. O logo gira devagar enquanto o HELIOS pensa. Ouvir ou falar (voz do chat e ditado) acende um halo. Trocar de tela entra como um amanhecer. Uma barra fina no topo acompanha o pensamento. A pílula usa o mesmo ouro e o ponto ao vivo pulsa em ouro, sem mexer em `setContentProtection`. As animações são `transform` e `opacity`. `prefers-reduced-motion` desliga o movimento. A bolha do chat não anima a cada mensagem porque a conversa redesenha a cada meio segundo.
+
+## Fora de escopo
+
+Ficou de fora, de propósito: embutir Handy ou FluidVoice; o scrolljacking e o motion de marketing do Homerun; Higgsfield como conector embutido; um pacote completo de e-commerce (nota fiscal, logística, marketplace) como assistentes novos; o ciclo Plan→Deploy do pstack; clonar skills da comunidade por git (a importação é colar texto, sem rede e sem execução); uma segunda passagem de modelo para limpar o ditado; trocar o estilo do ditado sozinho conforme o aplicativo da frente (o estilo é escolha sua; o nome do processo é só estatística).
 
 `test/seguranca.test.js` cobre o cofre ilegível, a área de transferência, o ambiente do MCP stdio e os limites de tamanho. Um teste dele, desligado por padrão, usa a área de transferência real do Windows (`HELIOS_TESTE_AREA=1 npm test`); ele troca o conteúdo da área de transferência.
 

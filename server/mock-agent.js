@@ -124,7 +124,7 @@ function baseScript(text, role) {
   if (/\blivecoding|ao vivo com estagi/.test(folded)) {
     return [
       ["tool", "iniciar_livecoding", { descricao: raw.slice(0, 120) }],
-      ["say", "Abri o modo de reunião no livecoding. Avance com Próximo passo."],
+      ["say", "Abri o roteiro na pílula de reunião. Nada foi salvo e nenhum editor abriu. Use Próximo e Anterior."],
     ];
   }
   if (role === "ajudante") return [["say", `executei a tarefa “${raw.slice(0, 80)}” em modo demonstração.`]];

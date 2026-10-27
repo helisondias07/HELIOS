@@ -41,5 +41,6 @@ contextBridge.exposeInMainWorld("api", {
   onHotkeysFailed: (cb) => ipcRenderer.on("hotkeys-failed", (_event, list) => cb(list)),
   liveStart: (description) => ipcRenderer.invoke("livecoding:start", description),
   liveNext: (id) => ipcRenderer.invoke("livecoding:next", id),
+  livePrev: (id) => ipcRenderer.invoke("livecoding:prev", id),
   onLiveSession: (cb) => ipcRenderer.on("livecoding:session", (_event, session) => cb(session)),
 });

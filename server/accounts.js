@@ -7,7 +7,8 @@
 const crypto = require("node:crypto");
 const os = require("node:os");
 const { EventEmitter } = require("node:events");
-const { redact } = require("./util");
+const { redact, appendHeliosLog } = require("./util");
+const { loadCursorSdk } = require("./sdk-load");
 const { findSecret } = require("./secret-scan");
 
 const ENV_ID = "acc_env";
@@ -16,11 +17,25 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const MAX_ACCOUNTS = 3;
 const LOGIN_TIMEOUT_MS = 5 * 60 * 1000;
+const KEY_PAGE = "https://cursor.com/dashboard/api";
+const KEY_RE = /^(?:crsr_|cursor_)[A-Za-z0-9_-]{16,200}$/;
 
-/** Mensagem em português para uma falha do login pelo navegador, sem expor detalhes internos. */
+/** Só o login oficial do SDK: https, sem o parâmetro de demonstração e sem o endereço falso. */
+function safeLoginUrl(value) {
+  let parsed;
+  try { parsed = new URL(String(value || "")); } catch { return ""; }
+  if (parsed.protocol !== "https:") return "";
+  if (parsed.hostname === "helios.invalid" || parsed.hostname.endsWith(".invalid")) return "";
+  if (parsed.searchParams.get("demo") === "1") return "";
+  return parsed.toString();
+}
+
+/** Mensagem em português para uma falha do login pelo navegador, com o código real do erro. */
 function friendlyLoginError(err) {
-  const raw = String((err && err.message) || err || "").slice(0, 160);
-  return `Não consegui concluir a entrada pelo navegador${raw ? ` (${raw})` : ""}. Tente de novo ou use a chave de API, que é o caminho mais firme.`;
+  const code = String(err?.code || "").replace(/[^\w.-]/g, "").slice(0, 48);
+  const raw = String(err?.message || err || "").split(/\r?\n/)[0].replace(/https?:\/\/\S+/gi, "[url]").replace(/\s+/g, " ").trim().slice(0, 160);
+  const detail = [code, raw].filter(Boolean).join(": ");
+  return `Não consegui concluir a entrada pelo navegador${detail ? ` (${detail})` : ""}. Tente de novo ou use a chave de API, que é o caminho mais firme.`;
 }
 const SLOT_NAMES = ["Conta A", "Conta B", "Conta C"];
 
@@ -58,7 +73,7 @@ function describeAccountIssue(issue, label) {
   return `A conexão ${who} expirou ou a chave não vale mais.`;
 }
 
-function sdkAdapters({ mock = false } = {}) {
+function sdkAdapters({ mock = false, openExternal = null } = {}) {
   if (mock) {
     return {
       async validateKey(apiKey) {
@@ -80,16 +95,26 @@ function sdkAdapters({ mock = false } = {}) {
   }
   return {
     async validateKey(apiKey) {
-      const { Cursor } = await import("@cursor/sdk");
+      const { Cursor } = await loadCursorSdk();
       const me = await Cursor.me({ apiKey });
       return { email: me.userEmail || null, keyName: me.apiKeyName || null };
     },
     async login({ onUrl, signal }) {
-      const { Cursor } = await import("@cursor/sdk");
+      const { Cursor } = await loadCursorSdk();
+      if (!Cursor?.auth?.login) throw Object.assign(new Error("Este SDK do Cursor não tem login pelo navegador."), { code: "SDK_AUSENTE" });
+      const show = async (url) => {
+        const safe = safeLoginUrl(url);
+        if (!safe) throw Object.assign(new Error("O endereço de login não é o site oficial do Cursor."), { code: "NEEDS_KEY" });
+        onUrl(safe);
+        return safe;
+      };
       const res = await Cursor.auth.login({
         store: null,
-        openBrowser: false,
-        onLoginUrl: onUrl,
+        openBrowser: async (url) => {
+          const safe = await show(url);
+          if (openExternal) await openExternal(safe);
+        },
+        onLoginUrl: (url) => { show(url).catch(() => {}); },
         signal,
         apiKeyName: `HELIOS · ${os.hostname()}`.slice(0, 60),
       });
@@ -130,7 +155,7 @@ function parseAccountsSnapshot(raw) {
 
 const KIND_LABEL = { login: "Login do Cursor", apiKey: "Chave de API", env: "CURSOR_API_KEY do .env" };
 
-function createAccountStore({ initial, persist = null, adapters, log = () => {}, loginTimeoutMs = LOGIN_TIMEOUT_MS } = {}) {
+function createAccountStore({ initial, persist = null, adapters, log = () => {}, loginTimeoutMs = LOGIN_TIMEOUT_MS, allowDemoKeys = false, dataDir = null } = {}) {
   const events = new EventEmitter();
   const start = parseAccountsSnapshot(initial || {});
   let accounts = start.accounts;
@@ -257,7 +282,15 @@ function createAccountStore({ initial, persist = null, adapters, log = () => {},
 
   function loginStatus() {
     if (!login) return null;
-    return { id: login.id, status: login.status, url: login.url, error: login.error, accountId: login.accountId };
+    return {
+      id: login.id,
+      status: login.status,
+      url: login.url,
+      error: login.error,
+      accountId: login.accountId,
+      needsKey: login.needsKey === true,
+      keyPage: login.needsKey ? KEY_PAGE : null,
+    };
   }
 
   function startLogin() {
@@ -270,6 +303,7 @@ function createAccountStore({ initial, persist = null, adapters, log = () => {},
       if (login !== mine || mine.status !== "waiting") return;
       controller.abort();
       Object.assign(mine, { status: "error", error: "O tempo para entrar acabou. Tente de novo ou use a chave de API." });
+      appendHeliosLog(dataDir, `[contas] login falhou code=TIMEOUT ${mine.error}`);
       events.emit("change");
     }, loginTimeoutMs);
     if (timeout.unref) timeout.unref();
@@ -278,14 +312,18 @@ function createAccountStore({ initial, persist = null, adapters, log = () => {},
       signal: controller.signal,
       onUrl: (url) => {
         if (login !== mine) return;
-        mine.url = /^https:\/\//.test(url) ? url : null;
+        mine.url = safeLoginUrl(url) || null;
         events.emit("login-url", mine.url);
         events.emit("change");
       },
     }).then((res) => {
       clearTimeout(timeout);
       if (login !== mine || mine.status !== "waiting") return;
-      const account = upsert({ kind: "login", apiKey: res.apiKey, email: res.email || null, expiresAt: res.expiresAt || null });
+      const key = String(res?.apiKey || "");
+      if (!allowDemoKeys && (key.startsWith("demo_") || key.length < 12)) {
+        throw Object.assign(new Error("O navegador não entregou uma chave de verdade."), { code: "NEEDS_KEY" });
+      }
+      const account = upsert({ kind: "login", apiKey: key, email: res.email || null, expiresAt: res.expiresAt || null });
       Object.assign(mine, { status: "done", accountId: account.id });
       log(`[contas] login concluído: ${logName(account)}`);
       events.emit("change");
@@ -293,7 +331,14 @@ function createAccountStore({ initial, persist = null, adapters, log = () => {},
       clearTimeout(timeout);
       if (login !== mine || mine.status !== "waiting") return;
       const cancelled = controller.signal.aborted;
-      Object.assign(mine, { status: cancelled ? "cancelled" : "error", error: cancelled ? "Login cancelado." : friendlyLoginError(err) });
+      const needsKey = !cancelled && (err?.code === "NEEDS_KEY" || err?.code === "SDK_AUSENTE" || /SDK API key failed|empty API key/i.test(String(err?.message || "")));
+      const error = cancelled ? "Login cancelado." : friendlyLoginError(err);
+      Object.assign(mine, {
+        status: cancelled ? "cancelled" : "error",
+        error,
+        needsKey,
+      });
+      if (!cancelled) appendHeliosLog(dataDir, `[contas] login falhou code=${err?.code || "sem-codigo"} ${error}`);
       events.emit("change");
     });
     return loginStatus();
@@ -306,6 +351,35 @@ function createAccountStore({ initial, persist = null, adapters, log = () => {},
       events.emit("change");
     }
     return loginStatus();
+  }
+
+  /** Login já gravado pelo SDK/CLI em ~/.cursor/sdk/auth.json. A chave não volta na resposta. */
+  async function adoptLocal(raw) {
+    let parsed;
+    try { parsed = typeof raw === "string" ? JSON.parse(raw) : raw; } catch { parsed = null; }
+    const key = String(parsed?.apiKey || "").trim();
+    if (!KEY_RE.test(key)) throw Object.assign(new Error("Não achei um login do Cursor neste computador."), { status: 404 });
+    if (Number(parsed.apiKeyExpiresAtMs) && Number(parsed.apiKeyExpiresAtMs) <= Date.now()) {
+      throw Object.assign(new Error("O login local do Cursor expirou. Entre de novo pelo navegador."), { status: 422 });
+    }
+    let info;
+    try { info = await adapters.validateKey(key); }
+    catch { throw Object.assign(new Error("O Cursor não aceitou o login que já estava neste computador."), { status: 422 }); }
+    const account = upsert({ kind: "login", apiKey: key, email: info?.email || parsed.email || null, expiresAt: Number(parsed.apiKeyExpiresAtMs) || null, label: "" });
+    log(`[contas] login local adotado: ${logName(account)}`);
+    return publicAccount(account);
+  }
+
+  /** Lê a área de transferência uma vez. Só aceita o formato de chave do Cursor e só guarda depois de o Cursor aceitar. */
+  async function acceptClipboard(text) {
+    const key = String(text || "").trim();
+    if (!KEY_RE.test(key)) return { found: false };
+    try {
+      const account = await addApiKey({ apiKey: key });
+      return { found: true, account };
+    } catch (err) {
+      return { found: true, error: err.message || "O Cursor não aceitou a chave copiada." };
+    }
   }
 
   function setActive(id) {
@@ -371,6 +445,8 @@ function createAccountStore({ initial, persist = null, adapters, log = () => {},
     startLogin,
     cancelLogin,
     loginStatus,
+    adoptLocal,
+    acceptClipboard,
     setActive,
     setLabel,
     noteIssue,
@@ -386,6 +462,9 @@ module.exports = {
   MAX_ACCOUNTS,
   SLOT_NAMES,
   sdkAdapters,
+  safeLoginUrl,
+  KEY_PAGE,
+  KEY_RE,
   classifyAccountError,
   describeAccountIssue,
   sanitizeAccountLabel,

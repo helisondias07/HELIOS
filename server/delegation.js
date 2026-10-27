@@ -37,6 +37,7 @@ function createDelegation(deps) {
     autonomy,
     usage = null,
     openEphemeral,
+    sandboxDenied = () => false,
     resolveAuth,
     catalogFor,
     makeBaseTools,
@@ -79,7 +80,17 @@ function createDelegation(deps) {
       const catalog = await catalogFor(auth);
       const picked = chooseModel({ text: prompt.slice(-400), override: level, catalog });
       agent = await openEphemeral({ name, selection: picked.selection, tools, auth });
-      run = await agent.send(prompt, { model: picked.selection });
+      try {
+        run = await agent.send(prompt, { model: picked.selection });
+      } catch (err) {
+        if (!sandboxDenied(err)) throw err;
+        try {
+          if (typeof agent[Symbol.asyncDispose] === "function") await agent[Symbol.asyncDispose]();
+          else agent.close?.();
+        } catch { /* o agente que o SDK recusou não precisa ser reaproveitado */ }
+        agent = await openEphemeral({ name, selection: picked.selection, tools, auth });
+        run = await agent.send(prompt, { model: picked.selection });
+      }
       let streamed = "";
       if (typeof run.supports !== "function" || run.supports("stream")) {
         for await (const raw of run.stream()) {
@@ -148,6 +159,7 @@ function createDelegation(deps) {
     const helperConv = store.create(`Ajudante: ${oneLine(task, 50)}`, parent.id);
     store.update(helperConv.id, (conv) => {
       conv.helper = { id: entry.id, parentConvId: convId, rootConvId: ctx.rootConvId, depth, task: oneLine(task, 200), done: false };
+      if (store.get(convId)?.readOnly) conv.readOnly = true;
     });
     const helperCtx = { kind: "ajudante", assistantId: parent.id, rootConvId: ctx.rootConvId, depth, chain: ctx.chain, allowed: new Set(names) };
     const all = makeBaseTools(helperConv.id, helperCtx);

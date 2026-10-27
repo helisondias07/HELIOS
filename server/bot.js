@@ -14,11 +14,13 @@ const { describeAction, digestOf } = require("./approval-preview");
 const { restrictedAgentOptions } = require("./sdk-safety");
 const { isAutomated, originOf } = require("./inbox");
 const { formatResults } = require("./search");
-const { writeFiles, draftPlanFromRequest, normalizePlan, parsePlanJson } = require("./livecoding");
+const { draftPlanFromRequest, normalizePlan, parsePlanJson } = require("./livecoding");
 const { createDelegation } = require("./delegation");
 const { planSummary, extractiveSummary, summaryPrompt, SUMMARY_MAX } = require("./summary");
 const { screenUserText } = require("./credentials");
 const { classifyAccountError, describeAccountIssue } = require("./accounts");
+const { loadCursorSdk } = require("./sdk-load");
+const { createSandboxGate } = require("./sdk-sandbox");
 
 const HISTORY = { rapido: [4, 400, 500], padrao: [8, 700, 800], avancado: [12, 1000, 1200] };
 
@@ -45,15 +47,18 @@ function createBot(deps) {
     parking,
     ledger = null,
     usage = null,
+    skills = null,
     now = () => Date.now(),
-    loadSdk = () => import("@cursor/sdk"),
+    loadSdk = () => loadCursorSdk(),
     helperTimeoutMs,
     getVaultIndex,
     onLivecoding,
     cwd,
+    dataDir = null,
     log = () => {},
   } = deps;
   const forceMock = () => Boolean(deps.mock);
+  const sandbox = createSandboxGate({ log, dataDir });
   const delegation = createDelegation({
     store,
     assistants,
@@ -69,6 +74,7 @@ function createBot(deps) {
     resolveAuth: () => resolveAuth(),
     catalogFor: (auth) => catalogFor(auth),
     makeBaseTools: (convId, ctx) => makeTools(convId, ctx),
+    sandboxDenied: (err) => sandbox.note(err),
     log,
   });
 
@@ -384,12 +390,12 @@ function createBot(deps) {
         execute: async (args) => queueQuestion(convId, args),
       },
       iniciar_livecoding: {
-        description: "Abre o modo de reunião no livecoding, cria a pasta, o plano e abre o VS Code. Não grava o primeiro arquivo.",
+        description: "Abre na pílula de reunião um roteiro para o Helison digitar à mão com um estagiário. Não grava arquivo e não abre editor.",
         inputSchema: { type: "object", properties: { descricao: { type: "string" } }, required: ["descricao"] },
         execute: async (args) => {
           if (!onLivecoding) return "O livecoding não está disponível neste processo.";
           const session = await onLivecoding(String(args.descricao || "Página de exemplo"));
-          return `Abri o livecoding “${session.title}” em ${session.folder}. O Helison avança com Próximo passo.`;
+          return `Abri o roteiro “${session.title}” na pílula de reunião. Nada foi salvo em disco e nenhum editor foi aberto. Use Próximo e Anterior.`;
         },
       },
       agendar_rotina: {
@@ -418,6 +424,33 @@ function createBot(deps) {
       },
     };
     Object.assign(tools, delegation.tools(convId, ctx, { queueCard: (card) => queueCard(convId, card) }));
+    if (skills && ctx.kind !== "ajudante") {
+      tools.ler_skill = {
+        description: "Lê o texto de uma skill instalada. A skill é só instrução: não ganha ferramenta nem autonomia.",
+        inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
+        execute: async (args) => {
+          const item = skills.read(String(args.id || ""), ctx.assistantId);
+          if (!item) return "Não achei essa skill para este assistente.";
+          return redact(item.instrucoes).slice(0, 4000);
+        },
+      };
+    }
+    const blockedWhenReadOnly = new Set(["helios_acao", "escrever_arquivo", "helios_preencher_login", "agendar_rotina", "iniciar_livecoding", "criar_assistente", "criar_ajudante"]);
+    for (const [name, tool] of Object.entries(tools)) {
+      const run = tool.execute.bind(tool);
+      tool.execute = (args) => {
+        const current = store.get(convId);
+        if (current?.readOnly) {
+          if (blockedWhenReadOnly.has(name)) return "Esta conversa é só leitura. O resultado fica aqui; o Helison é quem age fora dela.";
+          if (name === "mcp_chamar") {
+            const known = mcp.findTool(String(args?.servidor || ""), String(args?.ferramenta || ""));
+            const kind = known ? classifyToolDetailed(String(args?.ferramenta || ""), known.description || "") : { tipo: "outro", forceCard: true };
+            if (kind.tipo !== "ler" || kind.forceCard) return "Esta conversa é só leitura. Só uma ferramenta de leitura já conhecida pode rodar, sem cartão.";
+          }
+        }
+        return run(args);
+      };
+    }
     return { tools, sources };
   }
 
@@ -456,30 +489,38 @@ function createBot(deps) {
   async function openEphemeral({ name, selection, tools, auth }) {
     if (forceMock() || !auth?.apiKey) return createMockAgent({ tools });
     const sdk = await loadSdk();
-    return sdk.Agent.create({
-      name: String(name).slice(0, 80),
-      model: selection,
-      apiKey: auth.apiKey,
-      local: { cwd, settingSources: [], sandboxOptions: { enabled: true }, customTools: tools },
-      ...restrictedAgentOptions({ withCustomTools: Object.keys(tools || {}).length > 0 }),
+    return sandbox.run({
+      create: (opts) => sdk.Agent.create(opts),
+      opts: {
+        name: String(name).slice(0, 80),
+        model: selection,
+        apiKey: auth.apiKey,
+        local: { cwd, settingSources: [], customTools: tools },
+        ...restrictedAgentOptions({ withCustomTools: Object.keys(tools || {}).length > 0 }),
+      },
     });
   }
 
   async function openAgent(conv, auth, selection, tools, { forceNew = false } = {}) {
     if (forceMock() || !auth?.apiKey) return { agent: createMockAgent({ tools }), fresh: true };
     const sdk = await loadSdk();
-    const opts = {
+    const spec = {
       name: `HELIOS · ${conv.title}`.slice(0, 80),
       model: selection,
       apiKey: auth.apiKey,
-      local: { cwd, settingSources: [], sandboxOptions: { enabled: true }, customTools: tools },
+      local: { cwd, settingSources: [], customTools: tools },
       // As restrições não ficam gravadas na sessão: valem de novo em Agent.create e em Agent.resume.
       ...restrictedAgentOptions({ withCustomTools: Object.keys(tools || {}).length > 0 }),
     };
+    const start = (agentId) => sandbox.run({
+      create: (opts) => sdk.Agent.create(opts),
+      resume: agentId ? (opts) => sdk.Agent.resume(agentId, opts) : null,
+      opts: spec,
+    });
     const cached = agents.get(conv.id);
     if (forceNew) {
       await dispose(conv.id);
-      return { agent: await sdk.Agent.create(opts), fresh: true };
+      return { agent: await start(null), fresh: true };
     }
     if (cached?.agent && cached.accountId === auth.accountId && conv.agentModel === selection.id) {
       return { agent: cached.agent, fresh: false };
@@ -487,12 +528,12 @@ function createBot(deps) {
     if (cached?.agent) await dispose(conv.id);
     if (conv.agentId) {
       try {
-        return { agent: await sdk.Agent.resume(conv.agentId, opts), fresh: false };
+        return { agent: await start(conv.agentId), fresh: false };
       } catch (err) {
         log(`[bot] não retomou a sessão: ${redact(err.message || err)}`);
       }
     }
-    return { agent: await sdk.Agent.create(opts), fresh: true };
+    return { agent: await start(null), fresh: true };
   }
 
   /**
@@ -608,6 +649,7 @@ function createBot(deps) {
       memoryText: memories.for(assistant.id).context({ text, maxChars: limits[2] }).text,
       contextText: own.promptText(),
       vaultText: vaultPrompt(getVaultIndex?.() || []),
+      skillCatalog: skills ? skills.catalog(assistant.id).join("\n") : "",
     });
     const { tools, sources } = makeTools(convId);
     let opened;
@@ -628,7 +670,20 @@ function createBot(deps) {
     let streamed = "";
     const turnStart = Date.now();
     try {
-      const run = await opened.agent.send(opened.fresh ? prompt : `${prompt}`, { model: picked.selection });
+      let run;
+      try {
+        run = await opened.agent.send(opened.fresh ? prompt : `${prompt}`, { model: picked.selection });
+      } catch (err) {
+        if (!sandbox.note(err)) throw err;
+        await dispose(convId);
+        opened = await openAgent(conv, auth, picked.selection, tools, { forceNew: true });
+        agents.set(convId, { agent: opened.agent, accountId: auth?.accountId || null });
+        store.update(convId, (item) => {
+          item.agentId = opened.agent.agentId || item.agentId;
+          item.agentModel = picked.selection.id;
+        });
+        run = await opened.agent.send(prompt, { model: picked.selection });
+      }
       if (typeof run.supports !== "function" || run.supports("stream")) {
         for await (const raw of run.stream()) {
           const msg = unwrapStreamEvent(raw);
@@ -912,58 +967,6 @@ function createBot(deps) {
     return sent;
   }
 
-  async function runLiveStep({ folder, step }) {
-    const auth = resolveAuth();
-    if (forceMock() || !auth?.apiKey) {
-      writeFiles(folder, step.files || []);
-      return { via: "plano", text: step.explicacao };
-    }
-    const sdk = await loadSdk();
-    const selection = chooseModel({ text: step.titulo, override: "padrao" }).selection;
-    const tools = {
-      escrever_arquivo: {
-        description: "Grava um arquivo UTF-8 dentro da pasta deste livecoding. Recusa caminho fora dela.",
-        inputSchema: {
-          type: "object",
-          properties: { caminho: { type: "string" }, conteudo: { type: "string" } },
-          required: ["caminho", "conteudo"],
-        },
-        execute: async (args) => {
-          writeFiles(folder, [{ path: String(args.caminho || ""), contents: String(args.conteudo ?? "") }]);
-          return `Gravei ${args.caminho}.`;
-        },
-      },
-    };
-    const agent = await sdk.Agent.create({
-      name: "HELIOS · livecoding",
-      apiKey: auth.apiKey,
-      model: selection,
-      local: { cwd: folder, settingSources: [], sandboxOptions: { enabled: true }, customTools: tools },
-      ...restrictedAgentOptions(),
-    });
-    try {
-      const files = (step.files || []).map((file) => `Grave ${file.path} com escrever_arquivo. Conteúdo:\n${file.contents}`).join("\n\n");
-      const prompt = [
-        "Modo livecoding do HELIOS. Você ensina um estagiário.",
-        "Execute SOMENTE este passo. Não antecipe o próximo.",
-        "Responda em português do Brasil, em poucas frases, dizendo o que fez.",
-        `Pasta: ${folder}`,
-        `Passo ${step.n}: ${step.titulo}`,
-        step.explicacao,
-        files,
-      ].filter(Boolean).join("\n\n");
-      const run = await agent.send(prompt, { model: selection });
-      const result = await run.wait();
-      return { via: "agente", text: clip(result?.result || step.explicacao) };
-    } finally {
-      try {
-        if (typeof agent[Symbol.asyncDispose] === "function") await agent[Symbol.asyncDispose]();
-      } catch {
-        /* ignora */
-      }
-    }
-  }
-
   async function proposeLivePlan(description) {
     const pedido = String(description || "").trim().slice(0, 500);
     const auth = resolveAuth();
@@ -971,21 +974,25 @@ function createBot(deps) {
     try {
       const sdk = await loadSdk();
       const selection = chooseModel({ text: pedido, override: "padrao" }).selection;
-      const agent = await sdk.Agent.create({
-        name: "HELIOS · plano",
-        apiKey: auth.apiKey,
-        model: selection,
-        local: { cwd: cwd || process.cwd(), settingSources: [], sandboxOptions: { enabled: true } },
-        ...restrictedAgentOptions({ withCustomTools: false }),
+      const agent = await sandbox.run({
+        create: (opts) => sdk.Agent.create(opts),
+        opts: {
+          name: "HELIOS · plano",
+          apiKey: auth.apiKey,
+          model: selection,
+          local: { cwd: cwd || process.cwd(), settingSources: [] },
+          ...restrictedAgentOptions({ withCustomTools: false }),
+        },
       });
       try {
         const prompt = [
-          "Monte o plano de livecoding do HELIOS para um estagiário de front-end.",
+          "Monte o roteiro de livecoding do HELIOS para o Helison digitar à mão com um estagiário.",
           "Responda somente com um JSON, sem texto antes ou depois.",
-          "Formato: {\"title\":\"...\",\"steps\":[{\"titulo\":\"...\",\"explicacao\":\"...\",\"files\":[{\"path\":\"index.html\",\"contents\":\"...\"}]}]}",
-          "Regras: 3 a 5 passos em português do Brasil. O último passo é uma revisão e fica com files vazio.",
-          "O primeiro passo cria index.html. Use só caminhos relativos simples (index.html, style.css, script.js). Sem .. e sem caminho absoluto.",
-          "O conteúdo dos arquivos tem de atender ao pedido, não uma página genérica.",
+          "Formato: {\"title\":\"...\",\"visao\":\"...\",\"arquivos\":[{\"path\":\"index.html\",\"papel\":\"...\"}],\"secoes\":[{\"titulo\":\"...\",\"explicacao\":\"...\",\"arquivo\":\"index.html\",\"onde\":\"Arquivo novo index.html, o conteúdo inteiro.\",\"codigo\":\"...\"}]}",
+          "Regras: visão geral em português, lista ordenada de arquivos com caminho e papel, depois seções.",
+          "Cada seção explica o que faz e por quê, traz o bloco de código e diz onde colar.",
+          "A última seção é uma revisão: arquivo e codigo vazios.",
+          "Caminhos relativos simples, sem .. e sem caminho absoluto. Nada pede para gravar em disco nem abrir editor.",
           `Pedido: ${pedido}`,
         ].join("\n");
         const run = await agent.send(prompt, { model: selection });
@@ -1016,7 +1023,7 @@ function createBot(deps) {
     };
   }
 
-  return { send, decide, answerQuestion, expireDue, runLiveStep, proposeLivePlan, modelsView, dispose, resolveAuth };
+  return { send, decide, answerQuestion, expireDue, proposeLivePlan, modelsView, dispose, resolveAuth, sandboxStatus: () => sandbox.status() };
 }
 
 module.exports = { createBot };

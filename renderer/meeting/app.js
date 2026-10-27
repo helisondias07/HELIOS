@@ -230,23 +230,38 @@ let live = null;
 function renderLive() {
   const box = $('livePlan');
   const btn = $('btnNext');
+  const prev = $('btnPrev');
+  const progress = $('liveProgress');
+  const bar = $('liveBar');
   if (!live) {
-    box.innerHTML = '<div class="empty">Descreva o que vamos construir. O HELIOS abre o VS Code e espera o <b>Próximo passo</b>.</div>';
+    box.innerHTML = '<div class="empty">Descreva o que vamos construir. O roteiro aparece aqui para você digitar. Nada é gravado e nenhum editor abre.</div>';
     btn.disabled = true;
-    btn.textContent = 'Próximo passo, 1 de 1';
+    if (prev) prev.disabled = true;
+    btn.textContent = 'Próximo, 1 de 1';
+    if (progress) progress.hidden = true;
     return;
   }
-  const total = live.steps.length || 1;
-  const done = live.steps.filter((s) => s.status === 'done').length;
-  const n = live.status === 'done' ? total : Math.min(total, done + 1);
-  const steps = live.steps.map((s) => {
-    const cls = s.status === 'current' ? 'step current' : s.status === 'done' ? 'step done' : 'step';
-    return `<li class="${cls}"><span class="n">${esc(String(s.n))}</span><div><b>${esc(s.titulo)}</b><span class="pt">${esc(s.explicacao)}</span></div></li>`;
-  }).join('');
-  box.innerHTML = `<div class="msg bot"><div class="t"><span>${esc(live.title)}</span></div>${esc(live.lastNote || '')}<div class="t"><span>${esc(live.folder || '')}</span></div></div><ol class="steps">${steps}</ol>`;
-  const pending = live.status !== 'done';
-  btn.disabled = !pending;
-  btn.textContent = pending ? `Próximo passo, ${n} de ${total}` : `Plano concluído, ${total} de ${total}`;
+  const total = live.total || 1;
+  const cursor = Number(live.cursor) || 0;
+  const n = Math.min(total, cursor + 1);
+  if (progress) progress.hidden = false;
+  if (bar) bar.style.transform = `scaleX(${Number(live.progresso) || 0})`;
+  let body = '';
+  if (live.tela === 'mapa' || !live.atual) {
+    const files = (live.arquivos || []).map((file) => `<li><code>${esc(file.path)}</code><span>${esc(file.papel)}</span></li>`).join('');
+    body = `<section class="roteiro"><p class="kicker">Visão geral</p><h3>${esc(live.title)}</h3><p>${esc(live.visao || '')}</p><p>Arquivos, nesta ordem:</p><ul class="file-list">${files}</ul><p class="onde">Nada foi gravado em disco e nenhum editor foi aberto.</p></section>`;
+  } else {
+    const atual = live.atual;
+    const code = atual.codigo ? `<pre class="roteiro-code">${esc(atual.codigo)}</pre><button type="button" class="mini" id="btnCopyCode">Copiar bloco</button>` : '';
+    body = `<section class="roteiro"><p class="kicker">Seção ${esc(String(atual.n))} de ${esc(String((live.secoes && live.secoes.length) || total - 1))}</p><h3>${esc(atual.titulo)}</h3><p>${esc(atual.explicacao)}</p>${atual.arquivo ? `<p><code>${esc(atual.arquivo)}</code></p>` : ''}${atual.onde ? `<p class="onde">Onde colar: ${esc(atual.onde)}</p>` : ''}${code}</section>`;
+  }
+  box.innerHTML = body;
+  const copy = $('btnCopyCode');
+  if (copy && live.atual) copy.onclick = () => copyToast(live.atual.codigo, 'Bloco');
+  const atEnd = live.status === 'done' || cursor >= total - 1;
+  btn.disabled = atEnd;
+  if (prev) prev.disabled = cursor <= 0;
+  btn.textContent = atEnd ? `Roteiro concluído, ${total} de ${total}` : `Próximo, ${n} de ${total}`;
 }
 async function startLive(description) {
   const r = await api.liveStart(description);
@@ -261,6 +276,15 @@ async function nextLive() {
   const r = await api.liveNext(live.id);
   $('btnNext').disabled = false;
   if (!r.ok) { toast(r.error || 'O passo não rodou.'); return; }
+  live = r.session;
+  renderLive();
+}
+async function prevLive() {
+  if (!live || !api.livePrev || !live.cursor) return;
+  $('btnPrev').disabled = true;
+  const r = await api.livePrev(live.id);
+  $('btnPrev').disabled = false;
+  if (!r.ok) { toast(r.error || 'Não voltei o roteiro.'); return; }
   live = r.session;
   renderLive();
 }
@@ -551,6 +575,7 @@ function bind() {
   $('btnRoteiro').onclick = roteiro;
   $('liveForm').onsubmit = (e) => { e.preventDefault(); const q = $('liveInput').value.trim(); if (q) startLive(q); };
   $('btnNext').onclick = nextLive;
+  if ($('btnPrev')) $('btnPrev').onclick = prevLive;
   api.onLiveSession((session) => { live = session; showTab('live'); renderLive(); });
   $('btnHistory').onclick = () => api.openHistory();
   $('btnNew').onclick = () => {

@@ -477,11 +477,21 @@ test("pastas: só dentro da lista; fora da lista, caminho com .. ou letra de uni
     // fora
     for (const caminho of ["..\\fora.txt", "../fora.txt", "sub/../../fora.txt", "C:\\Windows\\win.ini", "/etc/passwd", s.fora]) {
       assert.ok([403, 404].includes((await json(app, `/api/pastas/${id}/arquivo?caminho=${encodeURIComponent(caminho)}`)).status), `leitura ${caminho}`);
-      const w = await post(app, `/api/pastas/${id}/arquivo`, { caminho, conteudo: "x" }); if (caminho === "/etc/passwd") { assert.equal(w.status, 200); assert.ok(fs.existsSync(path.join(s.raiz, "etc", "passwd")), "barra inicial vira caminho relativo dentro da pasta"); } else assert.ok([403, 404].includes(w.status), `escrita ${caminho} ${w.status}`);
-      const l = await post(app, `/api/pastas/${id}/lixeira`, { caminho }); assert.ok(caminho === "/etc/passwd" ? [200, 404].includes(l.status) : [403, 404].includes(l.status), `lixeira ${caminho} ${l.status}`);
+      const w = await post(app, `/api/pastas/${id}/arquivo`, { caminho, conteudo: "x" });
+      // No Linux um caminho absoluto com barra no começo vira relativo dentro da pasta, como /etc/passwd. No Windows, s.fora tem letra de unidade e é recusado.
+      const viraRelativo = caminho === "/etc/passwd" || (process.platform !== "win32" && caminho.startsWith("/"));
+      if (viraRelativo) {
+        assert.equal(w.status, 200, `escrita ${caminho} ${w.status}`);
+        if (caminho === "/etc/passwd") assert.ok(fs.existsSync(path.join(s.raiz, "etc", "passwd")), "barra inicial vira caminho relativo dentro da pasta");
+      } else assert.ok([403, 404].includes(w.status), `escrita ${caminho} ${w.status}`);
+      const l = await post(app, `/api/pastas/${id}/lixeira`, { caminho });
+      assert.ok(viraRelativo ? [200, 404].includes(l.status) : [403, 404].includes(l.status), `lixeira ${caminho} ${l.status}`);
     }
+    assert.equal(fs.readFileSync(path.join(s.fora, "segredo.txt"), "utf8"), "conteúdo de fora");
     assert.equal(fs.existsSync(path.join(path.dirname(s.raiz), "fora.txt")), false);
-    assert.equal(fs.existsSync(path.join(path.parse(s.raiz).root, "etc", "passwd")), false);
+    const systemPasswd = path.join(path.parse(s.raiz).root, "etc", "passwd");
+    if (fs.existsSync(systemPasswd)) assert.notEqual(fs.readFileSync(systemPasswd, "utf8"), "x");
+    else assert.equal(fs.existsSync(systemPasswd), false);
     // tirar da lista não mexe nos arquivos
     assert.equal((await json(app, `/api/pastas/${id}`, { method: "DELETE" })).body.ok, true);
     assert.equal(fs.existsSync(path.join(s.raiz, "nota.txt")), true);

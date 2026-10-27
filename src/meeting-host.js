@@ -2,7 +2,6 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { ipcMain, shell, desktopCapturer, screen } = require("electron");
 const providers = require("./providers");
 const prompts = require("./meeting-prompts");
 const mctx = require("./meeting-context");
@@ -57,6 +56,7 @@ function makeCache(max = 300) {
 const cacheText = (text) => String(text || "").toLowerCase().replace(/\s+/g, " ").trim();
 
 function registerMeeting({ getWin, closeMeeting, settings, vault, serverUrl, getApiToken, quit, mock = false }) {
+  const { ipcMain, shell, desktopCapturer, screen } = require("electron");
   const cfg = () => ({ ...settings.publicView(), groq: vault.getKey("groq"), gemini: vault.getKey("gemini") });
 
   function personalPath() {
@@ -444,6 +444,7 @@ function registerMeeting({ getWin, closeMeeting, settings, vault, serverUrl, get
   }
   ipcMain.handle("livecoding:start", (_event, description) => live("POST", "/api/livecoding", { description }));
   ipcMain.handle("livecoding:next", (_event, id) => live("POST", `/api/livecoding/${encodeURIComponent(id)}/next`, {}));
+  ipcMain.handle("livecoding:prev", (_event, id) => live("POST", `/api/livecoding/${encodeURIComponent(id)}/anterior`, {}));
 
   ipcMain.handle("glossary:get", wrap(async () => {
     const g = loadGlossary(true);

@@ -43,11 +43,18 @@ test("o endereço demo=1 não existe mais e o modo demonstração nunca aponta p
   });
 });
 
-test("o adaptador real usa o login oficial do SDK sem abrir navegador por conta própria", () => {
+test("o adaptador real usa o login oficial do SDK e recusa endereço de demonstração", () => {
   const source = fs.readFileSync(path.join(__dirname, "..", "server", "accounts.js"), "utf8");
+  const { safeLoginUrl, KEY_PAGE } = require("../server/accounts");
   assert.match(source, /Cursor\.auth\.login\(\{/);
-  assert.match(source, /openBrowser:\s*false/);
-  assert.match(source, /onLoginUrl:\s*onUrl/);
+  assert.match(source, /openBrowser:/);
+  assert.match(source, /safeLoginUrl/);
+  assert.equal(/openBrowser:\s*false/.test(source), false);
+  assert.equal(/demo=1/.test(source), false);
+  assert.equal(safeLoginUrl("https://cursor.com/loginDeepControl?challenge=a&uuid=b&mode=login&redirectTarget=sdk&demo=1"), "");
+  assert.equal(safeLoginUrl("https://helios.invalid/login-demonstracao"), "");
+  assert.match(safeLoginUrl("https://cursor.com/loginDeepControl?challenge=a&uuid=b&mode=login&redirectTarget=sdk"), /^https:\/\/cursor\.com\/loginDeepControl/);
+  assert.equal(KEY_PAGE, "https://cursor.com/dashboard/api");
 });
 
 test("login pelo navegador: só aceita https, conclui e guarda conta sem mostrar a chave", async () => {

@@ -124,16 +124,21 @@ test("conta do Cursor não devolve a chave inteira", async () => {
   }
 });
 
-test("livecoding pela API executa um passo de cada vez", async () => {
+test("livecoding pela API mostra um passo de cada vez sem gravar arquivo", async () => {
   const app = await boot();
   try {
     const started = await json(app, "/api/livecoding", { method: "POST", body: { description: "página para o estagiário" } });
     const session = started.body.session;
-    assert.equal(fs.existsSync(path.join(session.folder, "index.html")), false);
+    assert.equal(session.gravouDisco, false);
+    assert.equal(session.abriuEditor, false);
+    assert.equal(session.tela, "mapa");
+    assert.equal(fs.existsSync(path.join(app.projectsDir, "index.html")), false);
     const next = await json(app, `/api/livecoding/${session.id}/next`, { method: "POST", body: {} });
     assert.equal(next.body.session.status, "paused");
-    assert.equal(fs.existsSync(path.join(session.folder, "index.html")), true);
-    assert.match(fs.readFileSync(path.join(session.folder, "index.html"), "utf8"), /estagiário|livecoding|página/i);
+    assert.match(next.body.session.atual.codigo, /estagiário|livecoding|página|html/i);
+    assert.equal(fs.existsSync(path.join(app.projectsDir, "index.html")), false);
+    const back = await json(app, `/api/livecoding/${session.id}/anterior`, { method: "POST", body: {} });
+    assert.equal(back.body.session.tela, "mapa");
   } finally {
     await app.close();
   }

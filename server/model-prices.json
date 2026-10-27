@@ -1,0 +1,30 @@
+{
+  "source": "https://cursor.com/docs/models",
+  "checkedAt": "2026-10-06",
+  "unit": "US$ por milhão de tokens",
+  "note": "Preços de referência para o roteamento Auto. O HELIOS não seleciona variantes fast.",
+  "referenceTask": {
+    "inputTokens": 8000,
+    "cacheWriteTokens": 0,
+    "cacheReadTokens": 0,
+    "outputTokens": 800
+  },
+  "models": {
+    "composer-2.5": {
+      "label": "Composer 2.5",
+      "pool": "cursor",
+      "input": 0.5,
+      "cacheWrite": null,
+      "cacheRead": 0.2,
+      "output": 2.5
+    },
+    "grok-4.5": {
+      "label": "Cursor Grok 4.5",
+      "pool": "cursor",
+      "input": 2,
+      "cacheWrite": null,
+      "cacheRead": 0.5,
+      "output": 6
+    }
+  }
+}

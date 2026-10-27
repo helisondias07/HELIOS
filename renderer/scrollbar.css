@@ -1,0 +1,13 @@
+/* Barra de rolagem única do HELIOS: fina, thumb neutro, track transparente, dourado discreto só no hover.
+   Vale para a janela principal e para a de reunião (as duas carregam tokens.css). Sem setas e sem barra no documento:
+   o app rola dentro da área de conteúdo (#view) ou, na conversa, dentro da lista e da troca de mensagens.
+   Usa os pseudo-elementos ::-webkit-scrollbar (não definir scrollbar-width/scrollbar-color nos elementos que rolam,
+   senão o Chromium ignora estas regras). Em modo de alto contraste (forced-colors) vale a barra do sistema. */
+@media not (forced-colors: active) {
+  ::-webkit-scrollbar { width: var(--scroll-size); height: var(--scroll-size); background: transparent; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { min-height: 32px; min-width: 32px; border: 3px solid transparent; border-radius: 999px; background-color: var(--scroll-thumb); background-clip: padding-box; }
+  ::-webkit-scrollbar-thumb:hover, ::-webkit-scrollbar-thumb:active { background-color: var(--scroll-thumb-hover); background-clip: padding-box; }
+  ::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+  ::-webkit-scrollbar-corner { background: transparent; }
+}

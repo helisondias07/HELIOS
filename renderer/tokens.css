@@ -1,0 +1,169 @@
+/* Tokens do HELIOS. Base neutra (Tailwind neutral) com dourado só em hover, detalhes e ícone ativo.
+   A janela principal e a janela de reunião leem este arquivo.
+   Tema escuro é o padrão (:root) e é o único que a reunião usa. O claro entra só com <html data-theme="light">.
+   Nomes antigos (--bg, --sun, --muted, --sidebar...) foram mantidos; só os valores mudaram.
+   Os nomes novos (--bg-canvas, --fg, --accent, --sp-*, --fs-*, --r-*...) são usados na sidebar e nas telas. */
+
+@font-face {
+  font-family: "Cinzel";   /* wordmark HELIOS (OFL, local, subconjunto Latin; ver assets/fonts/LICENSE-Cinzel.txt) */
+  font-style: normal;
+  font-weight: 400 900;
+  font-display: swap;
+  src: url("assets/fonts/cinzel-latin-wght-normal.woff2") format("woff2");
+  unicode-range: U+0020-007E, U+00A0-00FF, U+2013-2014, U+2019;
+}
+
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("assets/fonts/inter-latin-wght-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+:root {
+  /* ---------- Primitivos ---------- */
+  --n-0: #ffffff;   --n-50: #fafafa;  --n-100: #f5f5f5; --n-200: #e5e5e5;
+  --n-300: #d4d4d4; --n-400: #a3a3a3; --n-500: #737373; --n-550: #666666; --n-600: #525252;
+  --n-700: #404040; --n-800: #262626; --n-900: #171717; --n-950: #0a0a0a;
+  --gold-100: #f3e6bd; --gold-300: #e6c66a; --gold-400: #d9b04a; --gold-700: #86600f;
+  --red-50: #fef2f2; --red-400: #f87171; --red-700: #b91c1c; --red-950: #2a1212;
+
+  /* ---------- Tipografia ---------- */
+  --font: "Inter", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  /* wordmark: para trocar a fonte do nome HELIOS basta mudar --font-brand (e, se preciso, peso/tracking/tamanho) */
+  --font-brand: "Cinzel", "Cormorant SC", "Marcellus", Georgia, "Times New Roman", serif;
+  --brand-weight: 600; --brand-tracking: 0.2em; --brand-size: 13px;
+  --fs-2xs: 10px;  --lh-2xs: 14px;
+  --fs-xs: 12px;   --lh-xs: 16px;
+  --fs-sm: 14px;   --lh-sm: 20px;
+  --fs-lg: 20px;   --lh-lg: 28px;
+  --fw-regular: 400; --fw-medium: 500; --fw-semibold: 600;
+  --tracking-label: 0.04em; --tracking-title: -0.01em;
+  --num: tabular-nums;
+
+  /* ---------- Escalas antigas (a reunião usa; valores mantidos) ---------- */
+  --space-1: 4px; --space-2: 8px; --space-3: 14px; --space-4: 20px; --space-5: 32px; --space-6: 44px;
+  --text-xs: 12px; --text-sm: 13px; --text-md: 15px; --text-lg: 17px; --text-xl: 30px;
+  --leading: 1.55;
+  --radius-sm: 6px; --radius: 8px; --radius-lg: 8px; --radius-pill: 999px;
+
+  /* ---------- Escalas novas ---------- */
+  --sp-0: 0; --sp-0_5: 2px; --sp-1: 4px; --sp-1_5: 6px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 20px; --sp-6: 24px; --sp-8: 32px; --sp-10: 40px; --sp-12: 48px;
+  --r-sm: 4px; --r-md: 6px; --r-lg: 8px; --r-full: 999px;
+  --bw: 0.5px; --bw-control: 1px; --bar-w: 2px;
+
+  /* ---------- Dimensões ---------- */
+  --sb-w: 232px; --sb-w-collapsed: 56px; --sb-pad: var(--sp-2);   /* sidebar única: expandida / recolhida */
+  --bar-h: 44px; --scroll-size: 10px; --item-h: 32px; --label-h: 28px; --icon-btn: 36px; --icon: 16px;
+  /* altura dos controles (botões, inputs, selects, chips clicáveis): sm 32, md 36, lg 44 (toque) */
+  --control-h-sm: 32px; --control-h-md: 36px; --control-h-lg: 44px; --control-px: var(--sp-3); --control-px-lg: var(--sp-4); --textarea-min: 72px;
+  --list-w: 256px; --thread-reserve: 300px; --composer-min: 240px; --field-min: 160px; --bubble-max: 74%; --icon-stroke: 1.5;
+  --avatar: 24px; --logo: 32px; --badge-h: 18px; --kbd-h: 16px;
+  --toast-w: 280px; --content-max: 1120px; --menu-w: 224px; --focus-w: 2px; --focus-gap: 2px;
+
+  /* ---------- Movimento: só transform, opacity e filter, 150 a 300 ms ---------- */
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur-fast: 150ms; --dur-base: 200ms; --dur-slow: 300ms; --dur-loop: 1200ms;
+  --press-scale: 0.98; --enter-shift: 4px;
+  --op-hover: 0.6; --op-hover-inverse: 0.16; --op-disabled: 0.5;
+  --z-tip: 40; --z-skip: 50;
+}
+
+/* ---------- Escuro (padrão) ---------- */
+:root, [data-theme="dark"] {
+  color-scheme: dark;
+  --bg-canvas: var(--n-950);  --bg-panel: var(--n-950);
+  --bg-surface: var(--n-900); --bg-inset: var(--n-800);  --bg-active: var(--n-800); --bg-badge: var(--n-800);
+  --bg-inverse: var(--n-50);
+  --border: var(--n-800);     --border-strong: var(--n-700);  --border-control: var(--n-500);
+  --fg: var(--n-50); --fg-strong: var(--n-0); --fg-muted: var(--n-300); --fg-subtle: var(--n-400);
+  --fg-inverse: var(--n-950); --fg-disabled: var(--n-400);
+  --accent: var(--gold-400);  --accent-soft: rgb(217 176 74 / 0.16);
+  --scroll-thumb: var(--n-500); --scroll-thumb-hover: var(--gold-400);   /* barra de rolagem: thumb neutro, dourado discreto só no hover */
+  --titlebar-bg: #0a0a0a; --titlebar-fg: #fafafa;   /* espelham --bg e --fg-strong; o processo principal usa os mesmos valores no titleBarOverlay */
+  --focus: var(--n-50);
+  --danger-fg: var(--red-400); --danger-bg: var(--red-950); --danger-border: var(--red-700);
+  --skeleton: var(--n-800); --skeleton-shine: var(--n-700);
+  --shadow-pop: 0 8px 24px -8px rgb(0 0 0 / 0.6);
+
+  /* nomes antigos */
+  --bg: #0a0a0a; --bg-deep: #050505; --surface: #171717; --surface-2: #262626;
+  --ink: #fafafa; --muted: #d4d4d4; --faint: #a3a3a3;
+  --line: rgba(250, 250, 250, 0.1); --line-strong: rgba(250, 250, 250, 0.18);
+  --sun: #d9b04a; --sun-soft: rgba(217, 176, 74, 0.16); --sun-ink: #1c1408;
+  --teal: #0f766e; --teal-bright: #5eead4; --teal-soft: rgba(15, 118, 110, 0.38);
+  --good: #3dbe7a; --bad: #f07167; --pt: #f0c36a; --en: #7ddec8;
+  --shadow: 0 8px 24px -8px rgba(0, 0, 0, 0.6);
+  --panel-solid: rgba(23, 23, 23, 0.98); --pill: rgba(10, 10, 10, 0.96);
+  --sidebar: #0a0a0a; --sidebar-ink: #fafafa; --sidebar-muted: #d4d4d4;
+  --input-bg: #0a0a0a; --bubble-user: #262626; --bubble-bot: #171717;
+  --banner-bg: #3a1a1a; --banner-ink: #fecaca;
+  --hover: rgba(250, 250, 250, 0.06);
+  --live: #e85d4c; --live-ink: #1a0a08;
+}
+
+/* ---------- Claro (só com data-theme="light" no <html>; a reunião nunca recebe) ---------- */
+[data-theme="light"] {
+  color-scheme: light;
+  --bg-canvas: var(--n-50);   --bg-panel: var(--n-0);
+  --bg-surface: var(--n-0);   --bg-inset: var(--n-100);  --bg-active: var(--n-100); --bg-badge: var(--n-100);
+  --bg-inverse: var(--n-950);
+  --border: var(--n-200);     --border-strong: var(--n-300);  --border-control: var(--n-500);
+  --fg: var(--n-950); --fg-strong: var(--n-900); --fg-muted: var(--n-600); --fg-subtle: var(--n-550);
+  --fg-inverse: var(--n-0); --fg-disabled: var(--n-500);
+  --accent: var(--gold-700);  --accent-soft: var(--gold-100);
+  --scroll-thumb: var(--n-500); --scroll-thumb-hover: var(--gold-700);
+  --titlebar-bg: #fafafa; --titlebar-fg: #171717;
+  --focus: var(--n-900);
+  --danger-fg: var(--red-700); --danger-bg: var(--red-50); --danger-border: var(--red-400);
+  --skeleton: var(--n-200); --skeleton-shine: var(--n-0);
+  --shadow-pop: 0 8px 24px -8px rgb(10 10 10 / 0.24);
+
+  /* nomes antigos */
+  --bg: #fafafa; --bg-deep: #f5f5f5; --surface: #ffffff; --surface-2: #f5f5f5;
+  --ink: #0a0a0a; --muted: #525252; --faint: #666666;
+  --line: rgba(10, 10, 10, 0.12); --line-strong: rgba(10, 10, 10, 0.22);
+  --sun: #86600f; --sun-soft: rgba(134, 96, 15, 0.12); --sun-ink: #ffffff;
+  --teal: #0f766e; --teal-bright: #0f766e; --teal-soft: rgba(15, 118, 110, 0.14);
+  --good: #15803d; --bad: #b91c1c; --pt: #8a5a00; --en: #0f766e;
+  --shadow: 0 8px 24px -8px rgba(10, 10, 10, 0.24);
+  --panel-solid: rgba(255, 255, 255, 0.98); --pill: rgba(255, 255, 255, 0.96);
+  --sidebar: #ffffff; --sidebar-ink: #0a0a0a; --sidebar-muted: #525252;
+  --input-bg: #fafafa; --bubble-user: #f5f5f5; --bubble-bot: #ffffff;
+  --banner-bg: #fef2f2; --banner-ink: #991b1b;
+  --hover: rgba(10, 10, 10, 0.05);
+  --live: #c62828; --live-ink: #ffffff;
+}
+
+/* ---------- Ícones em máscara (a janela de reunião usa) ---------- */
+:root {
+  --icon-chat: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 6h12a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H10l-4 3v-3H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z'/%3E%3C/svg%3E");
+  --icon-lock: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M8 11V8a4 4 0 0 1 8 0v3'/%3E%3Crect x='6' y='11' width='12' height='9' rx='2'/%3E%3C/svg%3E");
+  --icon-nodes: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='6' cy='12' r='2'/%3E%3Ccircle cx='18' cy='7' r='2'/%3E%3Ccircle cx='18' cy='17' r='2'/%3E%3Cpath d='M8 12h6M14 12l4-5M14 12l4 5'/%3E%3C/svg%3E");
+  --icon-search: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='6'/%3E%3Cpath d='M16 16l4 4'/%3E%3C/svg%3E");
+  --icon-mark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linejoin='round'%3E%3Cpath d='M7 5h10a1 1 0 0 1 1 1v14l-6-3-6 3V6a1 1 0 0 1 1-1z'/%3E%3C/svg%3E");
+  --icon-clock: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='12' cy='12' r='8'/%3E%3Cpath d='M12 8v5l3 2'/%3E%3C/svg%3E");
+  --icon-user: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='12' cy='8' r='3'/%3E%3Cpath d='M6 19c1.5-3 3.5-4 6-4s4.5 1 6 4'/%3E%3C/svg%3E");
+  --icon-play: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M8 5v14l12-7z'/%3E%3C/svg%3E");
+  --icon-stop: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect fill='black' x='6' y='6' width='12' height='12' rx='2'/%3E%3C/svg%3E");
+  --icon-sliders: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M4 7h16M4 12h16M4 17h16'/%3E%3Ccircle cx='8' cy='7' r='2' fill='black'/%3E%3Ccircle cx='15' cy='12' r='2' fill='black'/%3E%3Ccircle cx='10' cy='17' r='2' fill='black'/%3E%3C/svg%3E");
+  --icon-close: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M7 7l10 10M17 7L7 17'/%3E%3C/svg%3E");
+  --icon-up: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 18V7M7 11l5-5 5 5'/%3E%3C/svg%3E");
+}
+
+/* ---------- Foco: anel duplo, visível em qualquer fundo ---------- */
+:focus-visible {
+  outline: var(--focus-w) solid var(--focus);
+  outline-offset: var(--focus-gap);
+}
+@media (forced-colors: active) {
+  :focus-visible { outline-color: Highlight; }
+}
+@media (pointer: coarse) {
+  :root { --control-h-sm: var(--control-h-md); --control-h-md: var(--control-h-lg); --item-h: var(--control-h-lg); --icon-btn: var(--control-h-lg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  :root { --dur-fast: 0.01ms; --dur-base: 0.01ms; --dur-slow: 0.01ms; --dur-loop: 0.01ms; --enter-shift: 0px; --press-scale: 1; }
+}

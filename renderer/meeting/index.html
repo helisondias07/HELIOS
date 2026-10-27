@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' blob: mediastream:">
+<title>HELIOS — Modo de reunião</title>
+<link rel="icon" href="../assets/icon-256.png" type="image/png">
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="root">
+  <div id="pill">
+    <img class="mark" src="../assets/logo-mark.png" alt="">
+    <span class="dot" id="dot"></span>
+    <button id="btnStart" class="start" title="Começar a ouvir e transcrever (Ctrl+Shift+R)">Iniciar</button>
+    <span id="timer" class="timer hidden">00:00</span>
+    <button id="btnSettings" class="pb ghost icon" title="Configurações" aria-label="Configurações"></button>
+    <button id="btnHide" class="pb ghost x" title="Fechar (Esc ou Ctrl+Shift+W). Ctrl+Shift+Espaço reabre." aria-label="Fechar"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+    <span id="ctBadge" class="badge hidden" title="Modo atravessar (Ctrl+Shift+T)">atravessa</span>
+  </div>
+
+  <div id="panel" class="hidden">
+    <div id="main" class="card">
+      <div class="modes" role="tablist" aria-label="Tipo de reunião">
+        <button id="modePt" class="mode active" role="tab" title="Reunião falada em português: tudo só em português">Reunião em português</button><button id="modeEn" class="mode" role="tab" title="Reunião falada em inglês: sugestão de resposta em inglês, tradução para o português e tradutor">Reunião em inglês</button>
+      </div>
+      <div class="card-head tabs">
+        <button id="tabChat" class="tab active">Chat</button><button id="tabTranscript" class="tab">Transcrição</button><button id="tabLive" class="tab">Livecoding</button>
+      </div>
+      <div class="card-head status-row">
+        <span id="status" class="muted">parado</span><span class="grow"></span><span id="timing" class="muted" title="Tempo de cada etapa: bloco de áudio, transcrição, tradução e resposta"></span><span id="quota" class="muted"></span>
+      </div>
+
+      <div id="chatTab">
+        <details id="ctxBox" class="ctx">
+          <summary>Contexto da reunião <small id="ctxState" class="muted"></small></summary>
+          <textarea id="meetingContext" rows="2" maxlength="800" placeholder="Ex.: Entrevista para dev front-end na Wake, vaga de e-commerce. Fale de Sneakers e Fiturban."></textarea>
+          <small class="muted">Vai junto na tradução e nas respostas. Pode editar durante a reunião (salva ao sair do campo). Sem senhas, chaves ou e-mails.</small>
+        </details>
+        <div id="caption" class="caption hidden" aria-live="polite"><span class="cap-who"></span><span class="cap-orig"></span><span class="cap-pt"></span></div>
+        <div id="chat"><div class="empty">Clique em <b>Iniciar</b>. Quando alguém falar com você, clique em <b>O que eu digo?</b>.</div></div>
+        <div id="shotBox" class="shot hidden">
+          <img id="shotImg" alt="Prévia do print da tela que será enviado">
+          <div class="shot-t"><b>Enviar este print ao Gemini?</b><small class="muted">Vai junto com a conversa. Nada é enviado até você clicar.</small>
+            <div class="row"><button id="btnShotSend" class="mini primary" type="button">Enviar</button><button id="btnShotCancel" class="mini" type="button">Cancelar</button></div></div>
+        </div>
+        <div class="big primary">
+          <button id="btnSugBoth" class="translate-band only-pt" title="2 opções do que dizer, em português (Ctrl+Shift+2)">O que eu digo?<kbd>Ctrl ⇧ 2</kbd></button>
+          <button id="btnSugEn" class="translate-band only-en" title="2 respostas curtas em inglês (direta e mais elaborada), com a tradução em português ao lado (Ctrl+Shift+1)">Sugestão de resposta<kbd>Ctrl ⇧ 1</kbd></button>
+          <button id="btnTranslate" class="bigbtn only-en" title="Mostra só a tradução em português do que a outra pessoa acabou de dizer (Ctrl+Shift+3)">Traduzir o que a outra pessoa disse<kbd>Ctrl ⇧ 3</kbd></button>
+        </div>
+        <details id="moreBox" class="more"><summary>Mais ferramentas</summary>
+          <div class="big">
+            <button id="btnSearch" class="bigbtn" title="Pesquisa na web só para leitura, com o contexto da vaga; mostra a resposta curta em português e as fontes">Pesquisar com contexto</button>
+            <button id="btnShot" class="bigbtn" title="Mostra uma prévia do print antes de enviar (Ctrl+Shift+Enter)">Analisar minha tela</button>
+          </div>
+        </details>
+        <form id="askForm" class="only-pt">
+          <input id="askInput" placeholder="Pergunte qualquer coisa (ex.: explica X, pesquisa Y)…" autocomplete="off">
+          <button type="submit" class="send" title="Enviar" aria-label="Enviar"></button>
+        </form>
+        <section id="translator" class="translator only-en" aria-label="Tradutor do português para o inglês">
+          <div id="trOut" class="tr-out hidden">
+            <div id="trEn" class="tr-en" title="Clique para copiar"></div>
+            <div id="trPt" class="tr-pt"></div>
+            <div class="row"><button id="btnTrCopy" class="mini primary" type="button">Copiar inglês</button></div>
+          </div>
+          <div id="trHist" class="tr-hist"></div>
+          <form id="sayForm">
+            <input id="sayInput" placeholder="Tradutor: digite em português e aperte Enter (Ctrl+Shift+E)" autocomplete="off">
+            <button type="submit" class="send" title="Traduzir para inglês" aria-label="Traduzir para inglês"></button>
+          </form>
+        </section>
+      </div>
+
+      <div id="transcriptTab" class="hidden">
+        <div class="row tools">
+          <label class="chk only-en" title="Traduz cada fala automaticamente (gasta mais cota)"><input type="checkbox" id="liveTr"> Tradução ao vivo</label>
+          <label class="chk only-en" title="Mostra também o texto original em inglês, escondido por padrão"><input type="checkbox" id="showOrig"> Mostrar original</label>
+          <span class="grow"></span>
+          <button id="btnSummary" class="mini">Resumo</button>
+          <button id="btnExplain" class="mini" title="Explica o texto selecionado ou o termo recente">Explicar</button>
+          <button id="btnRoteiro" class="mini" title="Perguntas para o Helison conduzir a conversa">Roteiro</button>
+          <button id="btnHistory" class="mini" title="Abrir pasta do histórico">Histórico</button>
+          <button id="btnNew" class="mini" title="Nova reunião (salva a atual)">Nova</button>
+        </div>
+        <div id="transcript"><div class="empty">A transcrição aparece aqui quando você clicar em <b>Iniciar</b>.</div></div>
+      </div>
+
+      <div id="liveTab" class="hidden">
+        <form id="liveForm">
+          <input id="liveInput" placeholder="O que vamos construir com o estagiário?" autocomplete="off">
+          <button type="submit" class="mini primary">Montar plano</button>
+        </form>
+        <div id="livePlan"><div class="empty">Descreva o que vamos construir. O HELIOS abre o VS Code e espera o <b>Próximo passo</b>.</div></div>
+        <button id="btnNext" class="wide-next" disabled>Próximo passo, 1 de 1</button>
+      </div>
+    </div>
+
+    <!-- Configurações -->
+    <div id="settings" class="card hidden">
+      <div class="card-head"><span>Configurações</span><span class="grow"></span><button id="btnCloseSettings" class="mini icon" aria-label="Fechar configurações"></button></div>
+      <div class="sbody">
+        <div class="field"><label>Chave da Groq <a href="https://console.groq.com/keys" target="_blank">criar grátis ↗</a></label>
+          <input id="groqKey" type="password" placeholder="gsk_… (vazio = manter a atual)"><small id="groqState"></small></div>
+        <div class="field"><label>Chave do Gemini — análise de tela + reserva <a href="https://aistudio.google.com/apikey" target="_blank">criar grátis ↗</a></label>
+          <input id="geminiKey" type="password" placeholder="AIza… (vazio = manter a atual)"><small id="geminiState"></small></div>
+        <div class="row">
+          <div class="field"><label>Provedor principal</label><select id="provider"><option value="groq">Groq</option><option value="gemini">Gemini</option></select></div>
+          <div class="field"><label>Idioma da reunião</label><select id="meetingLang"><option value="auto">Automático</option><option value="en">Inglês</option><option value="pt">Português</option></select></div>
+        </div>
+        <label class="chk"><input type="checkbox" id="captureMic"> Captar meu microfone (suas falas aparecem como "Você"; o som do PC aparece como "Outro(s)")</label>
+        <div class="field"><label>Bloco de áudio, em segundos: 6 = resposta mais rápida · 9 = mais estável (volte para 9 se der erro de limite, 429)</label>
+          <div class="row"><button id="chunk6" class="mini" type="button">6 s (rápido)</button><button id="chunk9" class="mini" type="button">9 s (estável)</button><input id="chunkSeconds" type="number" min="3" max="15"></div></div>
+        <div class="field"><label>Instruções / meu contexto</label>
+          <textarea id="myContext" rows="3" placeholder="Ex.: Sou dev front-end na Agência Oasis, implemento lojas Wake (Sneakers, Fiturban). Responda de forma simples."></textarea></div>
+        <div class="row"><button id="btnPersonal" class="mini" type="button">Abrir meu contexto</button><small id="personalState" class="muted"></small></div>
+        <div class="row">
+          <div class="field"><label>Tom da tradução e das respostas</label><select id="formality"><option value="neutro">Neutro</option><option value="formal">Formal</option><option value="informal">Informal</option></select></div>
+          <div class="field"><label>Falas anteriores como contexto</label><input id="translateHistory" type="number" min="0" max="6"></div>
+          <div class="field"><label>Limite de contexto (caracteres)</label><input id="translateContextChars" type="number" min="300" max="3000" step="100"></div>
+        </div>
+        <div class="field"><label>Glossário (um termo por linha: termo = tradução)</label>
+          <textarea id="glossary" rows="5" placeholder="sprint = sprint (não traduzir)"></textarea></div>
+        <div class="row"><button id="btnGlossarySave" class="mini" type="button">Salvar glossário</button><button id="btnGlossaryOpen" class="mini" type="button">Abrir arquivo</button><small id="glossaryState" class="muted"></small></div>
+        <details><summary>Avançado</summary>
+          <div class="row">
+            <div class="field"><label>Transcrição</label><input id="sttModel"></div>
+            <div class="field"><label>Opacidade</label><input id="opacity" type="number" min="0.3" max="1" step="0.05"></div>
+          </div>
+          <div class="row">
+            <div class="field"><label>Modelo principal</label><input id="llmModel"></div>
+            <div class="field"><label>Modelo rápido</label><input id="fastModel"></div>
+            <div class="field"><label>Modelo Gemini</label><input id="geminiModel"></div>
+          </div>
+        </details>
+        <div class="muted hint"><b>Atalhos.</b> Ctrl+Shift+1 inglês · Ctrl+Shift+2 português · Ctrl+Shift+3 traduzir · Ctrl+Shift+R ouvir · Ctrl+Shift+A perguntar · Ctrl+Shift+Enter tela · Ctrl+Shift+Espaço mostrar · Ctrl+Shift+T atravessar · Ctrl+Shift+setas mover</div>
+        <p class="muted">Invisível em compartilhamento de tela e gravações. Sem limite de mensagens no app.</p>
+        <div class="row end"><small id="testResult" class="muted"></small>
+          <button id="btnTest" class="mini">Testar chaves</button><button id="btnSaveSettings" class="mini primary">Salvar</button></div>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="lineutil.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,78 @@
+{
+  "name": "helios",
+  "productName": "HELIOS",
+  "version": "0.1.0",
+  "description": "HELIOS — assistente pessoal de desktop do Helison",
+  "author": "Helison",
+  "private": true,
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "lint": "eslint server src renderer test scripts eslint.config.mjs",
+    "check": "node scripts/check.js",
+    "test": "node --test test/*.test.js",
+    "icons": "node scripts/make-icons.js",
+    "dist:win": "electron-builder --win nsis --publish never"
+  },
+  "build": {
+    "appId": "br.helison.helios",
+    "productName": "HELIOS",
+    "executableName": "HELIOS",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "server/**/*",
+      "renderer/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "electronFuses": {
+      "runAsNode": false,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false,
+      "enableEmbeddedAsarIntegrityValidation": true,
+      "onlyLoadAppFromAsar": true
+    },
+    "extraResources": [
+      {
+        "from": "build",
+        "to": "icons",
+        "filter": ["icon.ico", "icon.png", "tray.png"]
+      }
+    ],
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "icon": "build/icon.ico",
+      "artifactName": "HELIOS-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "HELIOS",
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico"
+    }
+  },
+  "dependencies": {
+    "@cursor/sdk": "^1.0.31",
+    "dotenv": "^17.2.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "electron": "^44.5.1",
+    "electron-builder": "^26.15.3",
+    "eslint": "^9.39.1",
+    "globals": "^16.4.0"
+  },
+  "engines": {
+    "node": ">=22.13"
+  }
+}

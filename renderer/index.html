@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="pt-BR" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:;">
+  <title>HELIOS</title>
+  <link rel="icon" href="assets/icon-256.png" type="image/png">
+  <script src="theme-boot.js"></script>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="sidebar.css">
+</head>
+<body>
+  <a class="skip-link" href="#view">Ir para o conteúdo</a>
+  <svg class="sb-sprite" aria-hidden="true" focusable="false">
+    <defs>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/></symbol>
+    <symbol id="i-chat" viewBox="0 0 24 24"><path d="M4.5 6.5a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H11l-3.5 3v-3h-1a2 2 0 0 1-2-2z"/></symbol>
+    <symbol id="i-inbox" viewBox="0 0 24 24"><path d="M4 13.5l2.5-8h11l2.5 8V18a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18z"/><path d="M4 13.5h4.5l1 2h5l1-2H20"/></symbol>
+    <symbol id="i-bot" viewBox="0 0 24 24"><rect x="5" y="8" width="14" height="10.5" rx="3"/><path d="M12 8V5.5"/><circle cx="12" cy="4.5" r="1"/><path d="M9.5 12.5v1.2M14.5 12.5v1.2"/></symbol>
+    <symbol id="i-loop" viewBox="0 0 24 24"><path d="M18.5 9A7 7 0 0 0 6.2 9.5"/><path d="M5 5.5v4h4"/><path d="M5.5 15A7 7 0 0 0 17.8 14.5"/><path d="M19 18.5v-4h-4"/></symbol>
+    <symbol id="i-pulse" viewBox="0 0 24 24"><path d="M3.5 12h4l2.5-6 4 12 2.5-6h4"/></symbol>
+    <symbol id="i-memory" viewBox="0 0 24 24"><path d="M5 6c0-1.1 3.1-2 7-2s7 .9 7 2-3.1 2-7 2-7-.9-7-2z"/><path d="M5 6v6c0 1.1 3.1 2 7 2s7-.9 7-2V6"/><path d="M5 12v6c0 1.1 3.1 2 7 2s7-.9 7-2v-6"/></symbol>
+    <symbol id="i-gauge" viewBox="0 0 24 24"><path d="M4.5 17a8 8 0 1 1 15 0"/><path d="M12 14.5l3-4.5"/><circle cx="12" cy="14.5" r="1"/></symbol>
+    <symbol id="i-vault" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="13.5" rx="2"/><circle cx="12" cy="11.75" r="3"/><path d="M12 9.5v1M12 13v1M9.8 11.75h1M13.2 11.75h1"/><path d="M7.5 18.5V20M16.5 18.5V20"/></symbol>
+    <symbol id="i-plug" viewBox="0 0 24 24"><path d="M9 4v4M15 4v4"/><path d="M7 8h10v3a5 5 0 0 1-10 0z"/><path d="M12 16v4"/></symbol>
+    <symbol id="i-layers" viewBox="0 0 24 24"><path d="M12 4l8 4-8 4-8-4z"/><path d="M4 12l8 4 8-4"/><path d="M4 16l8 4 8-4"/></symbol>
+    <symbol id="i-account" viewBox="0 0 24 24"><circle cx="12" cy="9" r="3.5"/><path d="M5.5 19a6.5 6.5 0 0 1 13 0"/></symbol>
+    <symbol id="i-video" viewBox="0 0 24 24"><rect x="3.5" y="6.5" width="11" height="11" rx="2.5"/><path d="M14.5 10.5l6-3v9l-6-3"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M19.5 14.5A7.5 7.5 0 0 1 9.5 4.5a7.5 7.5 0 1 0 10 10z"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.5"/><path d="M12 3.5v2M12 18.5v2M3.5 12h2M18.5 12h2M6 6l1.4 1.4M16.6 16.6L18 18M6 18l1.4-1.4M16.6 7.4L18 6"/></symbol>
+    <symbol id="i-panel-close" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="3"/><path d="M9.5 4.5v15"/><path d="M16.5 10l-2 2 2 2"/></symbol>
+        </defs>
+  </svg>
+  <div id="app">
+    <!-- Sidebar única: recolhida (só ícones, 56px) ou expandida (ícone + rótulo + grupos) -->
+    <aside class="sb" id="sidebar" aria-label="Navegação principal">
+      <div class="sb-top">
+        <button type="button" class="sb-logo" id="sbLogo" aria-label="HELIOS"><img src="assets/logo-mark-32.png" srcset="assets/logo-mark-64.png 2x, assets/logo-mark-96.png 3x" width="32" height="32" alt="" draggable="false"></button>
+        <span class="sb-brand-name" aria-hidden="true">HELIOS</span>
+        <button type="button" class="sb-toggle" id="sbToggle" aria-expanded="true" aria-controls="sidebar" aria-label="Recolher menu lateral" aria-keyshortcuts="Control+B" data-tip="Recolher menu" data-keys="Ctrl B"><svg class="sb-ico" aria-hidden="true" focusable="false"><use href="#i-panel-close"/></svg></button>
+      </div>
+      <nav class="sb-nav" aria-label="Seções">
+      <div class="sb-group" role="group" aria-labelledby="sb-g0"><p class="sb-glabel" id="sb-g0">Trabalho</p>
+      <ul class="sb-list">
+        <li><button type="button" class="sb-item active" data-view="chat" aria-current="page" aria-label="Conversas" data-tip="Conversas"><svg class="sb-ico" aria-hidden="true" focusable="false"><use href="#i-chat"/></svg><span class="sb-lbl">Conversas</span></button></li>
+        <li><button type="button" class="sb-item" data-view="inbox" aria-label="Caixa de entrada" data-tip="Caixa de entrada"><svg class="sb-ico" aria-hidden="true" focusable="false"><use href="#i-inbox"/></svg><span class="sb-lbl">Caixa de entrada</span><span class="badge hidden" id="inboxBadge" aria-live="polite"></span></button></li>
+        <li><button type="button" class="sb-item" data-view="assistants" aria-label="Assistentes" data-tip="Assistentes"><svg class="sb-ico" aria-hidden="true" focusable="false"><use href="#i-bot"/></svg><span class="sb-lbl">Assistentes</span></button></li>
+        <li><button type="button" class="sb-item" data-view="search" aria-label="Pesquisa" data-tip="Pesquisa" aria-keyshortcuts="Control+K" data-keys="Ctrl K"><svg class="sb-ico" aria-hidden="true" focusable="false"><use href="#i-search"/></svg><span class="sb-lbl">Pesquisa</span></button></li>
+      </ul></div>
+      <div class="sb-group" role="group" aria-labelledby="sb-g1"><p class="sb-glabel" id="sb-g1">Automação</p>
+      <ul class="sb-list">
+        <li><button type="button" class="sb-item" data-view="routines" aria-label="Rotinas" data-tip="Rotinas"><svg class="sb-ico" aria-hidden="true" focusable="false"><use href="#i-loop"/></svg><span class="sb-lbl">Rotinas</span></button></li>
+        <li><button type="button" class="sb-item" data-view="activity" aria-label="Atividade" data-tip="Atividade"><svg class="sb-ico" aria-hidden="true" focusable="false"><use href="#i-pulse"/></svg><span class="sb-lbl">Atividade</span><span class="badge hidden" id="activityBadge" aria-live="polite"></span></button></li>
+        <li><button type="button" class="sb-item" data-view="memory" aria-label="Memória" data-tip="Memória"><svg class="sb-ico" aria-hidden="true" focusable="false"><use href="#i-memory"/></svg><span class="sb-lbl">Memória</span></button></li>
+      </ul></div>
+      <div class="sb-group" role="group" aria-labelledby="sb-g2"><p class="sb-glabel" id="sb-g2">Segurança</p>
+      <ul class="sb-list">
+        <li><button type="button" class="sb-item" data-view="autonomy" aria-label="Autonomia" data-tip="Autonomia"><svg class="sb-ico" aria-hidden="true" focusable="false"><use href="#i-gauge"/></svg><span class="sb-lbl">Autonomia</span></button></li>
+        <li><button type="button" class="sb-item" data-view="vault" aria-label="Cofre" data-tip="Cofre"><svg class="sb-ico" aria-hidden="true" focusable="false"><use href="#i-vault"/></svg><span class="sb-lbl">Cofre</span></button></li>
+        <li><button type="button" class="sb-item" data-view="mcp" aria-label="Conectores" data-tip="Conectores"><svg class="sb-ico" aria-hidden="true" focusable="false"><use href="#i-plug"/></svg><span class="sb-lbl">Conectores</span></button></li>
+      </ul></div>
+      <div class="sb-group" role="group" aria-labelledby="sb-g3"><p class="sb-glabel" id="sb-g3">Conta</p>
+      <ul class="sb-list">
+        <li><button type="button" class="sb-item" data-view="context" aria-label="Contexto" data-tip="Contexto"><svg class="sb-ico" aria-hidden="true" focusable="false"><use href="#i-layers"/></svg><span class="sb-lbl">Contexto</span></button></li>
+        <li><button type="button" class="sb-item" data-view="account" aria-label="Conta Cursor" data-tip="Conta Cursor"><svg class="sb-ico" aria-hidden="true" focusable="false"><use href="#i-account"/></svg><span class="sb-lbl">Conta Cursor</span></button></li>
+      </ul></div>
+      </nav>
+      <div class="sb-foot">
+        <button type="button" class="sb-item sb-meeting meeting meeting-open" id="openMeeting" aria-label="Modo de reunião" data-tip="Modo de reunião"><svg class="sb-ico" aria-hidden="true" focusable="false"><use href="#i-video"/></svg><span class="sb-lbl">Modo de reunião<small class="sr-only">tradução, sugestões e livecoding</small></span></button>
+        <button type="button" class="sb-item sb-js-theme" aria-label="Alternar tema (atual: escuro)" aria-keyshortcuts="Control+Shift+L" data-tip="Alternar tema" data-keys="Ctrl Shift L"><svg class="sb-ico sb-ico-theme" aria-hidden="true" focusable="false"><use href="#i-moon"/></svg><span class="sb-lbl">Alternar tema</span></button>
+      </div>
+    </aside>
+
+    <main>
+      <header>
+        <div class="heading">
+          <div>
+            <h1 id="title">Conversas</h1>
+            <p class="eyebrow" id="eyebrow">HELIOS</p>
+          </div>
+        </div>
+      </header>
+      <p id="banner" class="banner hidden" role="status"></p>
+      <div id="view" aria-live="polite"></div>
+    </main>
+  </div>
+  <div class="sb-tip" id="sbTip" hidden role="tooltip"><span class="sb-tip-text"></span><span class="sb-tip-keys"></span></div>
+  <p class="sr-only" id="sbLive" role="status" aria-live="polite"></p>
+  <script src="details-state.js"></script>
+  <script src="voice.js"></script>
+  <script src="contexto.js"></script>
+  <script src="contas.js"></script>
+  <script src="app.js"></script>
+  <script src="sidebar.js"></script>
+</body>
+</html>

@@ -78,7 +78,10 @@ function createRemotarAdapter({ fetchImpl = globalThis.fetch, mock = false } = {
       const res = await fetchImpl("https://remotar.com.br/api/v1/jobs", {
         headers: { accept: "application/json", "user-agent": "HELIOS" },
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      // A API antiga responde 404. Isso não pode derrubar o ciclo: a busca visual cobre o site.
+      if (!res || !res.ok) {
+        return { ok: true, jobs: [], note: "api indisponível; busca visual", visual: true, http: res && res.status };
+      }
       const data = await res.json();
       const list = Array.isArray(data) ? data : (data.jobs || data.data || []);
       const q = String(term || "").toLowerCase();
@@ -91,8 +94,8 @@ function createRemotarAdapter({ fetchImpl = globalThis.fetch, mock = false } = {
         description: String(j.description || j.tags || "").slice(0, 1500),
       })).filter((j) => j.extId && j.url && (!q || `${j.title} ${j.description}`.toLowerCase().includes(q)));
       return { ok: true, jobs, note: "api pública" };
-    } catch (e) {
-      return { ok: false, jobs: [], note: e.message };
+    } catch {
+      return { ok: true, jobs: [], note: "api indisponível; busca visual", visual: true };
     }
   };
   return a;
@@ -244,13 +247,13 @@ function createAdaptersRegistry(opts = {}) {
     for (const a of selected) {
       try {
         const r = await a.search(term);
-        if (!r.ok) erros.push(`${a.label}: ${r.note || "falhou"}`);
-        for (const j of r.jobs || []) jobs.push({ ...j, platform: a.id });
+        if (!r || r.ok === false) erros.push(`${a.label}: ${(r && r.note) || "falhou"}`);
+        for (const j of (r && r.jobs) || []) jobs.push({ ...j, platform: a.id });
       } catch (e) {
         erros.push(`${a.label}: ${e.message}`);
       }
     }
-    return { jobs, erros };
+    return { ok: true, jobs, erros };
   }
 
   return { list, byId, status, searchAll, detectCriticalCommon, FEED_ONLY };

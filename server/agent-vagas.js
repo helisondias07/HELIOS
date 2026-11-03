@@ -9,6 +9,7 @@
 const path = require("node:path");
 const { nowIso, readJson, writeJson, redact } = require("./util");
 const { parseLinkedin, DEFAULT_PREFS } = require("./jobs");
+const { parseSavedJobsPage } = require("./vagas-visual");
 const { keywordPass, matchScore } = require("./vagas-match");
 
 // O Helison autorizou candidaturas automáticas sem uma cota artificial de revisões.
@@ -371,8 +372,14 @@ function createAgentVagas(dataDir, {
       novos = ingested.novas;
       filtrados = ingested.aceitas || [];
       void prefs;
+    } else if (kind === "salvos-vagas") {
+      const parsed = parseSavedJobsPage(html);
+      raw = parsed.jobs.slice(0, MAX_POR_VARREDURA);
+      const ingested = jobs.ingestParsedJobs(raw, { platform: "linkedin" });
+      novos = ingested.novas;
+      filtrados = ingested.aceitas || [];
     } else {
-      throw fail("tipo de ingestão inválido (feed|salvos|notificacoes|busca).");
+      throw fail("tipo de ingestão inválido (feed|salvos|notificacoes|busca|salvos-vagas).");
     }
 
     const card = postarAchados(

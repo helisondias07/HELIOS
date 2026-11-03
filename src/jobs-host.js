@@ -11,6 +11,8 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { PLATFORMS } = require("../server/jobs");
 const fill = require("../server/jobs-fill");
+const nav = require("../server/form-navigator");
+const visual = require("../server/vagas-visual");
 const privacy = require("../server/fill-privacy");
 const { createCookieSaver, platformDomains, cleanUserAgent, cookieMeta } = require("./vagas-cookies");
 const application = require("../server/jobs-application");
@@ -653,10 +655,13 @@ function registerJobs({ ipcMain, BrowserWindow, vault, serverUrl, getApiToken, m
       return { ok: true, ...(await api("POST", "/api/vagas/posts-salvos", { posts: posts.slice(0, 30) })), diagnostico: Array.isArray(captured) ? null : captured.diagnostics };
     }
     if (kind === "salvos-vagas") {
-      const captured = await w.webContents.executeJavaScript(BROWSER_CAPTURE_SCRIPT, true).catch(() => ({ items: [], diagnostics: { erro: "executeJavaScript" } }));
+      const prep = await w.webContents.executeJavaScript(visual.SAVED_TAB_SCRIPT, true).catch(() => ({ clicked: "" }));
+      if (prep && prep.clicked) await jitter(1200, 2200);
+      const captured = await w.webContents.executeJavaScript(visual.SAVED_JOBS_SCRIPT, true).catch(() => ({ items: [], diagnostics: { erro: "executeJavaScript" } }));
       const items = Array.isArray(captured) ? captured : (captured.items || []);
       if (!w.isVisible()) w.loadURL("about:blank").catch(() => {});
-      return { ok: true, ...(await api("POST", "/api/vagas/ingest-browser", { platform: "linkedin", items: items.slice(0, 40) })), diagnostico: Array.isArray(captured) ? null : captured.diagnostics };
+      const diagnostico = Array.isArray(captured) ? { redirected: Boolean(prep && prep.redirected) } : { ...(captured.diagnostics || {}), clickedTab: prep && prep.clicked, redirected: Boolean(prep && prep.redirected) };
+      return { ok: true, ...(await api("POST", "/api/vagas/ingest-browser", { platform: "linkedin", items: items.slice(0, 40) })), diagnostico };
     }
     if (kind === "notificacoes") {
       const captured = await w.webContents.executeJavaScript(NOTIF_SCRIPT, true).catch(() => ({ items: [], diagnostics: { erro: "executeJavaScript" } }));
@@ -697,56 +702,55 @@ function registerJobs({ ipcMain, BrowserWindow, vault, serverUrl, getApiToken, m
     return { ok: true, method: buttons[0] ? 'button' : 'enter', diagnostics };
   })()`;
 
-  const BROWSER_CAPTURE_SCRIPT = `(() => {
-    const anchors = [...document.querySelectorAll('a[href]')].filter((a) => /(linkedin[.]com[/]jobs[/]view|gupy[.]io[/](job|jobs)[/])/i.test(a.href));
-    const items = [...new Map(anchors.map((a, index) => {
-      const card = a.closest('article, li, [data-job-id], [data-testid*="job" i], div');
-      const text = (card?.innerText || a.innerText || '').replace(/\\s+/g, ' ').trim().slice(0, 1800);
-      const heading = card?.querySelector('h1,h2,h3,h4,[class*="title" i]');
-      return [a.href.split('?')[0], { extId: (a.href.match(/(?:jobs[/]view|job)[/](\\d+)/i) || [])[1] || a.href, title: (heading?.innerText || a.innerText || text).trim().slice(0, 200), company: '', url: a.href.split('?')[0], description: text }];
-    }))].map(([, value]) => value).filter((x) => x.title && x.url);
-    return { items: items.slice(0, 40), diagnostics: { anchors: anchors.length, itemCount: items.length, title: document.title, url: location.href, bodyChars: (document.body?.innerText || '').length } };
-  })()`;
-
-  /** Busca visual em cada site configurado: home, campo de busca, Enter/clique, rolagem e cards. */
+  /** Busca visual. Um site que falha fica isolado e o ciclo segue nos demais. */
   async function searchPlatforms({ terms = [], location = "Brasil" } = {}) {
     const prefData = await api("GET", "/api/vagas");
     const prefs = prefData.prefs || {};
-    const ids = Array.isArray(prefs.plataformas) && prefs.plataformas.length ? prefs.plataformas : ["linkedin", "gupy"];
     const words = (Array.isArray(terms) && terms.length ? terms : (prefs.termos || ["desenvolvedor front-end"])).slice(0, 5);
     const results = [];
-    for (const id of ids) {
-      const platform = currentPlatforms()[id];
-      if (!platform) { results.push({ plataforma: id, ok: false, erro: "plataforma não configurada" }); continue; }
-      for (const term of words) {
-        const home = id === "linkedin" ? "https://www.linkedin.com/jobs/" : id === "gupy" ? "https://portal.gupy.io/" : platform.loginUrl;
-        const target = typeof platform.searchUrl === "function" ? platform.searchUrl(term, location) : home;
-        const w = getWin(id);
-        const loaded = await load(w, home);
-        if (!loaded.ok) { results.push({ plataforma: id, termo: term, ok: false, erro: loaded.error, motivo: loaded.timeout ? "timeout" : "carregamento" }); continue; }
-        if (id === "linkedin") {
-          const sess = await ensureLinkedInSession(w);
-          if (!sess.ok) { results.push({ plataforma: id, termo: term, ok: false, erro: sess.error, motivo: "sessao" }); continue; }
+    for (const platform of visual.catalog()) {
+      for (const term of visual.termsFor(platform.id, words)) {
+        try {
+          const target = platform.searchUrl(term, location);
+          const w = getWin(platform.id);
+          const loaded = await load(w, platform.home);
+          if (!loaded.ok) {
+            results.push({ plataforma: platform.id, termo: term, ok: false, erro: loaded.error, motivo: loaded.timeout ? "timeout" : "carregamento", isolado: true });
+            continue;
+          }
+          if (platform.id === "linkedin") {
+            const sess = await ensureLinkedInSession(w);
+            if (!sess.ok) {
+              results.push({ plataforma: platform.id, termo: term, ok: false, erro: sess.error, motivo: "sessao", isolado: true });
+              continue;
+            }
+          }
+          const searched = await w.webContents.executeJavaScript(BROWSER_SEARCH_SCRIPT(term), true).catch(() => ({ ok: false, reason: "executeJavaScript" }));
+          let fallback = false;
+          if (!searched.ok) {
+            fallback = true;
+            const fallbackLoad = await load(w, target);
+            if (!fallbackLoad.ok) {
+              results.push({ plataforma: platform.id, termo: term, ok: false, erro: fallbackLoad.error, motivo: fallbackLoad.timeout ? "timeout" : "carregamento", busca: searched, isolado: true });
+              continue;
+            }
+          }
+          await jitter(2500, 5000);
+          for (let i = 0; i < 5; i += 1) {
+            await w.webContents.executeJavaScript("window.scrollBy(0, Math.round(window.innerHeight * 0.8)); true", true).catch(() => {});
+            await jitter(1200, 2400);
+          }
+          const captured = await w.webContents.executeJavaScript(visual.CAPTURE_SCRIPT, true).catch(() => ({ items: [], diagnostics: { erro: "executeJavaScript" } }));
+          const html = await w.webContents.executeJavaScript("document.documentElement.outerHTML.slice(0, 500000)", true).catch(() => "");
+          const ingested = await api("POST", "/api/vagas/ingest-browser", { platform: platform.id, term, html, items: (captured && captured.items) || [] });
+          results.push({ plataforma: platform.id, termo: term, ok: true, busca: searched, fallbackUrl: fallback, ...ingested, diagnostico: captured && captured.diagnostics });
+          if (!w.isVisible()) w.loadURL("about:blank").catch(() => {});
+        } catch (error) {
+          results.push({ plataforma: platform.id, termo: term, ok: false, erro: String((error && error.message) || error).slice(0, 180), isolado: true });
         }
-        const searched = await w.webContents.executeJavaScript(BROWSER_SEARCH_SCRIPT(term), true).catch(() => ({ ok: false, reason: "executeJavaScript" }));
-        let fallback = false;
-        if (!searched.ok) {
-          fallback = true;
-          const fallbackLoad = await load(w, target);
-          if (!fallbackLoad.ok) { results.push({ plataforma: id, termo: term, ok: false, erro: fallbackLoad.error, motivo: fallbackLoad.timeout ? "timeout" : "carregamento", busca: searched }); continue; }
-        }
-        await jitter(2500, 5000);
-        for (let i = 0; i < 5; i += 1) {
-          await w.webContents.executeJavaScript("window.scrollBy(0, Math.round(window.innerHeight * 0.8)); true", true).catch(() => {});
-          await jitter(1200, 2400);
-        }
-        const captured = await w.webContents.executeJavaScript(BROWSER_CAPTURE_SCRIPT, true).catch(() => ({ items: [], diagnostics: { erro: "executeJavaScript" } }));
-        const ingested = await api("POST", "/api/vagas/ingest-browser", { platform: id, term, html: await w.webContents.executeJavaScript("document.documentElement.outerHTML.slice(0, 500000)", true).catch(() => ""), items: captured.items || [] });
-        results.push({ plataforma: id, termo: term, ok: true, busca: searched, fallbackUrl: fallback, ...ingested, diagnostico: captured.diagnostics });
-        if (!w.isVisible()) w.loadURL("about:blank").catch(() => {});
       }
     }
-    return { ok: true, resultados: results, novas: results.reduce((n, r) => n + (Number(r.novas) || 0), 0), erros: results.filter((r) => r.ok === false).map((r) => `${r.plataforma} (${r.termo}): ${r.erro}`) };
+    return { ok: true, resultados: results, novas: results.reduce((n, row) => n + (Number(row.novas) || 0), 0), erros: results.filter((row) => row.ok === false).map((row) => `${row.plataforma} (${row.termo}): ${row.erro}`) };
   }
   ipcMain.handle("vagas:salvos", () => scanLinkedInKind("salvos"));
   ipcMain.handle("vagas:notificacoes", () => scanLinkedInKind("notificacoes"));
@@ -855,49 +859,62 @@ function registerJobs({ ipcMain, BrowserWindow, vault, serverUrl, getApiToken, m
       probe0 = await js(PROBE).catch(() => ({}));
     }
     const challenge0 = detectChallenge(w.webContents.getURL(), probe0);
-    if (challenge0) return result({ critico: challenge0 }, "challenge");
-    const opened = await js(fill.clickScript("apply")).catch(() => "");
-    if (!opened) return result({ critico: "Não achei o botão de candidatura com segurança (pode ser site externo da empresa)." }, "failed");
-    mark("opened", opened);
-    await sleep(2500);
+    if (challenge0) {
+      try { w.show(); w.focus(); } catch { /* janela opcional */ }
+      return result({ critico: challenge0, motivo: probe0.captcha ? "captcha" : "verificacao" }, "challenge");
+    }
+    let memory = {};
     let filledTotal = 0;
-    for (let step = 0; step < 10; step += 1) {
-      if (stopRequested) return result({ critico: "Você pediu para parar." }, "challenge");
-      const probe = await js(PROBE).catch(() => ({}));
-      const challenge = detectChallenge(w.webContents.getURL(), probe);
-      if (challenge) return result({ critico: challenge }, "challenge");
-      const { fields, page } = await js(fill.INSPECT_SCRIPT).catch(() => ({ fields: [], page: {} }));
-      const pageState = application.pageResult({ url: page.url, text: page.text, formVisible: fields.length > 0, challenge });
-      if (pageState.state === application.STATES.SUBMITTED) return result({ ok: true, nota: `${filledTotal} campo(s) preenchido(s)`, enviado: true, confirmacao: pageState.reason }, "submitted");
-      const plan = await resolvePlan(vaga, fields, profile, respostas, page, secrets);
-      if (plan.criticos.length) return result({ critico: plan.criticos[0], pergunta: plan.criticos.join(" | "), via: plan.via, model: plan.model || null }, "challenge");
-      filledTotal += await js(fill.applyScript(plan.acoes)).catch(() => 0);
-      for (const a of plan.acoes.filter((x) => x.kind === "file")) {
-        try { await setFile(w, a.sel, a.valor); filledTotal += 1; } catch (e) { return result({ critico: `Não consegui anexar o CV: ${e.message}` }, "failed"); }
+    let via = "rules";
+    let model = null;
+    for (let turn = 0; turn < 16; turn += 1) {
+      if (stopRequested) return result({ critico: "Você pediu para parar.", via, model }, "challenge");
+      const snap = await js(nav.SNAPSHOT_SCRIPT).catch(() => ({}));
+      const challenge = detectChallenge(w.webContents.getURL(), { captcha: Boolean(snap && snap.captcha) });
+      if (challenge) {
+        try { w.show(); w.focus(); } catch { /* janela opcional */ }
+        return result({ critico: challenge, motivo: snap && snap.captcha ? "captcha" : "verificacao", via, model }, "challenge");
       }
-      await sleep(800);
-      // Modo aprovação: preenche e para — Helison revisa e envia no site.
-      if (!enviar) {
+      const decision = nav.step(snap || {}, { profile, respostas, secrets, memory, enviar, vaga });
+      memory = decision.memory || memory;
+      if (decision.via) via = decision.via;
+      if (decision.fills && decision.fills.length) {
+        filledTotal += await js(nav.applyScript(decision.fills)).catch(() => 0);
+        for (const action of decision.fills.filter((item) => item.kind === "file")) {
+          try { await setFile(w, action.sel, action.valor); filledTotal += 1; } catch (e) { return result({ critico: `Não consegui anexar o CV: ${e.message}`, via, model }, "failed"); }
+        }
+        await sleep(500);
+      }
+      if (decision.kind === "submitted") {
+        mark("submitted", decision.confirmacao);
+        return result({ ok: true, nota: `${filledTotal} campo(s) preenchido(s)`, enviado: true, via, model, confirmacao: decision.confirmacao }, "submitted");
+      }
+      if (decision.kind === "review") {
         try { w.show(); w.focus(); } catch { /* janela opcional */ }
         mark("review", `${filledTotal} campo(s) preenchido(s); aguardando revisão`);
         return result({
           ok: true,
           paradoAntesDeEnviar: true,
           enviado: false,
-          via: plan.via,
-          model: plan.model || null,
+          via,
+          model,
           nota: `${filledTotal} campo(s) preenchido(s). Revise e envie no site — nada foi submetido.`,
         }, "review");
       }
-      const clicked = (await js(fill.clickScript("submit")).catch(() => "")) || (await js(fill.clickScript("review")).catch(() => "")) || (await js(fill.clickScript("next")).catch(() => ""));
-      if (!clicked) return result({ critico: "Não achei o próximo botão do formulário com segurança." }, "failed");
-      mark("submit", clicked);
-      await sleep(2500);
-      const after = await js("(document.body.innerText || '').slice(0, 6000)").catch(() => "");
-      const afterState = application.pageResult({ url: w.webContents.getURL(), text: after, formVisible: false });
-      if (afterState.state === application.STATES.SUBMITTED) return result({ ok: true, nota: `${filledTotal} campo(s) preenchido(s)`, enviado: true, via: plan.via, model: plan.model || null, confirmacao: afterState.reason }, "submitted");
+      if (decision.kind === "pause" || decision.kind === "failed") {
+        if (decision.codigo === "captcha") {
+          try { w.show(); w.focus(); } catch { /* janela opcional */ }
+        }
+        return result({ critico: decision.motivo, pergunta: decision.pergunta || decision.motivo, via, model, motivo: decision.codigo || "" }, decision.kind === "failed" ? "failed" : "challenge");
+      }
+      if (decision.click) {
+        const clicked = await js(nav.clickScript(decision.click.sel)).catch(() => "");
+        if (!clicked) return result({ critico: "O botão sumiu antes do clique.", via, model }, "failed");
+        mark(decision.click.intent === "apply" ? "opened" : "submit", clicked);
+        await sleep(1500);
+      }
     }
-    return result({ critico: "O formulário passou de 10 etapas sem confirmar o envio. Confira no site." }, "failed");
+    return result({ critico: "O formulário passou de 16 etapas sem confirmar o envio. Confira no site.", via, model }, "failed");
   }
 
   /**

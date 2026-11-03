@@ -75,7 +75,7 @@ test("leva H: janela pequena, invisível no share e fora da tela nos testes", ()
   const o = meetingBrowserOptions();
   assert.equal(o.height, 48); assert.ok(o.width <= 600 && o.minWidth === 480);
   assert.match(read("src/meeting-window.js"), /setContentProtection/);
-  assert.match(main, /HELIOS_TEST_OFFSCREEN === "1";\n\s+if \(offscreen\) meetingWindow\.setPosition\(-32000, -32000\)/);
+  assert.match(main, /HELIOS_TEST_OFFSCREEN === "1";\r?\n\s+if \(offscreen\) meetingWindow\.setPosition\(-32000, -32000\)/);
 });
 
 test("leva H: preview do print com ✓/✕ e EN sem original por padrão", () => {

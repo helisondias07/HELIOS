@@ -13,16 +13,16 @@ function searchUrl(base) {
 const VISUAL_PLATFORMS = [
   { id: "linkedin", label: "LinkedIn", home: "https://www.linkedin.com/jobs/", searchUrl: (term, location) => `https://www.linkedin.com/jobs/search/?keywords=${encodeURIComponent(term || "")}&location=${encodeURIComponent(location || "Brasil")}&f_WT=2` },
   { id: "gupy", label: "Gupy", home: "https://portal.gupy.io/", searchUrl: (term) => `https://portal.gupy.io/job-search/term=${encodeURIComponent(term || "")}` },
-  { id: "infojobs", label: "InfoJobs", home: "https://www.infojobs.com.br/", searchUrl: searchUrl("https://www.infojobs.com.br/vagas-de-emprego.aspx") },
+  { id: "infojobs", label: "InfoJobs", home: "https://www.infojobs.com.br/", direct: true, searchUrl: (term) => `https://www.infojobs.com.br/jobsearch/search-results/list.xhtml?keyword=${encodeURIComponent(term || "")}` },
   { id: "indeed", label: "Indeed", home: "https://br.indeed.com/", searchUrl: (term) => `https://br.indeed.com/jobs?q=${encodeURIComponent(term || "")}&l=Brasil` },
   { id: "glassdoor", label: "Glassdoor", home: "https://www.glassdoor.com.br/Vaga/index.htm", searchUrl: searchUrl("https://www.glassdoor.com.br/Vaga/index.htm") },
   { id: "catho", label: "Catho", home: "https://www.catho.com.br/vagas/", searchUrl: searchUrl("https://www.catho.com.br/vagas/") },
   { id: "coodesh", label: "Coodesh", home: "https://coodesh.com/vagas", searchUrl: searchUrl("https://coodesh.com/vagas") },
   { id: "geekhunter", label: "GeekHunter", home: "https://www.geekhunter.com.br/vagas", searchUrl: searchUrl("https://www.geekhunter.com.br/vagas") },
-  { id: "programathor", label: "ProgramaThor", home: "https://programathor.com.br/jobs", searchUrl: searchUrl("https://programathor.com.br/jobs") },
+  { id: "programathor", label: "ProgramaThor", home: "https://programathor.com.br/jobs/", direct: true, searchUrl: () => "https://programathor.com.br/jobs/" },
   { id: "trampos", label: "trampos.co", home: "https://trampos.co/oportunidades", searchUrl: searchUrl("https://trampos.co/oportunidades") },
   { id: "nerdin", label: "Nerdin", home: "https://www.nerdin.com.br/vagas", searchUrl: searchUrl("https://www.nerdin.com.br/vagas") },
-  { id: "bossabox", label: "BossaBox", home: "https://app.bossabox.com/vagas", searchUrl: searchUrl("https://app.bossabox.com/vagas") },
+  { id: "bossabox", label: "BossaBox", home: "https://jobs.digai.ai/en/careers/bossabox", direct: true, searchUrl: () => "https://jobs.digai.ai/en/careers/bossabox" },
   { id: "remotar", label: "Remotar", home: "https://remotar.com.br/", searchUrl: searchUrl("https://remotar.com.br/") },
 ];
 

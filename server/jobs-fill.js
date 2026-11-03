@@ -134,6 +134,33 @@ function planFill(fields, profile = {}, respostas = {}, page = {}, secrets = {})
       else if (f.required) ask("Dado pessoal que o perfil não tem");
       continue;
     }
+    if (/(anos de experiencia|years of experience|how many years)/.test(label)) {
+      const anos = profile.anosTecnologia && typeof profile.anosTecnologia === "object" ? profile.anosTecnologia : {};
+      const skill = Object.keys(anos).find((key) => label.includes(norm(key)));
+      const years = skill ? String(anos[skill] ?? "").trim() : "";
+      if (years) acoes.push({ sel: f.sel, kind: type === "select" ? "select" : "text", valor: years });
+      else if (f.required) ask("Anos de experiência sem número no perfil");
+      continue;
+    }
+    if (/(autorizad[oa] a trabalhar|elegivel para trabalhar|legally authorized|authorized to work|pode trabalhar no brasil)/.test(label)) {
+      const answer = "Sim";
+      if (type === "select" || type === "radio" || type === "combobox") {
+        const options = (f.options || []).map((o) => ({ ...o, n: norm(o.text || o.value) }));
+        const hit = options.find((o) => /^(sim|yes)$/.test(o.n)) || options.find((o) => /\bsim\b|\byes\b/.test(o.n));
+        if (hit) acoes.push({ sel: f.sel, kind: type === "combobox" ? "combobox" : type, valor: hit.value, texto: hit.text || hit.value });
+        else if (f.required) ask("Autorização de trabalho sem opção Sim");
+      } else acoes.push({ sel: f.sel, kind: "text", valor: answer });
+      continue;
+    }
+    if (/(aceita trabalho remoto|disponivel para remoto|open to remote|trabalhar remoto)/.test(label) && !/hibrid|presencial|mudar de cidade/.test(label)) {
+      const options = (f.options || []).map((o) => ({ ...o, n: norm(o.text || o.value) }));
+      const hit = options.find((o) => /^(sim|yes)$/.test(o.n)) || options.find((o) => /\bsim\b|\byes\b|remoto/.test(o.n));
+      if (type === "select" || type === "radio" || type === "combobox") {
+        if (hit) acoes.push({ sel: f.sel, kind: type === "combobox" ? "combobox" : type, valor: hit.value, texto: hit.text || hit.value });
+        else if (f.required) ask("Pergunta de remoto sem opção no perfil");
+      } else acoes.push({ sel: f.sel, kind: "text", valor: "Sim" });
+      continue;
+    }
     if (SALARY.test(label)) {
       const answer = String(page.salaryAnswer || profile.pretensao || saved(f.label || f.name) || "").trim();
       if (!answer) { ask("Pretensão salarial sem valor no seu contexto"); continue; }

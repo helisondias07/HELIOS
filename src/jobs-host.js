@@ -699,7 +699,7 @@ function registerJobs({ ipcMain, BrowserWindow, vault, serverUrl, getApiToken, m
     const norm = (v) => String(v || "").toLowerCase();
     const inputs = [...document.querySelectorAll('input:not([type="hidden"]), textarea')].filter((el) => {
       const text = norm([el.placeholder, el.getAttribute('aria-label'), el.name, el.id, el.getAttribute('data-testid')].join(' '));
-      return el.getClientRects().length && !el.disabled && /busca|pesquis|search|cargo|compet[eê]ncia|vaga|oportunidade|palavra|keyword|o que|what/.test(text);
+      return el.getClientRects().length && !el.disabled && (el.type === "search" || /busca|pesquis|search|cargo|compet[eê]ncia|vaga|oportunidade|palavra|keyword|tecnologia|habilidade|skill|o que|what/.test(text));
     });
     const el = inputs[0];
     const diagnostics = { inputs: inputs.length, title: document.title, url: location.href, bodyChars: (document.body?.innerText || '').length };
@@ -726,6 +726,20 @@ function registerJobs({ ipcMain, BrowserWindow, vault, serverUrl, getApiToken, m
         try {
           const target = platform.searchUrl(term, location);
           const w = getWin(platform.id);
+          if (platform.direct) {
+            const directLoad = await load(w, target);
+            if (!directLoad.ok) {
+              results.push({ plataforma: platform.id, termo: term, ok: false, erro: directLoad.error, motivo: directLoad.timeout ? "timeout" : "carregamento", isolado: true });
+              continue;
+            }
+            await jitter(1200, 2200);
+            const capturedDirect = await w.webContents.executeJavaScript(visual.CAPTURE_SCRIPT, true).catch(() => ({ items: [], diagnostics: { erro: "executeJavaScript" } }));
+            const htmlDirect = await w.webContents.executeJavaScript("document.documentElement.outerHTML.slice(0, 500000)", true).catch(() => "");
+            const ingestedDirect = await api("POST", "/api/vagas/ingest-browser", { platform: platform.id, term, html: htmlDirect, items: (capturedDirect && capturedDirect.items) || [] });
+            results.push({ plataforma: platform.id, termo: term, ok: true, busca: { ok: true, reason: "url_direta" }, fallbackUrl: true, ...ingestedDirect, diagnostico: capturedDirect && capturedDirect.diagnostics });
+            if (typeof onProgress === "function") onProgress({ fonte: platform.id, termo: term });
+            continue;
+          }
           const loaded = await load(w, platform.home);
           if (!loaded.ok) {
             results.push({ plataforma: platform.id, termo: term, ok: false, erro: loaded.error, motivo: loaded.timeout ? "timeout" : "carregamento", isolado: true });

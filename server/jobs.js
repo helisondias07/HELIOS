@@ -246,6 +246,14 @@ function createJobs(dataDir, { fetchImpl = globalThis.fetch, now = () => Date.no
         : [],
     },
   };
+  const perfilSalvo = data.prefs.perfil;
+  if (/nova friburgo/i.test(perfilSalvo.cidade || "")) perfilSalvo.cidade = "Bom Jardim, RJ";
+  if (perfilSalvo.linkedin && !/^https?:\/\//i.test(perfilSalvo.linkedin)) perfilSalvo.linkedin = `https://${String(perfilSalvo.linkedin).replace(/^\/\//, "")}`;
+  if (/4\.?000/.test(String(perfilSalvo.pretensao || "")) && /1\.?000/.test(String(perfilSalvo.pretensao || "")) && /us\$/i.test(String(perfilSalvo.pretensao || ""))) {
+    perfilSalvo.pretensao = "R$ 3.500 júnior / R$ 8.000 pleno";
+    perfilSalvo.pretensaoBrlJunior = 3500;
+    perfilSalvo.pretensaoBrlPleno = 8000;
+  }
   // App fechado no meio de um envio automático: não sabemos se foi. Vira "falhou" para você conferir (nunca reenvia sozinho).
   for (const v of data.vagas) if (v.status === "auto_enviando") { v.status = "falhou"; v.nota = "Interrompida (app fechado no meio do envio). Confira no site."; }
   let log = readJson(logFile, []);
@@ -256,7 +264,7 @@ function createJobs(dataDir, { fetchImpl = globalThis.fetch, now = () => Date.no
   const iso = () => new Date(now()).toISOString();
 
   function record(vaga, status, nota = "") {
-    log.push({ id: newId("cand"), vagaId: vaga.id, plataforma: vaga.platform, titulo: vaga.title, empresa: vaga.company, url: vaga.url, status, nota: String(nota || "").slice(0, 300), at: iso() });
+    log.push({ id: newId("cand"), vagaId: vaga.id, plataforma: vaga.platform, titulo: vaga.title, empresa: vaga.company, url: vaga.url, status, nota: String(nota || "").slice(0, 500), at: iso() });
     if (log.length > 2000) log = log.slice(-2000);
     saveLog();
   }
@@ -458,13 +466,16 @@ function createJobs(dataDir, { fetchImpl = globalThis.fetch, now = () => Date.no
     return Math.max(0, data.prefs.porHora - c.hora);
   }
   /** Fila do automático: vagas novas acima da nota mínima, sem empresa evitada nem repetida, dentro do limite. */
+  const CORRECAO_BOTAO = "v12-formulario";
+  function podeRetentar(v) {
+    return v.status === "falhou" && v.falhaCodigo === "botao" && (v.tentativas || 0) < 2 && v.retentativaDe !== CORRECAO_BOTAO;
+  }
   function autoQueue(at = now()) {
     const left = rateLeft(at);
     if (!left) return [];
-    return data.vagas
-      .filter((v) => v.status === "nova" && v.score >= data.prefs.notaMinima && eligible(v) && !recentlyApplied(v, at))
-      .sort((a, b) => b.score - a.score)
-      .slice(0, left);
+    const novas = data.vagas.filter((v) => v.status === "nova" && v.score >= data.prefs.notaMinima && eligible(v) && !recentlyApplied(v, at));
+    const retentativas = data.vagas.filter((v) => podeRetentar(v) && v.score >= data.prefs.notaMinima && eligible(v) && !recentlyApplied(v, at));
+    return [...novas, ...retentativas].sort((a, b) => b.score - a.score).slice(0, left);
   }
   /** Explica por que cada vaga nova não entrou na fila automática. Nunca inclui dados sensíveis. */
   function autoQueueDiagnostics(at = now()) {
@@ -487,10 +498,13 @@ function createJobs(dataDir, { fetchImpl = globalThis.fetch, now = () => Date.no
   function autoStart(id) {
     if (data.prefs.modo !== "automatico") throw err("O modo automático está desligado.", 409);
     const v = must(id);
-    if (v.status !== "nova") throw err("Essa vaga não está na fila do automático.", 409);
+    const retentar = podeRetentar(v);
+    if (v.status !== "nova" && !retentar) throw err("Essa vaga não está na fila do automático.", 409);
     if (!eligible(v)) throw err("A vaga foge das regras do dono ou está na lista de evitar.", 409);
     if (recentlyApplied(v)) throw err(`Já houve candidatura nessa vaga ou empresa nos últimos ${data.prefs.repetirDias} dias.`, 409);
     if (!rateLeft()) throw err("Limite por hora atingido.", 429);
+    v.tentativas = (v.tentativas || 0) + 1;
+    if (retentar) v.retentativaDe = CORRECAO_BOTAO;
     v.status = "auto_enviando";
     v.autoAt = iso();
     save();
@@ -504,6 +518,7 @@ function createJobs(dataDir, { fetchImpl = globalThis.fetch, now = () => Date.no
     v.autoModelo = String(model || "").slice(0, 120) || null;
     v.autoEstado = String(estado || "").slice(0, 40) || null;
     v.autoEvidencia = Array.isArray(evidencia) ? evidencia.slice(-12) : [];
+    v.falhaCodigo = String(codigo || "").slice(0, 40);
     const successEvidence = Array.isArray(evidencia) && evidencia.some((item) => /success|confirm/.test(String(item && item.kind || "")));
     const confirmed = Boolean(String(confirmacao || "").trim()) || successEvidence;
     const motivoTexto = ok && !confirmed
@@ -541,7 +556,7 @@ function createJobs(dataDir, { fetchImpl = globalThis.fetch, now = () => Date.no
       } else {
         v.status = "falhou";
         v.falhaClasse = "tecnico";
-        v.nota = motivoTexto.slice(0, 300);
+        v.nota = motivoTexto.slice(0, 500);
         v.critico = null;
         record(v, "falhou", v.nota);
       }

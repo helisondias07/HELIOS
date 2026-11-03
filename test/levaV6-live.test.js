@@ -6,6 +6,8 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { runApplication } = require("../src/jobs-host");
+const { chooseButton, simulate } = require("../server/form-navigator");
+const { catalog } = require("../server/vagas-visual");
 const { captchaVisivel, desafioVisivel } = require("../server/captcha-visivel");
 const { createCodeReader } = require("../src/code-reader");
 const { sendEmailApply } = require("../server/vagas-email-apply");
@@ -383,4 +385,112 @@ test("levaV6 live: a busca completa devolve na hora e o andamento fecha o ciclo"
   assert.equal(agent.andamento().done, true);
   assert.equal(agent.andamento().fase, "concluido");
   assert.equal(agent.andamento().result.ok, true);
+});
+
+test("levaV12: o menu do Indeed não esconde Candidatar-se e as perguntas seguem até a confirmação", () => {
+  const choice = chooseButton({
+    url: "https://br.indeed.com/viewjob?jk=abc",
+    buttons: [
+      { sel: "#skip", text: "Ir para o conteúdo principal", tag: "a", chrome: true, visible: true },
+      { sel: "#home", text: "Página inicial", tag: "a", chrome: true, visible: true },
+      { sel: "#rev", text: "Avaliações de Empresas", tag: "a", chrome: true, visible: true },
+      { sel: "#pay", text: "Cargos e salários", tag: "a", chrome: true, visible: true },
+      { sel: "#msg", text: "Mensagens", tag: "a", chrome: true, visible: true },
+      { sel: "#apply", text: "Candidatar-se", tag: "button", visible: true },
+    ],
+    fields: [],
+  });
+  assert.equal(choice.button.sel, "#apply");
+  assert.equal(choice.intent, "apply");
+
+  const run = simulate([
+    {
+      url: "https://smartapply.indeed.com/form/questions-module",
+      fields: [
+        { sel: "#nome", type: "text", label: "Nome completo", required: true, inForm: true, value: "" },
+        { sel: "#anos", type: "text", label: "Anos de experiência com React", required: true, inForm: true, value: "" },
+      ],
+      buttons: [
+        { sel: "#msg", text: "Mensagens", tag: "a", chrome: true, visible: true },
+        { sel: "#go", text: "Continuar", tag: "button", visible: true, inForm: true },
+      ],
+    },
+    { url: "https://smartapply.indeed.com/form/review", text: "Candidatura enviada", fields: [], buttons: [] },
+  ], {
+    profile: { nome: "Pessoa Exemplo", anosTecnologia: { react: 2 } },
+    vaga: { title: "Desenvolvedor React", company: "Empresa", location: "Remoto" },
+    enviar: true,
+  });
+  assert.equal(run.final.kind, "submitted");
+  assert.ok(run.trace.some((step) => step.sel === "#go"));
+  assert.equal(run.final.codigo, "");
+});
+
+test("levaV12: falha de botão guarda a URL, BairesDev na descrição sai, e a mesma vaga só repete uma vez", async () => {
+  const flow = scripted([{
+    url: "https://br.indeed.com/viewjob?jk=1",
+    title: "Vaga",
+    buttons: [{ sel: "#home", text: "Página inicial", tag: "a", chrome: true, visible: true }],
+    fields: [],
+  }]);
+  const failed = await flow.run();
+  assert.equal(failed.codigo, "botao");
+  assert.match(failed.critico, /viewjob\?jk=1/);
+  assert.match(failed.critico, /Menu ignorado/);
+
+  const wall = scripted([{
+    url: "https://www.glassdoor.com.br/job-listing/x",
+    title: "Security | Glassdoor",
+    buttons: [{ sel: "#home", text: "Página inicial", tag: "a", chrome: true, visible: true }],
+    fields: [],
+  }]);
+  const security = await wall.run();
+  assert.equal(security.codigo, "login");
+  assert.match(security.critico, /Glassdoor/);
+
+  assert.equal(regras.avaliarVaga({
+    title: "Desenvolvedor React Pleno",
+    company: "",
+    location: "Remoto",
+    description: "A BairesDev contrata para um projeto React remoto",
+    url: "https://www.glassdoor.com.br/job/bairesdev",
+  }).aceita, false);
+
+  const info = catalog().find((item) => item.id === "infojobs");
+  assert.match(info.searchUrl("desenvolvedor"), /keyword=/);
+  assert.doesNotMatch(info.searchUrl("desenvolvedor"), /ranking-melhores-empresas|vagas-de-emprego\.aspx/);
+  assert.equal(catalog().find((item) => item.id === "bossabox").home.includes("app.bossabox.com/vagas"), false);
+  assert.equal(catalog().find((item) => item.id === "programathor").direct, true);
+
+  const dir = tmp("perfil-v12");
+  fs.writeFileSync(path.join(dir, "vagas.json"), JSON.stringify({
+    version: 1,
+    prefs: { perfil: { cidade: "Nova Friburgo, RJ", linkedin: "linkedin.com/in/helisondias", pretensao: "R$ 4.000 (júnior) / US$ 1.000" } },
+    vagas: [],
+  }));
+  const perfil = createJobs(dir, { readProfile: () => "" });
+  assert.equal(perfil.prefs().perfil.cidade, "Bom Jardim, RJ");
+  assert.equal(perfil.prefs().perfil.linkedin, "https://linkedin.com/in/helisondias");
+  assert.equal(perfil.prefs().perfil.pretensao, "R$ 3.500 júnior / R$ 8.000 pleno");
+  assert.equal(perfil.prefs().perfil.pretensaoBrlJunior, 3500);
+  assert.equal(perfil.prefs().perfil.pretensaoBrlPleno, 8000);
+
+  const jobs = createJobs(tmp("retry-v12"), { now: () => Date.parse("2026-11-03T18:00:00Z"), readProfile: () => "React remoto" });
+  jobs.setPrefs({ termos: "desenvolvedor", notaMinima: 10, porHora: 5, modo: "automatico" });
+  jobs.ingestParsedJobs([{
+    extId: "1",
+    title: "Desenvolvedor React Pleno",
+    company: "Empresa Boa",
+    location: "Remoto",
+    url: "https://exemplo.invalid/1",
+    description: "React remoto",
+  }], { platform: "indeed" });
+  const row = jobs.list().find((item) => item.status === "nova");
+  jobs.autoStart(row.id);
+  jobs.autoResult(row.id, { critico: "Não achei o próximo botão do formulário com segurança.", codigo: "botao" });
+  assert.ok(jobs.autoQueue().some((item) => item.id === row.id));
+  jobs.autoStart(row.id);
+  jobs.autoResult(row.id, { critico: "Não achei o próximo botão do formulário com segurança. URL: https://exemplo.invalid/1", codigo: "botao" });
+  assert.equal(jobs.autoQueue().some((item) => item.id === row.id), false);
+  assert.match(jobs.history().find((item) => item.status === "falhou").nota, /botão/);
 });

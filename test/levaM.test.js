@@ -81,8 +81,9 @@ test("levaM: adaptadores com interface comum e feed-only honestos", async () => 
   const st = reg.status();
   assert.ok(st.find((a) => a.id === "remotar" && a.mode === "api"));
   assert.ok(st.find((a) => a.id === "linkedin"));
-  assert.ok(st.find((a) => a.id === "indeed" && a.feedOnly));
-  assert.ok(st.every((a) => a.realTested === false), "nesta leva só mock/fixture");
+  assert.ok(st.find((a) => a.id === "indeed" && a.mode === "browser" && a.realTested && !a.feedOnly));
+  assert.ok(st.find((a) => a.id === "glassdoor" && a.realTested));
+  assert.ok(st.find((a) => a.id === "bossabox" && a.mode === "browser"));
   const remotar = reg.byId.remotar;
   const r = await remotar.search("React");
   assert.equal(r.ok, true);

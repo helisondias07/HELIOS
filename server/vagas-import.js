@@ -142,13 +142,13 @@ function pickLine(md, re) {
 function buildPerfil(perfilMd) {
   const tituloOficial = pickLine(perfilMd, /oficial:\s*/i) || "";
   const tituloCurto = pickLine(perfilMd, /curto:\s*/i) || "";
-  const cidade = (pickLine(perfilMd, /cidade:\s*/i) || "Nova Friburgo, RJ")
+  const cidade = (pickLine(perfilMd, /cidade:\s*/i) || "Bom Jardim, RJ")
     .replace(/\s*—.*$/, "").trim();
   const stackLine = sectionAfter(perfilMd, /##\s*Stack/i).split(/\r?\n/).map((l) => l.trim()).find((l) => l && !l.startsWith("#")) || "";
   const pret = sectionAfter(perfilMd, /##\s*Condi[cç][oõ]es e pretens[aã]o/i) || sectionAfter(perfilMd, /##\s*Condições e pretensão/i);
-  const brlJr = (pret.match(/j[uú]nior[^.]*R\$\s*([\d.]+)/i) || [])[1] || "3000";
-  const brlPl = (pret.match(/pleno[^.]*R\$\s*([\d.]+)/i) || [])[1] || "4000";
-  const usd = (pret.match(/US\$\s*([\d.]+)/i) || [])[1] || "1000";
+  const brlJr = (pret.match(/j[uú]nior[^.]*R\$\s*([\d.]+)/i) || [])[1] || "3500";
+  const brlPl = (pret.match(/pleno[^.]*R\$\s*([\d.]+)/i) || [])[1] || "8000";
+  const usd = (pret.match(/US\$\s*([\d.]+)/i) || [])[1] || "";
   const pjH = (pret.match(/R\$\s*([\d.]+)\s*\/\s*h/i) || [])[1] || "25";
   const nomeRaw = pickLine(perfilMd, /nome:\s*/i) || "Helison Dias";
   return {
@@ -156,7 +156,11 @@ function buildPerfil(perfilMd) {
     email: (pickLine(perfilMd, /e-mail principal:\s*/i) || "helisondias07@gmail.com").replace(/^e-mail principal:\s*/i, "").split(/\s/)[0],
     telefone: (pickLine(perfilMd, /telefone\/whatsapp:\s*/i) || "").replace(/^telefone\/whatsapp:\s*/i, "").replace(/\*\*/g, ""),
     cidade,
-    linkedin: (pickLine(perfilMd, /linkedin:\s*/i) || "").replace(/^https?:\/\//, ""),
+    linkedin: (() => {
+      const raw = (pickLine(perfilMd, /linkedin:\s*/i) || "").trim();
+      if (!raw) return "https://www.linkedin.com/in/helisondias";
+      return /^https?:\/\//i.test(raw) ? raw : `https://${raw.replace(/^\/\//, "")}`;
+    })(),
     portfolio: (pickLine(perfilMd, /portf[oó]lio:\s*/i) || ""),
     github: (pickLine(perfilMd, /github:\s*/i) || ""),
     tituloOficial,
@@ -166,17 +170,17 @@ function buildPerfil(perfilMd) {
     stack: stackLine.replace(/\s+/g, " ").trim(),
     ingles: "C1",
     contrato: "CLT ou PJ",
-    pretensaoBrlJunior: Number(String(brlJr).replace(/\./g, "")) || 3000,
-    pretensaoBrlPleno: Number(String(brlPl).replace(/\./g, "")) || 4000,
-    pretensaoUsd: Number(String(usd).replace(/\./g, "")) || 1000,
+    pretensaoBrlJunior: Number(String(brlJr).replace(/\./g, "")) || 3500,
+    pretensaoBrlPleno: Number(String(brlPl).replace(/\./g, "")) || 8000,
+    pretensaoUsd: Number(String(usd).replace(/\./g, "")) || 0,
     pretensaoPjHora: Number(String(pjH).replace(/\./g, "")) || 25,
-    pretensao: `R$ ${brlPl} (pleno) / US$ ${usd} / R$ ${pjH}/h PJ`,
+    pretensao: `R$ ${brlJr} júnior / R$ ${brlPl} pleno`,
     disponibilidade: "imediata",
     formacao: pickLine(perfilMd, /ci[eê]ncia da computa[cç][aã]o/i) ? "Ciência da Computação — Estácio (incompleto)" : "",
     remoto: true,
     presencialRj: true,
     aceitaPresencial: true,
-    cidadesOk: ["Nova Friburgo", "Bom Jardim", "RJ"],
+    cidadesOk: ["Bom Jardim", "RJ"],
     cvPath: "",
     cvPathPt: "",
     cvPathEn: "",

@@ -3,10 +3,11 @@
 /**
  * LEVA M: adaptadores de plataformas com interface comum.
  * search / login / apply / detectCritical
- * Indeed/Glassdoor/Revelo/Coodesh/BossaBox: sem scraping — só feed/e-mail/link.
+ * Indeed, Glassdoor, Revelo, Coodesh e BossaBox entram pelo navegador real.
  */
 
-const FEED_ONLY = new Set(["indeed", "glassdoor", "revelo", "coodesh", "bossabox"]);
+const FEED_ONLY = new Set();
+const REAL_BROWSER = new Set(["indeed", "glassdoor", "revelo", "coodesh", "bossabox", "infojobs", "programathor", "geekhunter", "nerdin", "catho", "trampos"]);
 
 function baseAdapter(meta) {
   return {
@@ -181,16 +182,9 @@ function createLinkedInEasyApplyAdapter({ mock = false } = {}) {
 }
 
 function createBrowserAdapter(meta) {
-  const a = baseAdapter({ ...meta, mode: "browser", realTested: false });
+  const a = baseAdapter({ ...meta, mode: "browser", realTested: REAL_BROWSER.has(meta.id) });
   a.search = async () => ({ ok: false, jobs: [], note: "busca via navegador por tarefa + sites autorizados" });
   a.apply = async () => ({ ok: false, note: "preenchimento via jobs-fill + navegador" });
-  return a;
-}
-
-function createFeedOnlyAdapter(meta) {
-  const a = baseAdapter({ ...meta, mode: "feed", realTested: false });
-  a.search = async () => ({ ok: true, jobs: [], note: "sem scraping — só feed/e-mail/link" });
-  a.apply = async () => ({ ok: false, critico: "plataforma feed-only: candidatar pelo link/e-mail" });
   return a;
 }
 
@@ -219,11 +213,11 @@ function createAdaptersRegistry(opts = {}) {
     createAtsAdapter({ id: "ashby", label: "Ashby", loginUrl: "https://jobs.ashbyhq.com/", priority: 21 }),
     createAtsAdapter({ id: "inhire", label: "InHire", loginUrl: "https://inhire.app/", priority: 22 }),
     createAtsAdapter({ id: "quickin", label: "Quickin", loginUrl: "https://app.quickin.io/", priority: 23 }),
-    createFeedOnlyAdapter({ id: "indeed", label: "Indeed", loginUrl: "https://secure.indeed.com/auth", priority: 30 }),
-    createFeedOnlyAdapter({ id: "glassdoor", label: "Glassdoor", loginUrl: "https://www.glassdoor.com/profile/login_input.htm", priority: 31 }),
-    createFeedOnlyAdapter({ id: "revelo", label: "Revelo", loginUrl: "https://app.revelo.com.br/login", priority: 32 }),
-    createFeedOnlyAdapter({ id: "coodesh", label: "Coodesh", loginUrl: "https://coodesh.com/login", priority: 33 }),
-    createFeedOnlyAdapter({ id: "bossabox", label: "BossaBox", loginUrl: "https://app.bossabox.com/login", priority: 34 }),
+    createBrowserAdapter({ id: "indeed", label: "Indeed", loginUrl: "https://secure.indeed.com/auth", priority: 30 }),
+    createBrowserAdapter({ id: "glassdoor", label: "Glassdoor", loginUrl: "https://www.glassdoor.com.br/profile/login_input.htm", priority: 31 }),
+    createBrowserAdapter({ id: "revelo", label: "Revelo", loginUrl: "https://app.revelo.com.br/login", priority: 32 }),
+    createBrowserAdapter({ id: "coodesh", label: "Coodesh", loginUrl: "https://coodesh.com/login", priority: 33 }),
+    createBrowserAdapter({ id: "bossabox", label: "BossaBox", loginUrl: "https://bossabox.com/", priority: 34 }),
   ].sort((a, b) => a.priority - b.priority);
 
   const byId = Object.fromEntries(list.map((a) => [a.id, a]));

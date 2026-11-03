@@ -1325,7 +1325,7 @@ async function loadVagas(notice = "") {
       <p><strong>Caso crítico ${esc(v.critico.codigo)}:</strong> ${esc(v.critico.pergunta)}</p>
       <label>Sua resposta (fica guardada para as próximas)<input data-vg-resp="${esc(v.critico.codigo)}"></label>
       <div class="row"><button type="button" class="btn primary" data-vg-responder="${esc(v.critico.codigo)}">Responder e tentar de novo</button><button type="button" class="btn danger" data-vg-pular="${esc(v.critico.codigo)}">Pular vaga</button>${link(v)}</div></div>`).join("");
-  const hist = data.historico.slice(0, 30).map((h) => `<div class="status-line"><div><strong>${esc(h.titulo)}</strong> <span class="chip">${esc(VAGA_STATUS[h.status] || h.status)}</span><div class="muted">${esc(h.empresa)} · ${esc(plat[h.plataforma] || h.plataforma)} · ${esc(new Date(h.at).toLocaleString("pt-BR"))}</div></div></div>`).join("");
+  const hist = data.historico.slice(0, 30).map((h) => `<div class="status-line"><div><strong>${esc(h.titulo)}</strong> <span class="chip">${esc(VAGA_STATUS[h.status] || h.status)}</span><div class="muted">${esc(h.empresa)} · ${esc(plat[h.plataforma] || h.plataforma)} · ${esc(new Date(h.at).toLocaleString("pt-BR"))}</div>${h.nota ? `<div class="muted">${esc(h.nota)}</div>` : ""}</div></div>`).join("");
   const previa = state.vagasPrevia;
   const rsum = previa && previa.resumo ? previa.resumo : null;
   const previaHtml = previa ? `<div class="card pending stack" id="vgImportPrevia" style="margin-top:12px"><h2>Prévia da importação</h2>
@@ -1359,7 +1359,7 @@ async function loadVagas(notice = "") {
       </div></details>
       <div class="row"><button class="btn primary" type="submit">Salvar e buscar</button><span class="muted">Última hora: ${esc(data.ritmo.hora)} de ${esc(p.porHora)}</span></div></form>
     <div class="card stack" id="vgAdaptadores" style="margin-top:12px"><h2>Adaptadores</h2>
-      <p class="muted">Estado de cada fonte. Os marcados mock/fixture ainda não foram validados ao vivo.</p>
+      <p class="muted">Indeed, Glassdoor, Revelo, Coodesh e BossaBox abrem no navegador. O que ainda está em mock não entra na busca real.</p>
       ${adapters || `<div class="empty">Nenhum.</div>`}</div>
     <div class="card stack" style="margin-top:12px"><h2>Entrar nas plataformas</h2>
       <p class="muted" title="Usa Cofre › Plataformas (ou a senha padrão). A senha nunca vai para o modelo. Código por e-mail: o HELIOS lê no Gmail e digita. Captcha: a janela abre e você recebe um aviso.">Login pelo cofre, com código do Gmail. ⓘ</p>

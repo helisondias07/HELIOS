@@ -92,11 +92,13 @@ function matchTestId(testId) {
 }
 
 function chooseButton(snapshot = {}) {
-  const formOpen = Boolean(snapshot.modal) || (snapshot.fields || []).some((field) => field.inForm || field.inModal || field.required);
+  const formFields = (snapshot.fields || []).filter((field) => !field.chrome && (field.inForm || field.inModal || field.inApply));
+  const formOpen = Boolean(snapshot.modal) || formFields.length > 0;
   const scored = [];
   for (const button of snapshot.buttons || []) {
     if (button.visible === false || button.disabled) continue;
     const text = norm([button.text, button.ariaLabel, button.title, button.name].filter(Boolean).join(" "));
+    if (button.chrome && !/candidat|apply|inscrev|easy apply/.test(text)) continue;
     const hit = matchPhrase(text) || matchTestId(button.testId);
     if (!hit) continue;
     if ((hit.phrase === "enviar" || hit.phrase === "submit") && !(button.inForm || button.inModal)) continue;
@@ -171,10 +173,11 @@ function step(snapshot = {}, ctx = {}) {
     salaryAnswer,
     job: ctx.vaga || snapshot.vaga || {},
   }, ctx.secrets || {});
-  if (plan.criticos.length) {
+  const pageStop = plan.criticos.find((item) => /teste|pagamento|captcha|prova/.test(norm(item)));
+  if (pageStop) {
     return finish("pause", {
       codigo: "critico",
-      motivo: plan.criticos[0],
+      motivo: pageStop,
       pergunta: plan.criticos.join(" | "),
       estrategia,
     }, memory);
@@ -185,6 +188,14 @@ function step(snapshot = {}, ctx = {}) {
     for (const action of fills) memory.filled[action.sel] = true;
     memory.pendingClick = false;
     return finish("act", { fills, estrategia }, memory);
+  }
+  if (plan.criticos.length) {
+    return finish("pause", {
+      codigo: "critico",
+      motivo: plan.criticos[0],
+      pergunta: plan.criticos.join(" | "),
+      estrategia,
+    }, memory);
   }
   const choice = chooseButton(snapshot);
   if (choice.ambiguous) {
@@ -310,6 +321,8 @@ const SNAPSHOT_SCRIPT = `(() => {
       el.setAttribute("data-helios-field", id);
       const inModal = Boolean(el.closest && el.closest("[role='dialog'], .jobs-easy-apply-modal, [data-test-modal], .modal"));
       const inForm = Boolean(el.closest && el.closest("form, [role='dialog'], .jobs-easy-apply-modal"));
+      const inApply = Boolean(el.closest && el.closest("#ia-container, .ia-BasePage, [class*='ia-Questions' i], [id*='questions-module' i], [data-testid*='apply' i]"));
+      const chrome = Boolean(el.closest && el.closest("header, nav, footer, [role='navigation'], [role='banner'], [role='contentinfo']"));
       let options = [];
       if (type === "select") options = [...el.options].map((option) => ({ value: option.value, text: option.text }));
       if (type === "combobox") {
@@ -330,25 +343,27 @@ const SNAPSHOT_SCRIPT = `(() => {
         required: Boolean(el.required) || el.getAttribute("aria-required") === "true",
         checked: Boolean(el.checked),
         value: type === "file" ? "" : (el.value || ""),
-        options, inModal, inForm,
+        options, inModal, inForm, inApply, chrome,
       });
     }
   }
   const buttons = [];
+  const chromeButtons = [];
   for (const root of roots) {
-    const nodes = root.querySelectorAll ? root.querySelectorAll("button, [role='button'], input[type='submit'], input[type='button'], a, [data-testid*='button' i]") : [];
+    const nodes = root.querySelectorAll ? root.querySelectorAll("button, [role='button'], input[type='submit'], input[type='button'], a, [data-testid*='button' i], [id*='apply' i], [class*='ApplyButton' i], [data-tn-element*='apply' i]") : [];
     for (const el of nodes) {
       if (!visible(el) || el.disabled || el.getAttribute("aria-disabled") === "true") continue;
       const visibleText = text(el);
-      if ((el.tagName || "") === "A" && (visibleText.length < 2 || visibleText.length > 80)) continue;
+      const aria = (el.getAttribute("aria-label") || "");
+      if ((el.tagName || "") === "A" && (visibleText.length < 2 || visibleText.length > 80) && !/candidat|apply|inscrev/i.test(visibleText + " " + aria)) continue;
       const id = "hb" + (n++);
       el.setAttribute("data-helios-btn", id);
-      buttons.push({
+      const item = {
         sel: '[data-helios-btn="' + id + '"]',
-        text: text(el).slice(0, 160),
-        ariaLabel: (el.getAttribute("aria-label") || "").slice(0, 160),
+        text: visibleText.slice(0, 160),
+        ariaLabel: aria.slice(0, 160),
         title: (el.getAttribute("title") || "").slice(0, 160),
-        testId: (el.getAttribute("data-testid") || el.getAttribute("data-test-id") || el.getAttribute("data-qa") || "").slice(0, 120),
+        testId: (el.getAttribute("data-testid") || el.getAttribute("data-test-id") || el.getAttribute("data-qa") || el.id || "").slice(0, 120),
         name: el.getAttribute("name") || "",
         type: el.getAttribute("type") || "",
         role: el.getAttribute("role") || "",
@@ -357,9 +372,15 @@ const SNAPSHOT_SCRIPT = `(() => {
         visible: true,
         inModal: Boolean(el.closest && el.closest("[role='dialog'], .jobs-easy-apply-modal, [data-test-modal], .modal")),
         inForm: Boolean(el.closest && el.closest("form, [role='dialog'], .jobs-easy-apply-modal, [data-test-modal]")),
-      });
+        inApply: Boolean(el.closest && el.closest("#ia-container, .ia-BasePage, [class*='ia-Questions' i], [id*='questions-module' i]")),
+        chrome: Boolean(el.closest && el.closest("header, nav, footer, [role='navigation'], [role='banner'], [role='contentinfo']")),
+      };
+      if (item.chrome && !/candidat|apply|inscrev/i.test(visibleText + " " + aria)) {
+        if (chromeButtons.length < 8) chromeButtons.push(item);
+      } else buttons.push(item);
     }
   }
+  buttons.push(...chromeButtons);
   const alerts = [];
   for (const root of roots) {
     const nodes = root.querySelectorAll ? root.querySelectorAll("[role='alert'], [aria-invalid='true']") : [];

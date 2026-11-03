@@ -60,13 +60,31 @@ function looksLikeLogin(snapshot = {}) {
   return /(faca login|sign in|log in|entre para|inicie sessao|criar conta|join now)/.test(text);
 }
 
+function prontoParaCandidatura(snap = {}) {
+  const buttons = (snap.buttons || []).filter((button) => !button.chrome);
+  const fields = (snap.fields || []).filter((field) => !field.chrome);
+  const apply = buttons.some((button) => /candidat|apply|inscrev|continuar|enviar|submit|proximo|next|easy/i.test(`${button.text || ""} ${button.ariaLabel || ""} ${button.testId || ""}`));
+  return apply || fields.length > 0;
+}
+
+function paginaSeguranca(snap = {}) {
+  return /security\s*\|\s*glassdoor|glassdoor\.com\/security/i.test(`${snap.title || ""} ${snap.url || ""}`);
+}
+
+function detalheFalha(motivo, snap = {}) {
+  const url = String(snap.url || "").slice(0, 180);
+  const form = (snap.buttons || []).filter((button) => !button.chrome).slice(0, 5).map((button) => button.text || button.ariaLabel).filter(Boolean);
+  const menu = (snap.buttons || []).filter((button) => button.chrome).length;
+  return `${motivo} URL: ${url || "sem url"}. Formulário: ${form.join(", ") || "nenhum botão"}. Menu ignorado: ${menu}.`.replace(/\s+/g, " ").trim().slice(0, 480);
+}
+
 async function settle(io, evidence) {
   let snap = {};
-  for (let i = 0; i < 4; i += 1) {
+  for (let i = 0; i < 8; i += 1) {
     snap = (await io.snapshot().catch((error) => ({ erroScript: String(error && error.message || error), buttons: [], fields: [] }))) || {};
     note(evidence, "snapshot", JSON.stringify({ etapa: i + 1, ...summarize(snap) }));
-    if ((snap.buttons || []).length || (snap.fields || []).length || String(snap.text || "").length > 80) break;
-    if (typeof io.sleep === "function") await io.sleep(600);
+    if (paginaSeguranca(snap) || prontoParaCandidatura(snap)) break;
+    if (typeof io.sleep === "function") await io.sleep(500);
   }
   return snap;
 }
@@ -113,6 +131,10 @@ async function runApplication({ vaga = {}, profile = {}, respostas = {}, secrets
     if (early) return pack(evidence, early, early.estado || "needs_user");
   }
   let snap = await settle(io, evidence);
+  if (paginaSeguranca(snap) && !prontoParaCandidatura(snap)) {
+    if (typeof io.show === "function") io.show();
+    return pack(evidence, { critico: detalheFalha("A página caiu na verificação de segurança do Glassdoor.", snap), codigo: "login", classe: "humano" }, "needs_user");
+  }
   if (captchaBloqueia(snap) && !llm) {
     if (typeof io.show === "function") io.show();
     return pack(evidence, { critico: "O site mostrou um captcha visível. Resolva na janela; o HELIOS não contorna captcha.", codigo: "captcha", classe: "humano", via: "rules" }, "needs_user");
@@ -280,7 +302,7 @@ async function runApplication({ vaga = {}, profile = {}, respostas = {}, secrets
       if (decision.codigo === "captcha" && typeof io.show === "function") io.show();
       note(evidence, "parada", JSON.stringify(summarize(snap)));
       return pack(evidence, {
-        critico: decision.motivo,
+        critico: decision.codigo === "botao" ? detalheFalha(decision.motivo, snap) : decision.motivo,
         pergunta: decision.pergunta || decision.motivo,
         codigo: decision.codigo,
         classe: decision.codigo === "captcha" || decision.codigo === "ambiguidade" ? "humano" : regras.classeFalha({ motivo: decision.motivo, codigo: decision.codigo }),

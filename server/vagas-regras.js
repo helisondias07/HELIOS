@@ -67,6 +67,19 @@ function aliasKey(value) {
   return "";
 }
 
+function empresaNoTexto(job = {}, prefs = {}) {
+  if (empresaEvitada(job.company, prefs)) return true;
+  const padded = ` ${norm(`${job.title || ""} ${job.description || ""} ${job.url || ""}`).replace(/[^a-z0-9]+/g, " ").trim()} `;
+  const tokens = padded.split(/\s+/).filter(Boolean);
+  const names = [...CANONICAL_EVITAR, ...((prefs && prefs.evitarEmpresas) || [])];
+  return names.some((name) => {
+    const parts = tokensOf(name);
+    if (parts.length && parts.every((token) => tokens.includes(token))) return true;
+    const compactName = parts.join("");
+    return compactName.length >= 6 && tokens.some((token) => token === compactName);
+  });
+}
+
 function empresaEvitada(company, prefs = {}) {
   const list = [...CANONICAL_EVITAR, ...((prefs && prefs.evitarEmpresas) || [])];
   const companyTokens = tokensOf(company);
@@ -158,7 +171,7 @@ function requisito(job, pattern) {
 
 function avaliarVaga(job = {}, prefs = {}) {
   const motivos = [];
-  if (empresaEvitada(job.company, prefs)) motivos.push("empresa evitada");
+  if (empresaNoTexto(job, prefs)) motivos.push("empresa evitada");
   if (!remotoOnly(job)) motivos.push("não é somente remoto");
   if (!nivelOk(job)) motivos.push("senioridade fora de júnior/pleno");
   if (!papelOk(job)) motivos.push("fora de front, fullstack, Node, React, Next, TypeScript ou IA");
@@ -189,6 +202,7 @@ module.exports = {
   JUNIOR_BRL,
   PLENO_BRL,
   empresaEvitada,
+  empresaNoTexto,
   pretensao,
   formatBrl,
   avaliarVaga,

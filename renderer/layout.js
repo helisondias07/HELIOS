@@ -200,6 +200,8 @@
         const k = b.dataset.lfAsst;
         if (k === "@vagas") return go("vagas");
         if (k === "@search") return go("search");
+        if (k === "@oasis") return go("oasis");
+        if (k === "@portfolio") return go("portfolio");
         newChat(k);
       };
     });

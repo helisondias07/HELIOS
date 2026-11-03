@@ -128,4 +128,10 @@ test("interface: aba Vagas em português", () => {
   assert.match(html, /data-view="vagas"/);
   assert.match(app, /Na fila do automático/);
   assert.match(app, /Esperando sua aprovação/);
+  assert.match(app, /hx-insc/);
+  assert.match(app, /<th>Empresa<\/th><th>Cargo<\/th><th>Plataforma<\/th><th>Data<\/th><th>Status<\/th>/);
+  assert.match(app, /loadAgentChat\("pesquisa"\)/);
+  assert.match(app, /loadAgentChat\("oasis"\)/);
+  assert.match(app, /loadAgentChat\("portfolio"\)/);
+  assert.match(app, /loadVagasPainel/);
 });

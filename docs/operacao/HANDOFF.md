@@ -300,5 +300,17 @@ O que ainda não é um agente de tela cheia: iframe de outro domínio não é li
 | Click Interativo: "Falta Nome *" | O rótulo vinha com asterisco e não casava com `nome`. | O asterisco sai antes de comparar. "Nome *" usa o nome do perfil. | `Nome * usa o perfil` |
 | Gupy `ERR_NAME_NOT_RESOLVED` ou `ERR_ABORTED` | A página não abriu (DNS ou navegação interrompida) e o erro entrava no mesmo saco do formulário. | Uma nova tentativa e, se persistir, falha técnica de rede, com o código no resultado. | `captcha e login param para o dono; rede é falha técnica` |
 
-Ainda falta uma rodada curta no Windows, na instância principal, para ver se a visão acerta os botões reais da Gupy, do Indeed e do Glassdoor. Sem a frase do site no resultado, não há candidatura enviada. Nesta correção: `npm test` 645 testes, 644 pass, 0 fail, 1 skip; `npm run lint` e `npm run check` verdes.
+Ainda falta uma rodada curta no Windows, na instância principal, para ver se a visão acerta os botões reais da Gupy, do Indeed e do Glassdoor. Sem a frase do site no resultado, não há candidatura enviada.
+
+## Painel de 03/11 14:56 — captcha falso, carta e feed
+
+O que o painel mostrou e o que o código passa a fazer:
+
+- Os três "casos críticos" de captcha (VAAS Florianópolis, outro Frontend do LinkedIn e Indeed BBChain) vinham do selo do rodapé ou de um iframe pequeno. Captcha só para com desafio visível: frase de checkbox/puzzle, widget medido (não o selo) ou o script da página. Com modelo, a visão precisa concordar; se ela manda preencher ou continuar, a vaga segue. Um aviso antigo de captcha sem essa frase volta uma vez para a fila. Híbrido ou Florianópolis em caso crítico é descartado, sem nova tentativa.
+- No Indeed, "Adicionar documentos de apoio" pede a carta. O HELIOS escreve a carta a partir do perfil e clica em Continuar. O rodapé "protegido pelo reCAPTCHA" não pausa.
+- "Vagas encontradas" não tem "Preparar inscrição". Nota na mínima fica na fila e o automático se inscreve.
+- Post do feed com nota na mínima e remoto vira candidatura (link de vaga ou o próprio post) ou e-mail com CV, quando o texto tem um endereço e nenhum link de inscrição. Híbrido não entra.
+- O envio do e-mail usa o Gmail conectado. Se a conta só tem leitura, a vaga fica como falha técnica com o motivo, sem carta de aprovação. A chave não entra no corpo.
+
+O que esta sessão não prova: uma `enviada` real no Windows. Iframe de outro domínio continua ilegível. A conta Gmail precisa do escopo de envio para o CV sair de verdade.
 

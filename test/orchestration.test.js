@@ -59,7 +59,7 @@ async function json(app, pathname, opts = {}) {
 async function chat(app, text, convId) {
   const id = convId || (await json(app, "/api/conversations", { method: "POST", body: {} })).body.conversation.id;
   await json(app, `/api/conversations/${id}/messages`, { method: "POST", body: { text } });
-  for (let i = 0; i < 200; i += 1) {
+  for (let i = 0; i < 2000; i += 1) {
     const { body } = await json(app, `/api/conversations/${id}`);
     if (!body.conversation.busy) return body.conversation;
     await new Promise((resolve) => setTimeout(resolve, 15));

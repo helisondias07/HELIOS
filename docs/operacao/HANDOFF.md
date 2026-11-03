@@ -326,3 +326,55 @@ As 34 falhas com "Não achei o próximo botão do formulário com segurança" vi
 - Perfil padrão: Bom Jardim, RJ; pretensão R$ 3.500 júnior e R$ 8.000 pleno; LinkedIn com `https://`.
 - A barra da direita e o botão Pausar saem do Chefe. Avisos de ClickUp e GitHub não entram no chat.
 
+
+## Leva V6 / 03-11-2026
+
+> **STATUS (atualizado em 03/11/2026, 15:41, horário de Brasília/America/Sao_Paulo): AS INSCRIÇÕES AINDA ESTÃO FALHANDO.**
+> Até agora, nenhuma candidatura chegou a `enviada` com confirmação do site. A v12 (15:14–15:20) terminou com 0 enviadas e 3 falhas. O `vagas.json` soma 34 falhas e 527 descartadas. A v13 está em teste agora.
+
+### Código
+- PR https://github.com/helisondias07/HELIOS/pull/2, branch `cursor/form-navigator-vagas-d573`, cloud agent `bc-99f05991-79c9-5da0-b34c-0525410bd573`. Mergeado localmente por fast-forward na `helios-levas-v-v5`.
+- Testes: 653 no total, 652 pass, 0 fail, 1 skip.
+
+### Regras sincronizadas no `vagas.json`
+Backups: `vagas.json.bak-20261103`, `vagas.json.bak-preimport` e `vagas.json.bak-pre-v12`.
+- Empresas evitadas: Quality, Quality Digital, Micro1/Micro Um, BairesDev, NeoWork, Workana, Strider e Lovel.
+- 9 termos de busca.
+- Exclusões: angular, vídeo/loom, PcD/afirmativa, inglês fluente, kubernetes e superior completo.
+- Só remoto.
+- Pretensão: R$ 3.500 para júnior e R$ 8.000 para pleno.
+- Não falar com recrutadores.
+- Importadas 12 das 16 candidaturas (`scripts/importar-candidaturas.js`).
+
+### Objetivo do produto
+O agente de Vagas deve ser 100% autônomo, como o Grok Bot: enxerga a tela, se candidata, manda e-mail com o CV e entrega um relatório no final, sem aprovações. Só pausam um CAPTCHA visível ou um login impossível. Modelos grátis vêm primeiro e o Cursor por último, com rotação entre as 3 contas do Cursor mantendo o contexto. Os agentes de Portfólio e de Projetos só vêm depois.
+
+### Problemas e correções, em ordem
+1. v10: `fetch failed` / `via:rules`, com falha em uns 2 s.
+2. v11: loop no feed do LinkedIn (corrigido).
+3. Falso CAPTCHA: o selo "protegido pelo reCAPTCHA" (VAAS, Indeed BBChain). Agora só conta como CAPTCHA um desafio visível.
+4. Vaga híbrida de Florianópolis: agora é descartada.
+5. "Preparar inscrição" removido: a vaga entra na fila automática.
+6. Carta de apresentação do Indeed gerada a partir do perfil.
+7. Posts do feed viram candidatura ou e-mail com o CV.
+8. Causa raiz das 34 falhas ("Não achei o próximo botão do formulário com segurança"): o snapshot pegava o menu e o cabeçalho do site, e não o formulário. **Corrigido no código, ainda não validado no Windows.**
+9. O questions-module do Indeed agora é preenchido.
+10. "Security" do Glassdoor tratado como login.
+11. BairesDev barrada pela descrição da vaga.
+12. InfoJobs, ProgramaThor e BossaBox com URLs corrigidas.
+13. Mocks removidos.
+14. No máximo 1 nova tentativa por vaga.
+15. Perfil: Bom Jardim/RJ e LinkedIn com https.
+16. Teste `levah.test.js` ajustado para `\r\n` no Windows.
+
+### Layout
+- A barra da direita e o botão Pausar saíram do Chefe (já instalado).
+- As telas de Vagas e dos outros agentes ficam em estilo de chat, com tabela de inscrições, e as configurações vão para Ajustes > Vagas. Isso está pronto no PR e falta instalar.
+
+### Pendências
+- Validar uma `enviada` real no Windows.
+- O iframe de outro domínio ainda não é lido.
+- O e-mail com CV depende de o Gmail ter permissão de envio.
+- A rotação das contas do Cursor e o loop completo por visão ainda não foram confirmados em produção.
+- Os avisos de ClickUp/GitHub/Vercel são dos agentes Oasis e Portfólio.
+- Ver também `docs/operacao/REVISAO-GERAL.md`.

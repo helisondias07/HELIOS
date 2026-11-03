@@ -165,6 +165,14 @@ function nuncaMensagemRecrutador() {
   return { ok: false, motivo: "O HELIOS não envia nem responde mensagem de recrutador." };
 }
 
+/** CAPTCHA e login pedem o dono. Botão ausente, rede e mapeamento são falha técnica. */
+function classeFalha({ motivo = "", pergunta = "", codigo = "", classe = "" } = {}) {
+  if (classe === "humano" || classe === "tecnico") return classe;
+  const blob = norm(`${codigo} ${motivo} ${pergunta}`);
+  if (/captcha|2fa|otp|login|senha|authwall|verificacao|perfil nao responde|perguntar ao usuario|raca|genero|termos legais|dedicacao exclusiva|ambiguidade|sem valor/.test(blob)) return "humano";
+  return "tecnico";
+}
+
 module.exports = {
   CANONICAL_EVITAR,
   JUNIOR_BRL,
@@ -174,6 +182,7 @@ module.exports = {
   formatBrl,
   avaliarVaga,
   nuncaMensagemRecrutador,
+  classeFalha,
   remotoOnly,
   nivelOk,
   papelOk,

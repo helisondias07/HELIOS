@@ -6,6 +6,8 @@
  */
 
 const norm = (text) => String(text || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
+/** Tira asterisco e "(obrigatório)" para "Nome *" casar com o nome do perfil. */
+const cleanLabel = (text) => norm(text).replace(/[*]+/g, " ").replace(/\([^)]*\)/g, " ").replace(/\b(obrigatorio|obrigatoria|required|opcional)\b/g, " ").replace(/\s+/g, " ").trim();
 
 /** Lê "Chave: valor" do contexto.md e junta com o perfil salvo na aba Vagas (o perfil da aba ganha). */
 function profileFrom(contextText, perfil = {}) {
@@ -75,7 +77,7 @@ function planFill(fields, profile = {}, respostas = {}, page = {}, secrets = {})
     return hit ? hit[1] : "";
   };
   for (const f of fields || []) {
-    const label = norm(`${f.label || ""} ${f.name || ""} ${f.placeholder || ""}`);
+    const label = cleanLabel(`${f.label || ""} ${f.name || ""} ${f.placeholder || ""}`);
     const type = String(f.type || f.tag || "").toLowerCase();
     if (!label && !f.required) continue;
     if (type === "hidden" || type === "submit" || type === "button") continue;
@@ -256,4 +258,4 @@ function clickScript(kind) {
 const SUCCESS = /(candidatura (foi )?enviada|inscricao (foi )?(realizada|enviada|concluida)|application (was )?(sent|submitted)|you applied|voce se candidatou|candidatura realizada|obrigado por se candidatar|thank you for applying|thanks for applying|we received your application|recebemos sua candidatura)/;
 const isSuccess = (pageText) => SUCCESS.test(norm(pageText));
 
-module.exports = { profileFrom, planFill, INSPECT_SCRIPT, applyScript, clickScript, isSuccess, BUTTONS, norm };
+module.exports = { profileFrom, planFill, INSPECT_SCRIPT, applyScript, clickScript, isSuccess, BUTTONS, norm, cleanLabel };

@@ -16,6 +16,7 @@ const visual = require("../server/vagas-visual");
 const privacy = require("../server/fill-privacy");
 const { createCookieSaver, platformDomains, cleanUserAgent, cookieMeta } = require("./vagas-cookies");
 const application = require("../server/jobs-application");
+const { runApplication } = require("../server/application-run");
 
 const CHALLENGE_URL = /checkpoint|challenge|captcha|two-?step|2fa|mfa|verification|verify|otp|security-check/i;
 
@@ -703,7 +704,7 @@ function registerJobs({ ipcMain, BrowserWindow, vault, serverUrl, getApiToken, m
   })()`;
 
   /** Busca visual. Um site que falha fica isolado e o ciclo segue nos demais. */
-  async function searchPlatforms({ terms = [], location = "Brasil" } = {}) {
+  async function searchPlatforms({ terms = [], location = "Brasil", onProgress = null } = {}) {
     const prefData = await api("GET", "/api/vagas");
     const prefs = prefData.prefs || {};
     const words = (Array.isArray(terms) && terms.length ? terms : (prefs.termos || ["desenvolvedor front-end"])).slice(0, 5);
@@ -748,6 +749,7 @@ function registerJobs({ ipcMain, BrowserWindow, vault, serverUrl, getApiToken, m
         } catch (error) {
           results.push({ plataforma: platform.id, termo: term, ok: false, erro: String((error && error.message) || error).slice(0, 180), isolado: true });
         }
+        if (typeof onProgress === "function") onProgress({ plataforma: platform.id, termo: term });
       }
     }
     return { ok: true, resultados: results, novas: results.reduce((n, row) => n + (Number(row.novas) || 0), 0), erros: results.filter((row) => row.ok === false).map((row) => `${row.plataforma} (${row.termo}): ${row.erro}`) };
@@ -846,75 +848,46 @@ function registerJobs({ ipcMain, BrowserWindow, vault, serverUrl, getApiToken, m
       }, "review");
     }
     const w = getWin(vaga.platform);
-    const loaded = await load(w, vaga.url);
-    if (!loaded.ok) return result({ critico: loaded.error, motivo: loaded.timeout ? "timeout" : "carregamento" }, "failed");
     const js = (code) => w.webContents.executeJavaScript(code, true);
-    let probe0 = await js(PROBE).catch(() => ({}));
-    // Sessão expirou: entra de novo com o cofre (e o código do Gmail, se pedir) e volta para a vaga.
-    if ((probe0.password || /login|signin|authwall/i.test(w.webContents.getURL())) && !probe0.captcha) {
-      const relog = await login(vaga.platform);
-      if (!relog.ok) return result({ critico: relog.error }, "challenge");
-      const relogLoaded = await load(w, vaga.url);
-      if (!relogLoaded.ok) return result({ critico: relogLoaded.error, motivo: relogLoaded.timeout ? "timeout" : "carregamento" }, "failed");
-      probe0 = await js(PROBE).catch(() => ({}));
-    }
-    const challenge0 = detectChallenge(w.webContents.getURL(), probe0);
-    if (challenge0) {
-      try { w.show(); w.focus(); } catch { /* janela opcional */ }
-      return result({ critico: challenge0, motivo: probe0.captcha ? "captcha" : "verificacao" }, "challenge");
-    }
-    let memory = {};
-    let filledTotal = 0;
-    let via = "rules";
-    let model = null;
-    for (let turn = 0; turn < 16; turn += 1) {
-      if (stopRequested) return result({ critico: "Você pediu para parar.", via, model }, "challenge");
-      const snap = await js(nav.SNAPSHOT_SCRIPT).catch(() => ({}));
-      const challenge = detectChallenge(w.webContents.getURL(), { captcha: Boolean(snap && snap.captcha) });
-      if (challenge) {
-        try { w.show(); w.focus(); } catch { /* janela opcional */ }
-        return result({ critico: challenge, motivo: snap && snap.captcha ? "captcha" : "verificacao", via, model }, "challenge");
-      }
-      const decision = nav.step(snap || {}, { profile, respostas, secrets, memory, enviar, vaga });
-      memory = decision.memory || memory;
-      if (decision.via) via = decision.via;
-      if (decision.fills && decision.fills.length) {
-        filledTotal += await js(nav.applyScript(decision.fills)).catch(() => 0);
-        for (const action of decision.fills.filter((item) => item.kind === "file")) {
-          try { await setFile(w, action.sel, action.valor); filledTotal += 1; } catch (e) { return result({ critico: `Não consegui anexar o CV: ${e.message}`, via, model }, "failed"); }
-        }
-        await sleep(500);
-      }
-      if (decision.kind === "submitted") {
-        mark("submitted", decision.confirmacao);
-        return result({ ok: true, nota: `${filledTotal} campo(s) preenchido(s)`, enviado: true, via, model, confirmacao: decision.confirmacao }, "submitted");
-      }
-      if (decision.kind === "review") {
-        try { w.show(); w.focus(); } catch { /* janela opcional */ }
-        mark("review", `${filledTotal} campo(s) preenchido(s); aguardando revisão`);
-        return result({
-          ok: true,
-          paradoAntesDeEnviar: true,
-          enviado: false,
-          via,
-          model,
-          nota: `${filledTotal} campo(s) preenchido(s). Revise e envie no site — nada foi submetido.`,
-        }, "review");
-      }
-      if (decision.kind === "pause" || decision.kind === "failed") {
-        if (decision.codigo === "captcha") {
+    return runApplication({
+      vaga,
+      profile,
+      respostas,
+      secrets,
+      enviar,
+      llm: freeLlm,
+      io: {
+        load: (url) => load(w, url),
+        afterLoad: async () => {
+          let probe0 = await js(PROBE).catch(() => ({}));
+          if ((probe0.password || /login|signin|authwall/i.test(w.webContents.getURL())) && !probe0.captcha) {
+            const relog = await login(vaga.platform);
+            if (!relog.ok) return { critico: relog.error, codigo: "login", classe: "humano", estado: "needs_user" };
+            const again = await load(w, vaga.url);
+            if (!again.ok) return { critico: again.error, codigo: "rede", classe: "tecnico", estado: "failed" };
+            probe0 = await js(PROBE).catch(() => ({}));
+          }
+          const challenge0 = detectChallenge(w.webContents.getURL(), probe0);
+          if (!challenge0) return null;
           try { w.show(); w.focus(); } catch { /* janela opcional */ }
-        }
-        return result({ critico: decision.motivo, pergunta: decision.pergunta || decision.motivo, via, model, motivo: decision.codigo || "" }, decision.kind === "failed" ? "failed" : "challenge");
-      }
-      if (decision.click) {
-        const clicked = await js(nav.clickScript(decision.click.sel)).catch(() => "");
-        if (!clicked) return result({ critico: "O botão sumiu antes do clique.", via, model }, "failed");
-        mark(decision.click.intent === "apply" ? "opened" : "submit", clicked);
-        await sleep(1500);
-      }
-    }
-    return result({ critico: "O formulário passou de 16 etapas sem confirmar o envio. Confira no site.", via, model }, "failed");
+          return { critico: challenge0, codigo: probe0.captcha ? "captcha" : "login", classe: "humano", estado: "needs_user" };
+        },
+        snapshot: () => js(nav.SNAPSHOT_SCRIPT).catch((error) => ({ url: (() => { try { return w.webContents.getURL(); } catch { return vaga.url || ""; } })(), erroScript: String(error && error.message || error).slice(0, 180), buttons: [], fields: [], text: "" })),
+        screenshot: async () => {
+          try {
+            const image = await w.webContents.capturePage();
+            const jpeg = image.toJPEG(35);
+            if (!jpeg || jpeg.length > 700000) return "";
+            return `data:image/jpeg;base64,${jpeg.toString("base64")}`;
+          } catch { return ""; }
+        },
+        click: (sel) => js(nav.clickScript(sel)).catch(() => ""),
+        apply: (acoes) => js(nav.applyScript(acoes)).catch(() => 0),
+        setFile: (sel, file) => setFile(w, sel, file),
+        show: () => { try { w.show(); w.focus(); } catch { /* janela opcional */ } },
+        sleep,
+      },
+    });
   }
 
   /**
@@ -986,7 +959,9 @@ function registerJobs({ ipcMain, BrowserWindow, vault, serverUrl, getApiToken, m
         if (result.via) result.nota = `${result.nota || ""} [via ${result.via}${result.model ? " " + result.model : ""}]`.trim();
         (out.detalhes = out.detalhes || []).push({ id: vaga.id, titulo: vaga.title, ok: !!result.ok, critico: result.critico || null, nota: result.nota || null, via: result.via || null, model: result.model || null });
         await api("POST", `/api/vagas/${encodeURIComponent(vaga.id)}/auto/resultado`, result).catch(() => {});
-        if (result.ok) out.enviadas += 1; else if (result.critico) out.criticas += 1; else out.falhas += 1;
+        if (result.ok && result.enviado) out.enviadas += 1;
+        else if (result.classe === "humano") out.criticas += 1;
+        else out.falhas += 1;
       }
       return { ok: true, ...out };
     } catch (e) {
@@ -1042,7 +1017,7 @@ function registerJobs({ ipcMain, BrowserWindow, vault, serverUrl, getApiToken, m
   };
 }
 
-module.exports = { isOAuthPopupUrl,
+module.exports = { isOAuthPopupUrl, runApplication,
   registerJobs, detectChallenge, findLoginFor, fillScript, CHALLENGE_URL,
   partitionFor, legacyPartitionFor, migrateVagasSession, isGoogleAccountsUrl,
   SHARED_VAGAS_PARTITION, VAGAS_SESSAO_MARKER, mergePlatforms,

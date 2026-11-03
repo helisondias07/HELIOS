@@ -38,12 +38,34 @@ function termsFor(platformId, terms) {
 
 const JOB_LINK = /linkedin\.com\/jobs\/view|gupy\.io\/(?:job|jobs)\/|indeed\.|glassdoor\.|catho\.com|infojobs\.|coodesh\.com|geekhunter\.|programathor\.|trampos\.co|nerdin\.|bossabox\.|remotar\.com|greenhouse\.io|ashbyhq\.com|lever\.co|\/(?:vaga|vagas|job|jobs|oportunidade|oportunidades)\b/i;
 
+const AD_URL = /pagead\/clk|doubleclick\.|googleadservices|\/aclk\b|\/rc\/clk/i;
+
+/** Troca o rastreador de anúncio pelo endereço da vaga. Indeed precisa do parâmetro jk. */
+function canonicalJobUrl(href) {
+  const raw = String(href || "");
+  if (!/^https:\/\//i.test(raw)) return "";
+  const jk = (raw.match(/[?&]jk=([a-z0-9]+)/i) || [])[1];
+  if (AD_URL.test(raw)) {
+    if (jk && /indeed\./i.test(raw)) return `https://br.indeed.com/viewjob?jk=${jk}`;
+    return "";
+  }
+  try {
+    const u = new URL(raw);
+    if (/indeed\./i.test(u.hostname) && jk) return `${u.origin}/viewjob?jk=${jk}`;
+    u.hash = "";
+    if (!/indeed\./i.test(u.hostname)) u.search = "";
+    return u.href;
+  } catch {
+    return "";
+  }
+}
+
 function itemsFromAnchors(anchors = []) {
   const map = new Map();
   for (const anchor of anchors) {
     const href = String(anchor.href || anchor.url || "");
-    if (!href || !JOB_LINK.test(href)) continue;
-    const url = href.split("?")[0];
+    const url = canonicalJobUrl(href);
+    if (!url || !JOB_LINK.test(url)) continue;
     if (map.has(url)) continue;
     const title = String(anchor.title || anchor.text || "").replace(/\s+/g, " ").trim().slice(0, 200);
     if (!title) continue;
@@ -65,7 +87,13 @@ const CAPTURE_SCRIPT = `(() => {
   const items = [];
   const seen = new Set();
   for (const a of anchors) {
-    const url = a.href.split("?")[0];
+    const jk = (a.href.match(/[?&]jk=([a-z0-9]+)/i) || [])[1];
+    let url = a.href.split("#")[0];
+    if (/pagead\\/clk|doubleclick|googleadservices|\\/aclk\\b|\\/rc\\/clk/i.test(a.href)) {
+      if (!(jk && /indeed\\./i.test(a.href))) continue;
+      url = "https://br.indeed.com/viewjob?jk=" + jk;
+    } else if (jk && /indeed\\./i.test(a.href)) url = a.href.split("/").slice(0, 3).join("/") + "/viewjob?jk=" + jk;
+    else url = url.split("?")[0];
     if (seen.has(url)) continue;
     seen.add(url);
     const card = a.closest("article, li, [data-job-id], [data-testid*='job' i], div");
@@ -155,6 +183,7 @@ module.exports = {
   catalog,
   termsFor,
   JOB_LINK,
+  canonicalJobUrl,
   itemsFromAnchors,
   CAPTURE_SCRIPT,
   SAVED_TAB_SCRIPT,

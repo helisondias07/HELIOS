@@ -393,6 +393,25 @@ function createAgentVagas(dataDir, {
     return { ok: true, tipo: kind, lidos: raw.length, novos, quadroId: card?.id || null };
   }
 
+  let live = { running: false, done: true, fase: "ocioso", error: "", result: null, ultimo: null };
+  const progress = (fase, detalhe = {}) => {
+    live = { ...live, fase, ultimo: detalhe, at: new Date(now()).toISOString() };
+  };
+  function andamento() {
+    const { result, ...rest } = live;
+    return { ...rest, result: result ? { ok: result.ok, feitos: result.feitos || [], erros: result.erros || [], motivo: result.motivo || "" } : null };
+  }
+  function iniciarCiclo(opts = {}) {
+    if (live.running) return { ok: true, iniciado: true, jaRodando: true };
+    live = { running: true, done: false, fase: "inicio", error: "", result: null, ultimo: null };
+    ciclo({ ...opts, background: false }).then((result) => {
+      live = { running: false, done: true, fase: "concluido", error: "", result, ultimo: { feitos: (result.feitos || []).length } };
+    }).catch((error) => {
+      live = { running: false, done: true, fase: "erro", result: null, error: String(error && error.message || error).slice(0, 300), ultimo: null };
+    });
+    return { ok: true, iniciado: true };
+  }
+
   /** Ciclo: executa slots vencidos com teto/hora e ritmo humano (sem rede no mock). */
   async function ciclo({ forcar = false, completa = false, at = now(), htmlByFonte = {}, runner = null } = {}) {
     assertNuncaPostar("ciclo");
@@ -417,6 +436,8 @@ function createAgentVagas(dataDir, {
         : due(at));
     const feitos = [];
     const erros = [];
+    if (typeof jobs.revisarFila === "function") jobs.revisarFila();
+    progress("busca", { slots: slots.length });
 
     for (const slot of slots) {
       if (!rateLeft(at) && !forcar) break;
@@ -425,6 +446,7 @@ function createAgentVagas(dataDir, {
       const feitosAntes = feitos.length;
       if (slot.tipo === "linkedin") {
         for (const fonte of slot.fontes) {
+          progress("linkedin", { fonte });
           try {
             if (typeof runner === "function") {
               const r = await runner({ tipo: "linkedin", fonte, slot });
@@ -441,7 +463,8 @@ function createAgentVagas(dataDir, {
         }
       } else if (slot.tipo === "plataformas") {
         try {
-          const rr = typeof runner === "function" ? await runner({ tipo: "plataformas", slot }) : null;
+          progress("plataformas", { slot: slot.id });
+          const rr = typeof runner === "function" ? await runner({ tipo: "plataformas", slot, onProgress: (detalhe) => progress("plataforma", detalhe || {}) }) : null;
           if (rr) {
             const r = rr;
             feitos.push({ slot: slot.id, fonte: "plataformas", ...r });
@@ -511,6 +534,7 @@ function createAgentVagas(dataDir, {
       );
     }
 
+    progress(erros.length ? "concluido_com_erros" : "concluido", { feitos: feitos.length, erros: erros.length });
     return { ok: true, feitos, erros, status: status(at) };
   }
 
@@ -557,6 +581,8 @@ function createAgentVagas(dataDir, {
     ensureDay,
     planejarHorarios: (d, o) => planejarHorarios(d || dayKey(now()), { rng, ...o }),
     ciclo,
+    iniciarCiclo,
+    andamento,
     ingestHtml,
     filtrarLista,
     prepararInscricao,

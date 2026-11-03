@@ -16,7 +16,7 @@ const PLACEHOLDERS = [
 ];
 
 function placeholderFor(field) {
-  const label = String((field && (field.label || field.name)) || "").trim();
+  const label = String((field && (field.label || field.name)) || "").replace(/\*/g, " ").replace(/\([^)]*\)/g, " ").replace(/\s+/g, " ").trim();
   if (field && field.type === "file") return PLACEHOLDERS.find((p) => p.key === "cvPath");
   return PLACEHOLDERS.find((p) => p.re.test(label)) || null;
 }

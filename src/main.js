@@ -328,10 +328,10 @@ function bootstrap() {
         loginVagas: (platformId, opts) => (jobsHost ? jobsHost.login(platformId, opts) : Promise.resolve({ ok: false, error: "Navegador das vagas indisponível.", motivo: "indisponivel" })),
         loginVagasTodas: (opts) => (jobsHost ? jobsHost.loginTodas(opts) : Promise.resolve([])),
         // LEVA S: executor LinkedIn so leitura (persist:vagas) e rodada automatica autorizada.
-        vagasRunner: async ({ tipo, fonte }) => {
+        vagasRunner: async (info = {}) => {
           if (!jobsHost) return null;
-          if (tipo === "linkedin" && typeof jobsHost.scanLinkedInKind === "function") return jobsHost.scanLinkedInKind(fonte, {});
-          if (tipo === "plataformas" && typeof jobsHost.searchPlatforms === "function") return jobsHost.searchPlatforms({});
+          if (info.tipo === "linkedin" && typeof jobsHost.scanLinkedInKind === "function") return jobsHost.scanLinkedInKind(info.fonte, {});
+          if (info.tipo === "plataformas" && typeof jobsHost.searchPlatforms === "function") return jobsHost.searchPlatforms({ onProgress: info.onProgress });
           return null;
         },
         runAutoVagas: () => (jobsHost && jobsHost.runAuto ? jobsHost.runAuto({ origem: "leva-s" }) : Promise.resolve({ ok: false, error: "indisponivel" })),
@@ -610,14 +610,36 @@ function bootstrap() {
           if (!response.ok) throw new Error(`${method} ${route}: HTTP ${response.status} ${data.error || ""}`.trim());
           return data;
         };
+        const apiRetry = async (method, route, body, tries = 4) => {
+          let last;
+          for (let attempt = 1; attempt <= tries; attempt += 1) {
+            try { return await api(method, route, body); } catch (error) {
+              last = error;
+              checkpoint("rede_retry", { rota: route, tentativa: attempt, erro: String(error && error.message || error).slice(0, 180) });
+              await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
+            }
+          }
+          throw last;
+        };
         try {
           checkpoint("leitura_inicial");
-          const before = await api("GET", "/api/vagas");
+          const before = await apiRetry("GET", "/api/vagas");
           const beforeMap = new Map((before.vagas || []).map((v) => [v.id, v.status]));
-          await api("POST", "/api/agente/vagas/modo", { modo: "automatico" });
-          await api("POST", "/api/agente/vagas/pausar", { pausado: false });
-          checkpoint("busca_completa");
-          const scan = await api("POST", "/api/agente/vagas/ciclo", { forcar: true, completa: true });
+          await apiRetry("POST", "/api/agente/vagas/modo", { modo: "automatico" });
+          await apiRetry("POST", "/api/agente/vagas/pausar", { pausado: false });
+          checkpoint("busca_iniciada");
+          await apiRetry("POST", "/api/agente/vagas/ciclo", { forcar: true, completa: true, background: true });
+          let scan = { ok: false, feitos: [], erros: ["busca sem resposta"] };
+          const buscaDeadline = Date.now() + 20 * 60 * 1000;
+          while (Date.now() < buscaDeadline) {
+            const state = await apiRetry("GET", "/api/agente/vagas/andamento");
+            checkpoint(state.fase || "busca", { ultimo: state.ultimo || null, erro: state.error || "" });
+            if (state.done) {
+              scan = state.result || { ok: !state.error, feitos: [], erros: state.error ? [state.error] : [] };
+              break;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 2000));
+          }
           checkpoint("busca_concluida", { feitos: scan.feitos || [], erros: scan.erros || [] });
           const started = await api("POST", "/api/vagas/auto/rodar", { origem: "ciclo-agora" });
           checkpoint("fila_iniciada", { novas: started.novas || 0, fila: started.fila || 0, bloqueios: started.bloqueios || [] });

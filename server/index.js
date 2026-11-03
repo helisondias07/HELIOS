@@ -1555,7 +1555,10 @@ async function startServer(opts = {}) {
     if (req.method === "POST" && pathName === "/api/telegram/desparear") return send(res, 200, { telegram: telegram.unpair() });
     if (req.method === "POST" && pathName === "/api/telegram/teste") return send(res, 200, { enviado: await telegram.send("Teste do HELIOS: está funcionando.") });
     // Leva E: vagas automático.
-    if (req.method === "GET" && pathName === "/api/vagas/auto/fila") return send(res, 200, { fila: jobs.autoQueue(), bloqueios: jobs.autoQueueDiagnostics?.() || [], prefs: jobs.prefs() });
+    if (req.method === "GET" && pathName === "/api/vagas/auto/fila") {
+      if (typeof jobs.revisarFila === "function") jobs.revisarFila();
+      return send(res, 200, { fila: jobs.autoQueue(), bloqueios: jobs.autoQueueDiagnostics?.() || [], prefs: jobs.prefs() });
+    }
     if (req.method === "POST" && pathName === "/api/vagas/auto/rodar") return send(res, 200, await runVagasAuto(body.origem === "rotina" ? "rotina" : "app"));
     // Leva Q: login em lote (silencioso). POST inicia; GET lê progresso/resultado.
     if (req.method === "GET" && pathName === "/api/vagas/login-todas") return send(res, 200, loginTodasView());
@@ -1618,13 +1621,18 @@ async function startServer(opts = {}) {
         estado: body.estado || body.state || "",
         evidencia: body.evidencia || [],
         confirmacao: body.confirmacao || "",
+        codigo: body.codigo || body.motivo || "",
+        classe: body.classe || "",
       });
       if (vaga.status === "critica") {
         telegram.send(`Vaga precisa de você (${vaga.critico.codigo}): ${vaga.title} — ${vaga.company}\n${vaga.critico.pergunta}\n${vaga.url}\n\nResponda /r ${vaga.critico.codigo} <resposta>. As outras vagas continuam.`, [[{ text: "Pular esta vaga", data: `p:${vaga.critico.codigo}` }]]);
       }
       return send(res, 200, { vaga });
     }
-    if (req.method === "GET" && pathName === "/api/vagas/resumo") return send(res, 200, { texto: jobs.digest(), testes: jobs.pendingTests(), recusas: jobs.rejections().slice(0, 50), padroes: jobs.rejectionPatterns(), feed: jobs.feed(20) });
+    if (req.method === "GET" && pathName === "/api/vagas/resumo") {
+      if (typeof jobs.revisarFila === "function") jobs.revisarFila();
+      return send(res, 200, { texto: jobs.digest(), testes: jobs.pendingTests(), recusas: jobs.rejections().slice(0, 50), padroes: jobs.rejectionPatterns(), feed: jobs.feed(20) });
+    }
     if (req.method === "POST" && pathName === "/api/vagas/emails") return send(res, 200, jobs.ingestEmails(body.emails));
     if (req.method === "POST" && pathName === "/api/vagas/feed") return send(res, 200, jobs.ingestFeed(body.posts));
     if (req.method === "POST" && pathName === "/api/vagas/posts-salvos") return send(res, 200, jobs.ingestSavedPosts(body.posts));
@@ -1690,6 +1698,7 @@ async function startServer(opts = {}) {
       return send(res, 201, { routine: routines.add({ title: "Varredura de vagas (30 min)", prompt, everyMinutes: 30, enabled: false, windowStart: clockStart, windowEnd: clockEnd }) });
     }
     if (req.method === "GET" && pathName === "/api/vagas") {
+      if (typeof jobs.revisarFila === "function") jobs.revisarFila();
       return send(res, 200, {
         criticas: jobs.criticals(),
         fila: jobs.prefs().modo === "automatico" ? jobs.autoQueue().length : 0,
@@ -2116,13 +2125,20 @@ async function startServer(opts = {}) {
     if (req.method === "POST" && pathName === "/api/agente/vagas/modo") {
       return send(res, 200, { agente: agentVagas.setModo(body.modo || body.valor) });
     }
+    if (req.method === "GET" && pathName === "/api/agente/vagas/andamento") {
+      return send(res, 200, typeof agentVagas.andamento === "function" ? agentVagas.andamento() : { done: true, fase: "ocioso" });
+    }
     if (req.method === "POST" && pathName === "/api/agente/vagas/ciclo") {
-      return send(res, 200, await agentVagas.ciclo({
+      const args = {
         forcar: body.forcar === true,
         completa: body.completa === true,
         htmlByFonte: body.htmlByFonte && typeof body.htmlByFonte === "object" ? body.htmlByFonte : {},
         runner: typeof opts.vagasRunner === "function" ? opts.vagasRunner : null,
-      }));
+      };
+      if (body.background === true && typeof agentVagas.iniciarCiclo === "function") {
+        return send(res, 200, agentVagas.iniciarCiclo(args));
+      }
+      return send(res, 200, await agentVagas.ciclo(args));
     }
     if (req.method === "POST" && pathName === "/api/agente/vagas/ingest") {
       return send(res, 200, await agentVagas.ingestHtml({

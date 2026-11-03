@@ -334,9 +334,11 @@ const SNAPSHOT_SCRIPT = `(() => {
   }
   const buttons = [];
   for (const root of roots) {
-    const nodes = root.querySelectorAll ? root.querySelectorAll("button, [role='button'], input[type='submit'], input[type='button'], [data-testid*='button' i]") : [];
+    const nodes = root.querySelectorAll ? root.querySelectorAll("button, [role='button'], input[type='submit'], input[type='button'], a, [data-testid*='button' i]") : [];
     for (const el of nodes) {
       if (!visible(el) || el.disabled || el.getAttribute("aria-disabled") === "true") continue;
+      const visibleText = text(el);
+      if ((el.tagName || "") === "A" && (visibleText.length < 2 || visibleText.length > 80)) continue;
       const id = "hb" + (n++);
       el.setAttribute("data-helios-btn", id);
       buttons.push({

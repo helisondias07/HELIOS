@@ -5,6 +5,7 @@ const { newId, readJson, writeJson } = require("./util");
 const { tokens } = require("./memory");
 const mail = require("./vagas-email");
 const regras = require("./vagas-regras");
+const { canonicalJobUrl } = require("./vagas-visual");
 
 /**
  * Fase 7: bot de vagas seguro. Busca vagas públicas, dá nota pelo contexto.md, prepara a inscrição
@@ -452,7 +453,7 @@ function createJobs(dataDir, { fetchImpl = globalThis.fetch, now = () => Date.no
     return v;
   }
   /** Resultado do automático: enviada, crítica (pergunta para o Helison) ou falhou. */
-  function autoResult(id, { ok = false, critico = "", pergunta = "", nota = "", via = "", model = "", estado = "", evidencia = [], confirmacao = "" } = {}) {
+  function autoResult(id, { ok = false, critico = "", pergunta = "", nota = "", via = "", model = "", estado = "", evidencia = [], confirmacao = "", codigo = "", classe = "" } = {}) {
     const v = must(id);
     if (v.status !== "auto_enviando") throw err("Essa vaga não está em envio automático.", 409);
     v.autoVia = String(via || "").slice(0, 40) || null;
@@ -461,44 +462,71 @@ function createJobs(dataDir, { fetchImpl = globalThis.fetch, now = () => Date.no
     v.autoEvidencia = Array.isArray(evidencia) ? evidencia.slice(-12) : [];
     const successEvidence = Array.isArray(evidencia) && evidencia.some((item) => /success|confirm/.test(String(item && item.kind || "")));
     const confirmed = Boolean(String(confirmacao || "").trim()) || successEvidence;
+    const motivoTexto = ok && !confirmed
+      ? "Sem confirmação positiva do site. Nada foi marcado como enviada."
+      : String(critico || nota || "");
+    const tipo = regras.classeFalha({ motivo: motivoTexto, pergunta, codigo, classe });
     if (ok && confirmed) {
       v.status = "enviada";
       v.confirmacao = String(confirmacao || "confirmação do site").slice(0, 180);
       record(v, "enviada_auto", nota);
-    } else if (ok && !confirmed) {
-      v.status = "critica";
-      v.critico = {
-        motivo: "Sem confirmação positiva do site. Nada foi marcado como enviada.",
-        pergunta: "Confira no site se a candidatura saiu. O HELIOS não vai repetir sozinho.",
-        codigo: String(v.id).slice(-6),
-        via: v.autoVia,
-        modelo: v.autoModelo,
-        estado: v.autoEstado,
-        evidencia: v.autoEvidencia,
-        at: iso(),
-      };
-      record(v, "critica", v.critico.motivo);
-    } else if (critico) {
-      v.status = "critica";
-      v.critico = {
-        motivo: String(critico).slice(0, 200),
-        pergunta: String(pergunta || critico).slice(0, 400),
-        codigo: String(v.id).slice(-6),
-        via: v.autoVia,
-        modelo: v.autoModelo,
-        estado: v.autoEstado,
-        evidencia: v.autoEvidencia,
-        at: iso(),
-      };
-      record(v, "critica", v.critico.motivo);
+    } else if ((ok && !confirmed) || critico || nota) {
+      const humano = tipo === "humano" && !(ok && !confirmed);
+      if (humano) {
+        v.status = "critica";
+        v.critico = {
+          motivo: motivoTexto.slice(0, 200),
+          pergunta: String(pergunta || motivoTexto).slice(0, 400),
+          codigo: String(v.id).slice(-6),
+          classe: "humano",
+          via: v.autoVia,
+          modelo: v.autoModelo,
+          estado: v.autoEstado,
+          evidencia: v.autoEvidencia,
+          at: iso(),
+        };
+        record(v, "critica", v.critico.motivo);
+      } else {
+        v.status = "falhou";
+        v.falhaClasse = "tecnico";
+        v.nota = motivoTexto.slice(0, 300);
+        v.critico = null;
+        record(v, "falhou", v.nota);
+      }
     } else {
       v.status = "falhou";
+      v.falhaClasse = "tecnico";
       record(v, "falhou", nota);
     }
     save();
     return v;
   }
   const criticals = () => data.vagas.filter((v) => v.status === "critica");
+  /** Reaplica regras nas vagas novas e tira da fila de "sua resposta" as falhas técnicas antigas. */
+  function revisarFila() {
+    let descartadas = 0;
+    let tecnicas = 0;
+    for (const vaga of data.vagas) {
+      if (vaga.status === "nova") {
+        const gate = regras.avaliarVaga(vaga, data.prefs);
+        if (!gate.aceita) {
+          vaga.status = "descartada";
+          vaga.score = 0;
+          vaga.motivos = [...gate.motivos, ...(vaga.motivos || [])].slice(0, 8);
+          descartadas += 1;
+        }
+      } else if (vaga.status === "critica" && regras.classeFalha({ motivo: vaga.critico && vaga.critico.motivo, codigo: vaga.critico && vaga.critico.codigo, classe: vaga.critico && vaga.critico.classe }) === "tecnico") {
+        vaga.status = "falhou";
+        vaga.falhaClasse = "tecnico";
+        vaga.nota = String((vaga.critico && vaga.critico.motivo) || "Falha técnica.").slice(0, 300);
+        vaga.autoEvidencia = (vaga.critico && vaga.critico.evidencia) || vaga.autoEvidencia || [];
+        vaga.critico = null;
+        tecnicas += 1;
+      }
+    }
+    if (descartadas || tecnicas) save();
+    return { descartadas, tecnicas };
+  }
   const findCritical = (code) => criticals().find((v) => v.id === code || v.critico?.codigo === String(code));
   /** Resposta do Helison a um caso crítico: guarda para as próximas e devolve a vaga à fila. */
   function answerCritical(code, resposta) {
@@ -532,7 +560,7 @@ function createJobs(dataDir, { fetchImpl = globalThis.fetch, now = () => Date.no
     const today = log.filter((item) => String(item.at).slice(0, 10) === day);
     const n = (st) => today.filter((item) => item.status === st).length;
     const lines = [`Resumo das vagas (${day.split("-").reverse().join("/")})`,
-      `Enviadas sozinho: ${n("enviada_auto")}`, `Enviadas por você: ${n("enviada")}`, `Casos críticos: ${n("critica")}`, `Falhas: ${n("falhou")}`,
+      `Enviadas sozinho: ${n("enviada_auto")}`, `Enviadas por você: ${n("enviada")}`, `Casos críticos: ${n("critica")}`, `Falhas técnicas: ${n("falhou")}`,
       `Esperando sua resposta: ${criticals().length}`];
     for (const item of today.filter((x) => x.status === "enviada_auto").slice(0, 10)) lines.push(`• ${item.titulo} — ${item.empresa}`);
     return lines.join("\n");
@@ -770,7 +798,7 @@ function createJobs(dataDir, { fetchImpl = globalThis.fetch, now = () => Date.no
       url: String(item.url || ""),
       description: String(item.description || item.text || "").slice(0, 1500),
       postedAt: item.postedAt || null,
-    })).filter((item) => item.url && item.title);
+    })).map((item) => ({ ...item, url: canonicalJobUrl(item.url) || item.url })).filter((item) => item.url && item.title && !/pagead\/clk/i.test(item.url));
     // A busca já foi executada na página. Não exigir igualdade literal aqui:
     // "front-end", "front end" e variações locais não podem virar falso zero.
     const all = [...parsed, ...manual];
@@ -825,6 +853,8 @@ function createJobs(dataDir, { fetchImpl = globalThis.fetch, now = () => Date.no
     for (const e of tests.slice(0, 5)) lines.push(`• ${e.subject}`);
     lines.push(`Recusas hoje: ${recToday.length}`);
     for (const r of recToday.slice(0, 8)) lines.push(`• ${r.empresa}${r.motivo ? ` — ${r.motivo}` : ""}`);
+    const tecnicas = data.vagas.filter((vaga) => vaga.status === "falhou").length;
+    if (tecnicas) lines.push(`Falhas técnicas (não precisam de resposta): ${tecnicas}`);
     if (criticals().length) lines.push(`Esperando sua resposta: ${criticals().length}`);
     if (important.length) {
       lines.push("E-mails importantes:");
@@ -841,7 +871,7 @@ function createJobs(dataDir, { fetchImpl = globalThis.fetch, now = () => Date.no
 
   return {
     ingestEmails, markRejected, finishTest, pendingTests, rejections, rejectionPatterns, ingestFeed, ingestSavedPosts, ingestParsedJobs, ingestBrowserSearch, feed, digest,
-    autoQueue, autoQueueDiagnostics, autoStart, autoResult, criticals, answerCritical, skipCritical, dailySummary, rateLeft, recentlyApplied,
+    autoQueue, autoQueueDiagnostics, autoStart, autoResult, criticals, revisarFila, answerCritical, skipCritical, dailySummary, rateLeft, recentlyApplied,
     importHistory, importRecruiters, setTemplates, setAgentRules, recruiters, templates, agentRules,
     prefs, setPrefs, setTriagem, search, list, get, discard, prepare, approve, deny, markResult, pending, history, counts, platforms: platformList, file, logFile,
   };

@@ -1369,7 +1369,7 @@ async function loadVagas(notice = "") {
       <p class="muted" title="Usa Cofre › Plataformas (ou a senha padrão). A senha nunca vai para o modelo. Código por e-mail: o HELIOS lê no Gmail e digita. Captcha: a janela abre e você recebe um aviso.">Login pelo cofre, com código do Gmail. ⓘ</p>
       <div class="row">${data.plataformas.map((item) => `<button type="button" class="btn" data-vg-login="${esc(item.id)}">Entrar no ${esc(item.label)}</button>`).join("")}<button type="button" class="btn" id="vgJanela">Mostrar janela das vagas</button></div></div>
     ${auto ? `<div class="card stack" style="margin-top:12px"><h2>Automático</h2><p class="muted">${data.autoRodando ? "Rodando agora." : `${esc(data.fila || 0)} vaga(s) na fila.`} Para rodar sozinho de tempos em tempos, crie a rotina.</p><div class="row"><button type="button" class="btn primary" id="vgAutoRodar">Rodar automático agora</button><button type="button" class="btn" id="vgAutoRotina">Criar rotina (a cada 3 h)</button></div></div>` : ""}
-    ${crit ? `<h2 style="margin-top:16px">Casos críticos (${(data.criticas || []).length})</h2>${crit}` : ""}
+    ${crit ? `<h2 style="margin-top:16px">Precisa de você (${(data.criticas || []).length})</h2><p class="muted">Só captcha, login e pergunta sem resposta. Falha de botão ou de rede fica no histórico como falha técnica.</p>${crit}` : ""}
     ${waiting ? `<h2 style="margin-top:16px">Esperando sua aprovação (${data.pendentes})</h2>${waiting}` : ""}
     ${approved ? `<div class="card" style="margin-top:12px"><h2>Aprovadas</h2>${approved}</div>` : ""}
     <div class="card" style="margin-top:12px"><h2>Vagas encontradas</h2>${fresh || `<div class="empty">Nenhuma vaga nova. Ajuste os termos e clique em "Salvar e buscar".</div>`}</div>

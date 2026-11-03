@@ -70,7 +70,7 @@
     const ultimo = a.ultimoResultado
       ? String(a.ultimoResultado.assunto || "").slice(0, 48)
       : (STATUS_LABEL[st] || "Pronto");
-    const VIEW_OF = { vagas: "vagas", pesquisa: "search", oasis: "chefe", portfolio: "chefe" };
+    const VIEW_OF = { vagas: "vagas", pesquisa: "search", oasis: "oasis", portfolio: "portfolio" };
     return `<button type="button" class="lf-it lf-chefe-agent" data-lf-go="${esc(VIEW_OF[a.id] || "chefe")}" data-agente-id="${esc(a.id || "")}" title="${esc(tip)}">
       <i class="lf-dot${off ? " off" : ""}${st === "trabalhando" ? " on" : ""}" aria-label="${esc(tip)}"></i>
       <span class="lf-agent-lines"><span>${esc(a.nome)}</span><small class="lf-agent-live">${esc(ultimo)}</small></span>
@@ -87,8 +87,6 @@
     wrap.querySelectorAll("[data-lf-go]").forEach((b) => {
       b.onclick = () => {
         HeliosLayout?.go?.(b.dataset.lfGo);
-        // LEVA S3: Oasis/Portfolio nao tem tela propria: abre o Chefe e rola ate o cartao do agente.
-        if (b.dataset.lfGo === "chefe" && b.dataset.agenteId) setTimeout(() => { const el = document.querySelector(`[data-agente="${b.dataset.agenteId}"], #chefe-${b.dataset.agenteId}`); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); }, 300);
       };
     });
   }

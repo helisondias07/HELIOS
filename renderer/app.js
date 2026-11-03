@@ -10,9 +10,11 @@ const TITLES = {
   assistants: ["Assistentes", "Cada assistente tem função, instruções, memória e conectores próprios. As conversas pertencem a um deles."],
   vault: ["Cofre", "Logins e chaves ficam criptografados neste computador. A senha não vai para o chat."],
   mcp: ["Conectores", "Escolha um aplicativo, entre no navegador e volte."],
-  search: ["Pesquisa", "Resultados com a fonte ao lado, para você conferir."],
+  search: ["Pesquisa", "Conversa com o agente de Pesquisa."],
+  oasis: ["Oasis", "Conversa com o agente Oasis."],
+  portfolio: ["Portfólio", "Conversa com o agente Portfólio."],
   memory: ["Memória", "Fatos estáveis sobre você, enxuta: o que fecha vai para o arquivo e sai do prompt. Segredos são recusados."],
-  vagas: ["Vagas", "Busca vagas, dá nota pelo seu contexto.md e prepara a inscrição. No modo com aprovação nada é enviado sem o seu clique; no modo Automático o HELIOS se inscreve sozinho e só pergunta o que for crítico."],
+  vagas: ["Vagas", "Conversa com o agente de Vagas."],
   brain: ["Second Brain", "Suas notas e conhecimento, pesquisáveis e guardados só neste computador. Use [[Título]] para ligar notas."],
   context: ["Contexto", "Exporte e importe o seu contexto (sem segredos), leia ClickUp e e-mail só para consulta e escolha as pastas do PC que o HELIOS pode usar."],
   routines: ["Rotinas", "Horário, intervalo ou evento. Morning Brief e Monitor são só leitura. Ação irreversível continua pedindo aprovação."],
@@ -93,9 +95,11 @@ function setView(view) {
   else if (view === "time") loadTime().catch((err) => banner(err.message));
   else if (view === "vault") loadVault().catch((err) => banner(err.message));
   else if (view === "mcp") loadMcp().catch((err) => banner(err.message));
-  else if (view === "search") renderSearch({ query: "", results: [], error: "" });
+  else if (view === "search") loadAgentChat("pesquisa").catch((err) => banner(err.message));
+  else if (view === "oasis") loadAgentChat("oasis").catch((err) => banner(err.message));
+  else if (view === "portfolio") loadAgentChat("portfolio").catch((err) => banner(err.message));
   else if (view === "memory") loadMemory().catch((err) => banner(err.message));
-  else if (view === "vagas") loadVagas().catch((err) => banner(err.message));
+  else if (view === "vagas") (vagasInSettings() ? loadVagasPainel() : loadAgentChat("vagas")).catch((err) => banner(err.message));
   else if (view === "brain") loadBrain().catch((err) => banner(err.message));
   else if (view === "context") contextView.load().catch((err) => banner(err.message));
   else if (view === "routines") loadRoutines().catch((err) => banner(err.message));
@@ -364,7 +368,8 @@ async function sendText(text) {
   }
   const sent = await call("POST", `/api/conversations/${state.current.id}/messages`, { text, level: state.level });
   state.current = sent.conversation;
-  renderChat();
+  if (agentScreenActive()) await paintAgentChat();
+  else renderChat();
   watch(state.current.id);
   refreshConversationList();
 }
@@ -563,7 +568,7 @@ async function decide(id, decision, note) {
   try {
     const data = await call("POST", `/api/conversations/${state.current.id}/approvals/${id}`, { decision, note });
     state.current = data.conversation;
-    renderChat();
+    paintCurrentThread();
   } catch (err) {
     banner(err.message);
   }
@@ -573,24 +578,36 @@ async function answer(id, text, dismiss) {
   try {
     const data = await call("POST", `/api/conversations/${state.current.id}/questions/${id}`, { answer: text, dismiss: Boolean(dismiss) });
     state.current = data.conversation;
-    renderChat();
+    paintCurrentThread();
     if (state.current.busy) watch(state.current.id);
   } catch (err) {
     banner(err.message);
   }
 }
 
+function agentScreenActive() {
+  const view = $("view");
+  const inSettings = Boolean(view && view.parentElement && view.parentElement.id === "lfModalBody");
+  return !inSettings && ["vagas", "search", "oasis", "portfolio"].includes(state.view);
+}
+
+function paintCurrentThread() {
+  if (agentScreenActive()) return paintAgentChat();
+  renderChat();
+}
+
 function watch(id) {
   clearInterval(state.poll);
   state.poll = setInterval(async () => {
-    if (state.view !== "chat" || !state.current || state.current.id !== id) {
+    const here = state.view === "chat" || agentScreenActive();
+    if (!here || !state.current || state.current.id !== id) {
       clearInterval(state.poll);
       return;
     }
     try {
       const data = await call("GET", `/api/conversations/${id}`);
       state.current = data.conversation;
-      renderChat();
+      paintCurrentThread();
       if (!state.current.busy) {
         clearInterval(state.poll);
         refreshConversationList();
@@ -985,19 +1002,6 @@ async function loadMcp() {
   }
 }
 
-function renderSearch(result) {
-  const items = (result.results || []).map((item) => `
-    <article class="card"><h2><a href="${esc(item.url)}" target="_blank" rel="noreferrer">${esc(item.title)}</a></h2><p>${esc(item.snippet || "")}</p><p class="muted">${esc(item.url)}</p></article>`).join("");
-  shell(`
-    <form class="row" id="searchForm"><input id="q" placeholder="O que você quer saber?" value="${esc(result.query || "")}"><button class="btn primary" type="submit">Pesquisar</button></form>
-    <div class="stack" style="margin-top:12px">${result.error ? `<p class="banner">${esc(result.error)}</p>` : ""}${items || `<div class="empty">As fontes aparecem aqui.</div>`}</div>`);
-  $("searchForm").onsubmit = async (event) => {
-    event.preventDefault();
-    try { renderSearch(await call("POST", "/api/search", { query: $("q").value })); }
-    catch (err) { banner(err.message); }
-  };
-}
-
 async function loadMemory() {
   await refreshAssistants();
   const owner = state.memoryAssistant;
@@ -1306,7 +1310,96 @@ function vagasHojeHtml(r) {
   </div>`;
 }
 
-async function loadVagas(notice = "") {
+function vagasInSettings() {
+  const view = $("view");
+  return Boolean(view && view.parentElement && view.parentElement.id === "lfModalBody");
+}
+
+const AGENT_CHAT = {
+  vagas: { placeholder: "Peça uma candidatura ou pergunte das vagas." },
+  pesquisa: { placeholder: "O que você quer pesquisar?" },
+  oasis: { placeholder: "O que o Oasis deve fazer?" },
+  portfolio: { placeholder: "O que o Portfólio deve fazer?" },
+};
+let agentChatId = "vagas";
+
+function inscricoesHtml(data) {
+  const plat = Object.fromEntries((data.plataformas || []).map((item) => [item.id, item.label]));
+  const rows = (data.historico || []).filter((item) => item.status === "enviada" || item.status === "enviada_auto");
+  const body = rows.map((item) => `<tr><td>${esc(item.empresa || "")}</td><td>${esc(item.titulo || "")}</td><td>${esc(plat[item.plataforma] || item.plataforma || "")}</td><td>${esc(item.at ? new Date(item.at).toLocaleString("pt-BR") : "")}</td><td>${esc(VAGA_STATUS[item.status] || item.status || "")}</td></tr>`).join("");
+  return `<table class="hx-insc" aria-label="Inscrições enviadas"><caption>Inscrições enviadas</caption><thead><tr><th>Empresa</th><th>Cargo</th><th>Plataforma</th><th>Data</th><th>Status</th></tr></thead><tbody>${body || `<tr><td colspan="5">Nenhuma inscrição enviada.</td></tr>`}</tbody></table>`;
+}
+
+async function loadAgentChat(assistantId) {
+  agentChatId = assistantId;
+  state.assistantId = assistantId;
+  if (!state.conversations.length) {
+    try { state.conversations = (await call("GET", "/api/conversations")).conversations || []; } catch { state.conversations = []; }
+  }
+  if (!state.current || state.current.assistantId !== assistantId) {
+    const found = state.conversations.find((item) => item.assistantId === assistantId);
+    if (found) {
+      try { state.current = (await call("GET", `/api/conversations/${found.id}`)).conversation; } catch { state.current = null; }
+    } else state.current = null;
+  }
+  await paintAgentChat();
+}
+
+async function paintAgentChat() {
+  const spec = AGENT_CHAT[agentChatId] || AGENT_CHAT.vagas;
+  const draftEl = $("draft");
+  const draftValue = draftEl ? draftEl.value : "";
+  const focused = document.activeElement === draftEl;
+  const caret = focused && draftEl ? [draftEl.selectionStart, draftEl.selectionEnd] : null;
+  const messages = state.current && state.current.messages && state.current.messages.length
+    ? state.current.messages.map(renderMessage).join("")
+    : `<div class="lf-hello"><span class="hx-glow lf-hello-logo" role="img" aria-label="HELIOS"><span class="hx-mark hx-96"></span></span><p>Como posso ajudar?</p></div>`;
+  let table = "";
+  if (agentChatId === "vagas") {
+    try { table = inscricoesHtml(await call("GET", "/api/vagas")); } catch { table = inscricoesHtml({ historico: [], plataformas: [] }); }
+  }
+  shell(`<div class="hx-agent">
+    ${table}
+    <div class="messages" id="messages">${messages}</div>
+    <form class="composer" id="agentComposer">
+      <textarea id="draft" rows="2" placeholder="${esc(spec.placeholder)}" aria-label="Mensagem"></textarea>
+      <button class="btn primary send-btn" type="submit" title="Enviar" aria-label="Enviar"><svg class="sb-ico" aria-hidden="true"><use href="#i-send"/></svg></button>
+    </form>
+  </div>`);
+  if ($("draft")) {
+    $("draft").value = draftValue;
+    if (focused) {
+      $("draft").focus();
+      if (caret) $("draft").setSelectionRange(caret[0], caret[1]);
+    }
+    $("draft").onkeydown = (event) => {
+      if (event.key === "Enter" && !event.shiftKey && !event.isComposing) { event.preventDefault(); $("agentComposer").requestSubmit(); }
+    };
+  }
+  $("agentComposer").onsubmit = async (event) => {
+    event.preventDefault();
+    const text = $("draft").value.trim();
+    if (!text) return;
+    $("draft").value = "";
+    try { await sendAgentText(text); } catch (err) { banner(err.message); }
+  };
+  bindApprovals();
+  bindAccountNotices();
+}
+
+async function sendAgentText(text) {
+  if (!state.current || state.current.assistantId !== state.assistantId) {
+    const created = await call("POST", "/api/conversations", { assistantId: state.assistantId });
+    state.current = created.conversation;
+  }
+  const sent = await call("POST", `/api/conversations/${state.current.id}/messages`, { text, level: state.level });
+  state.current = sent.conversation;
+  await paintAgentChat();
+  watch(state.current.id);
+  refreshConversationList();
+}
+
+async function loadVagasPainel(notice = "") {
   const data = await call("GET", "/api/vagas");
   const resumo = await call("GET", "/api/vagas/resumo").catch(() => null);
   const p = data.prefs;
@@ -1371,23 +1464,23 @@ async function loadVagas(notice = "") {
     <div class="card" style="margin-top:12px"><h2>Vagas encontradas</h2><p class="muted">Nota na mínima entra na fila e o automático se inscreve, sem preparação.</p>${fresh || `<div class="empty">Nenhuma vaga nova. Ajuste os termos e clique em "Salvar e buscar".</div>`}</div>
     <details class="card" style="margin-top:12px"><summary>Registro de candidaturas</summary>${hist || `<div class="empty">Nada registrado ainda.</div>`}</details>`);
   const run = async (fn) => { try { await fn(); } catch (err) { banner(err.message); } };
-  if ($("vgManha")) $("vgManha").onclick = () => run(async () => { $("vgManha").disabled = true; const r = await call("POST", "/api/vagas/verificacao", {}); await loadVagas(r.texto ? "Verificação feita." : ""); });
-  if ($("vgFeed")) $("vgFeed").onclick = () => run(async () => { const r = helios.vagasFeed ? await helios.vagasFeed() : { ok: false, error: "Indisponível." }; await loadVagas(r.ok ? `Feed lido: ${r.novos || 0} novo(s).` : r.error); });
+  if ($("vgManha")) $("vgManha").onclick = () => run(async () => { $("vgManha").disabled = true; const r = await call("POST", "/api/vagas/verificacao", {}); await loadVagasPainel(r.texto ? "Verificação feita." : ""); });
+  if ($("vgFeed")) $("vgFeed").onclick = () => run(async () => { const r = helios.vagasFeed ? await helios.vagasFeed() : { ok: false, error: "Indisponível." }; await loadVagasPainel(r.ok ? `Feed lido: ${r.novos || 0} novo(s).` : r.error); });
   if ($("vgConversar")) $("vgConversar").onclick = () => { state.current = null; state.assistantId = state.assistants && state.assistants.some((a) => a.id === "vagas") ? "vagas" : state.assistantId; setView("chat"); };
-  if ($("vgRotinaManha")) $("vgRotinaManha").onclick = () => run(async () => { await call("POST", "/api/routines/vagas-manha", {}); await loadVagas("Rotina diária criada (08:30)."); });
-  if ($("vgScan30")) $("vgScan30").onclick = () => run(async () => { await call("POST", "/api/routines/vagas-scan-30", {}); await loadVagas("Rotina de 30 min criada (pausada)."); });
+  if ($("vgRotinaManha")) $("vgRotinaManha").onclick = () => run(async () => { await call("POST", "/api/routines/vagas-manha", {}); await loadVagasPainel("Rotina diária criada (08:30)."); });
+  if ($("vgScan30")) $("vgScan30").onclick = () => run(async () => { await call("POST", "/api/routines/vagas-scan-30", {}); await loadVagasPainel("Rotina de 30 min criada (pausada)."); });
   if ($("vgImportar")) $("vgImportar").onclick = () => run(async () => {
     const r = await call("POST", "/api/vagas/importar/previa", {});
     state.vagasPrevia = r.previa;
-    await loadVagas("Prévia da importação pronta — confira o cartão.");
+    await loadVagasPainel("Prévia da importação pronta — confira o cartão.");
   });
   if ($("vgImportAplicar")) $("vgImportAplicar").onclick = () => run(async () => {
     const id = $("vgImportAplicar").dataset.previaId;
     await call("POST", "/api/vagas/importar/aplicar", { previaId: id, confirmar: true });
     state.vagasPrevia = null;
-    await loadVagas("Importação aplicada. Senhas das plataformas: preencha no Cofre.");
+    await loadVagasPainel("Importação aplicada. Senhas das plataformas: preencha no Cofre.");
   });
-  if ($("vgImportCancelar")) $("vgImportCancelar").onclick = () => { state.vagasPrevia = null; loadVagas(); };
+  if ($("vgImportCancelar")) $("vgImportCancelar").onclick = () => { state.vagasPrevia = null; loadVagasPainel(); };
   $("vgPrefs").onsubmit = (event) => run(async () => {
     event.preventDefault();
     const form = new FormData(event.target);
@@ -1395,29 +1488,29 @@ async function loadVagas(notice = "") {
       modo: form.get("modo"), repetirDias: form.get("repetirDias"), evitarEmpresas: form.get("evitarEmpresas"),
       perfil: { nome: form.get("pf_nome"), email: form.get("pf_email"), telefone: form.get("pf_telefone"), cidade: form.get("pf_cidade"), linkedin: form.get("pf_linkedin"), portfolio: form.get("pf_portfolio"), cvPath: form.get("pf_cvPath"), pretensao: form.get("pf_pretensao"), aceitaPresencial: form.get("pf_aceitaPresencial") === "on", cidadesOk: form.get("pf_cidadesOk") } });
     const out = await call("POST", "/api/vagas/buscar", {});
-    await loadVagas(`${out.novas} vaga(s) nova(s) acima da nota mínima.${out.semPerfil ? " Seu contexto.md está vazio: a nota usa só os termos." : ""}${out.erros.length ? " Falhas: " + out.erros.join("; ") : ""}`);
+    await loadVagasPainel(`${out.novas} vaga(s) nova(s) acima da nota mínima.${out.semPerfil ? " Seu contexto.md está vazio: a nota usa só os termos." : ""}${out.erros.length ? " Falhas: " + out.erros.join("; ") : ""}`);
   });
   $("vgJanela").onclick = () => run(async () => { await helios.vagasJanela(); });
-  if ($("vgAutoRodar")) $("vgAutoRodar").onclick = () => run(async () => { const r = await call("POST", "/api/vagas/auto/rodar", {}); await loadVagas(r.iniciado ? `Automático rodando: ${r.fila} vaga(s) na fila.` : r.motivo); });
-  if ($("vgAutoRotina")) $("vgAutoRotina").onclick = () => run(async () => { await call("POST", "/api/routines/vagas-auto", { everyMinutes: 180 }); await loadVagas("Rotina \"Vagas automático\" criada (a cada 3 h). Veja em Rotinas."); });
-  document.querySelectorAll("[data-vg-responder]").forEach((b) => { b.onclick = () => run(async () => { const code = b.dataset.vgResponder; const input = document.querySelector(`[data-vg-resp="${code}"]`); await call("POST", `/api/vagas/critica/${encodeURIComponent(code)}/responder`, { resposta: input ? input.value : "" }); await loadVagas("Resposta guardada. A vaga voltou para a fila."); }); });
-  document.querySelectorAll("[data-vg-pular]").forEach((b) => { b.onclick = () => run(async () => { await call("POST", `/api/vagas/critica/${encodeURIComponent(b.dataset.vgPular)}/pular`, {}); await loadVagas(); }); });
-  document.querySelectorAll("[data-vg-login]").forEach((b) => { b.onclick = () => run(async () => { const r = await helios.vagasLogin(b.dataset.vgLogin); await loadVagas(r.ok ? r.message : r.error); }); });
+  if ($("vgAutoRodar")) $("vgAutoRodar").onclick = () => run(async () => { const r = await call("POST", "/api/vagas/auto/rodar", {}); await loadVagasPainel(r.iniciado ? `Automático rodando: ${r.fila} vaga(s) na fila.` : r.motivo); });
+  if ($("vgAutoRotina")) $("vgAutoRotina").onclick = () => run(async () => { await call("POST", "/api/routines/vagas-auto", { everyMinutes: 180 }); await loadVagasPainel("Rotina \"Vagas automático\" criada (a cada 3 h). Veja em Rotinas."); });
+  document.querySelectorAll("[data-vg-responder]").forEach((b) => { b.onclick = () => run(async () => { const code = b.dataset.vgResponder; const input = document.querySelector(`[data-vg-resp="${code}"]`); await call("POST", `/api/vagas/critica/${encodeURIComponent(code)}/responder`, { resposta: input ? input.value : "" }); await loadVagasPainel("Resposta guardada. A vaga voltou para a fila."); }); });
+  document.querySelectorAll("[data-vg-pular]").forEach((b) => { b.onclick = () => run(async () => { await call("POST", `/api/vagas/critica/${encodeURIComponent(b.dataset.vgPular)}/pular`, {}); await loadVagasPainel(); }); });
+  document.querySelectorAll("[data-vg-login]").forEach((b) => { b.onclick = () => run(async () => { const r = await helios.vagasLogin(b.dataset.vgLogin); await loadVagasPainel(r.ok ? r.message : r.error); }); });
   document.querySelectorAll("[data-vg-link]").forEach((b) => { b.onclick = () => helios.openExternal(b.dataset.vgLink); });
-  document.querySelectorAll("[data-vg-preparar]").forEach((b) => { b.onclick = () => run(async () => { await call("POST", `/api/vagas/${encodeURIComponent(b.dataset.vgPreparar)}/preparar`, {}); await loadVagas(); }); });
-  document.querySelectorAll("[data-vg-descartar]").forEach((b) => { b.onclick = () => run(async () => { await call("POST", `/api/vagas/${encodeURIComponent(b.dataset.vgDescartar)}/descartar`, {}); await loadVagas(); }); });
+  document.querySelectorAll("[data-vg-preparar]").forEach((b) => { b.onclick = () => run(async () => { await call("POST", `/api/vagas/${encodeURIComponent(b.dataset.vgPreparar)}/preparar`, {}); await loadVagasPainel(); }); });
+  document.querySelectorAll("[data-vg-descartar]").forEach((b) => { b.onclick = () => run(async () => { await call("POST", `/api/vagas/${encodeURIComponent(b.dataset.vgDescartar)}/descartar`, {}); await loadVagasPainel(); }); });
   document.querySelectorAll("[data-vg-aprovar]").forEach((b) => {
     b.onclick = () => run(async () => {
       const id = b.dataset.vgAprovar;
       const carta = document.querySelector(`[data-vg-carta="${CSS.escape(id)}"]`)?.value || "";
       await call("POST", `/api/vagas/${encodeURIComponent(id)}/aprovar`, { confirmar: true, carta });
-      await loadVagas("Aprovada. Clique em \"Abrir para enviar\" para concluir no site.");
+      await loadVagasPainel("Aprovada. Clique em \"Abrir para enviar\" para concluir no site.");
     });
   });
-  document.querySelectorAll("[data-vg-negar]").forEach((b) => { b.onclick = () => run(async () => { await call("POST", `/api/vagas/${encodeURIComponent(b.dataset.vgNegar)}/negar`, {}); await loadVagas(); }); });
-  document.querySelectorAll("[data-vg-abrir]").forEach((b) => { b.onclick = () => run(async () => { const r = await helios.vagasAbrir(b.dataset.vgAbrir); await loadVagas(r.ok ? r.message : r.error); }); });
-  document.querySelectorAll("[data-vg-ok]").forEach((b) => { b.onclick = () => run(async () => { await call("POST", `/api/vagas/${encodeURIComponent(b.dataset.vgOk)}/resultado`, { ok: true }); await loadVagas(); }); });
-  document.querySelectorAll("[data-vg-falhou]").forEach((b) => { b.onclick = () => run(async () => { await call("POST", `/api/vagas/${encodeURIComponent(b.dataset.vgFalhou)}/resultado`, { ok: false }); await loadVagas(); }); });
+  document.querySelectorAll("[data-vg-negar]").forEach((b) => { b.onclick = () => run(async () => { await call("POST", `/api/vagas/${encodeURIComponent(b.dataset.vgNegar)}/negar`, {}); await loadVagasPainel(); }); });
+  document.querySelectorAll("[data-vg-abrir]").forEach((b) => { b.onclick = () => run(async () => { const r = await helios.vagasAbrir(b.dataset.vgAbrir); await loadVagasPainel(r.ok ? r.message : r.error); }); });
+  document.querySelectorAll("[data-vg-ok]").forEach((b) => { b.onclick = () => run(async () => { await call("POST", `/api/vagas/${encodeURIComponent(b.dataset.vgOk)}/resultado`, { ok: true }); await loadVagasPainel(); }); });
+  document.querySelectorAll("[data-vg-falhou]").forEach((b) => { b.onclick = () => run(async () => { await call("POST", `/api/vagas/${encodeURIComponent(b.dataset.vgFalhou)}/resultado`, { ok: false }); await loadVagasPainel(); }); });
 }
 
 let assistantDraft = null;

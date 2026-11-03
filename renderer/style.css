@@ -333,4 +333,9 @@ button.link:hover, button.link:focus-visible { color: var(--accent); text-decora
 .connect-opt { display: inline-flex; gap: 6px; align-items: center; font-size: 12px; }
 .plat-row { display: flex; gap: 10px; align-items: center; justify-content: space-between; }
 .vagas-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+.hx-agent { display: flex; flex-direction: column; gap: 12px; min-height: 100%; }
+.hx-agent .messages { flex: 1; min-height: 240px; }
+.hx-insc { width: 100%; border-collapse: collapse; font-size: 13px; }
+.hx-insc caption { text-align: left; font-weight: 600; padding: 0 0 6px; }
+.hx-insc th, .hx-insc td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line, rgba(0,0,0,.08)); }
 .status-line:has(.ast-imp) { flex-wrap: wrap; } .ast-imp { flex-basis: 100%; }

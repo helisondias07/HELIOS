@@ -142,8 +142,8 @@ test("levaV6: fila automática aplica a regra e não marca enviada sem confirma�
   assert.ok(queue.some((item) => item.company === "Empresa Boa"));
   const started = jobs.autoStart(queue.find((item) => item.company === "Empresa Boa").id);
   const blocked = jobs.autoResult(started.id, { ok: true });
-  assert.equal(blocked.status, "critica");
-  assert.match(blocked.critico.motivo, /confirmação/);
+  assert.equal(blocked.status, "falhou");
+  assert.match(blocked.nota, /confirmação/);
 });
 
 test("levaV6: importação passada entra como enviada e segura repetirDias", () => {

@@ -228,11 +228,12 @@ test("levaO3: resultado crítico preserva via, modelo e evidências do executor"
     estado: "failed",
     evidencia: [{ kind: "page", detail: "formulário visível" }],
   });
-  assert.equal(saved.status, "critica");
-  assert.equal(saved.critico.via, "llm");
-  assert.equal(saved.critico.modelo, "modelo-teste");
-  assert.equal(saved.critico.estado, "failed");
-  assert.equal(saved.critico.evidencia[0].kind, "page");
+  assert.equal(saved.status, "falhou");
+  assert.equal(saved.falhaClasse, "tecnico");
+  assert.equal(saved.autoVia, "llm");
+  assert.equal(saved.autoModelo, "modelo-teste");
+  assert.equal(saved.autoEstado, "failed");
+  assert.equal(saved.autoEvidencia[0].kind, "page");
 });
 
 test("levaO3: ciclo plataformas 1x posta resultado no quadro (mock adapters)", async () => {

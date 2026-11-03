@@ -252,3 +252,30 @@ Etapas e criterios de teste:
 - Criar fixtures para Henry Schein, Stefanini, BairesDev, abler, VAAS e Click Interativo, cobrindo botão ausente, CAPTCHA, campos faltantes e confirmação. Depois executar uma rodada real pequena e monitorada, sem repetir críticas antigas.
 - Critério de conclusão: fixtures verdes + rodada real controlada com separação correta de `enviada`, `critica`, `falhou`, `captcha` e `duplicada/bloqueada` por plataforma.
 
+## Leva V6 — formulário, regras e plataformas (03/11/2026)
+
+### Por que nenhuma candidatura confirmou
+
+O executor lia o DOM uma vez e só aceitava rótulos longos (`salvar e continuar`, `enviar candidatura`). Na Gupy o avanço costuma ser só `Continuar`, muitas vezes sem texto útil e com `data-testid`. O LinkedIn Easy Apply e o ATS aberto a partir dele (Greenhouse e semelhantes) usam modal, iframe ou shadow. O clique em si era tratado como progresso; sem a frase do site, o certo é não contar `enviada`. A API antiga do Remotar responde HTTP 404 e esse erro aparecia no ciclo. `/my-items/saved-jobs/` redireciona para `/jobs-tracker/`; a captura antiga não lia essa tela.
+
+### O que mudou
+
+- `server/form-navigator.js`: a cada etapa recaptura URL, texto, campos e botões (inclui shadowRoot e iframe da mesma origem). O campo casa label, `aria-*`, nome, autocomplete e texto próximo. O botão precisa estar visível, habilitado e com score mínimo dentro do formulário ou do modal. CAPTCHA, dois avanços empatados, erro de validação ou botão que não muda a página pausam aquela vaga. `enviada` só com confirmação positiva (`candidatura enviada`, `thank you for applying` e equivalentes). O HELIOS não resolve CAPTCHA e não clica em mensagem, InMail ou conectar.
+- `src/jobs-host.js` usa esse navegador no envio. O modo de aprovação preenche e para antes do botão de enviar. App fechado no meio do envio continua virando `falhou` na próxima abertura, para conferir no site — nunca vira `enviada` sozinho.
+- Remotar: HTTP 404 não entra como falha do ciclo; a vaga dessa fonte sai da busca visual. Um adaptador que lança erro fica isolado.
+- Busca visual, um site por vez: LinkedIn, Gupy, InfoJobs, Indeed BR, Glassdoor, Catho, Coodesh, GeekHunter, ProgramaThor, trampos.co, Nerdin, BossaBox e Remotar. A URL de busca é só o ponto de partida; o campo da página manda. Falha de um site não corta os outros.
+- Vagas salvas: se a conta cair em `jobs-tracker`, o HELIOS aciona a aba Salvos e lê os links `/jobs/view/`.
+- Regras do dono em `server/vagas-regras.js`, aplicadas na fila: só remoto; só júnior/pleno; frente, fullstack, Node, React, Next, TypeScript ou IA; fora Angular, Java, .NET e PHP como stack principal; pula vídeo/Loom, teste com tempo, vaga exclusiva PcD ou afirmativa, inglês fluente obrigatório, diploma completo obrigatório e Docker/Kubernetes/AWS obrigatório. Empresas evitadas com comparação flexível: Quality Digital, Micro1/Micro Um, BairesDev, NeoWork, Workana, Strider, Lovel. Pretensão respondida no formulário: R$ 3.500 júnior e R$ 8.000 pleno. Nenhuma mensagem automática a recrutador.
+- Importação de candidaturas já feitas (`fonte: importado`, status `enviada`) para o `repetirDias` enxergar a empresa e o id do LinkedIn. Fixture e script: `test/fixtures/candidaturas-importadas.json` e `scripts/importar-candidaturas.js`. A rota `POST /api/vagas/historico/importar` só grava com `confirmar: true`.
+
+### Validação desta leva
+
+Fixtures cobrem Gupy (Continuar do modal, select customizado, salário de pleno), Easy Apply até a frase de envio, ATS externo, pausa em CAPTCHA, pausa quando há dois botões iguais, e recusa de `enviada` quando o site devolve erro depois do clique. Nesta sessão: `npm test` 639 testes, 638 pass, 0 fail, 1 skip; `npm run lint` verde; `npm run check` com `HELIOS ok`. Não houve rodada no Windows do Helison.
+
+### O que ainda precisa da máquina do Helison
+
+- Rodada controlada, poucas vagas, na instância principal (não num Electron auxiliar). O relatório só vale com `ok: true` e cada `enviada` com a frase guardada em `confirmacao`.
+- Conferir no site as críticas e falhas antigas antes de repetir. CAPTCHA continua manual: a janela abre e o ciclo segue nas outras.
+- Entrar de novo onde a sessão cair (LinkedIn `li_at`, Gupy, e os sites novos). As URLs de busca de InfoJobs, Indeed, Glassdoor, Catho, Coodesh, GeekHunter, ProgramaThor, trampos.co, Nerdin, BossaBox e Remotar são ponto de partida; a página real pode ter mudado o campo.
+- O script de importação grava no diretório de dados passado na linha de comando. Sem essa pasta, ele só conta as linhas e não escreve nada. Não colocar senha, CPF ou token em código, fixture ou log.
+

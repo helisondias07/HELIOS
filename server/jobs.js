@@ -4,6 +4,7 @@ const path = require("node:path");
 const { newId, readJson, writeJson } = require("./util");
 const { tokens } = require("./memory");
 const mail = require("./vagas-email");
+const regras = require("./vagas-regras");
 
 /**
  * Fase 7: bot de vagas seguro. Busca vagas públicas, dá nota pelo contexto.md, prepara a inscrição
@@ -136,6 +137,17 @@ function scoreJob(job, { profileText = "", prefs = DEFAULT_PREFS } = {}) {
   const inc = (prefs.incluir || []).filter((word) => lower.includes(norm(word)));
   if (inc.length) { score += Math.min(20, inc.length * 10); motivos.push(`tem ${inc.join(", ")}`); }
   return { score: Math.min(100, score), motivos };
+}
+
+/** Nota do perfil mais as regras do dono. Fora da regra não entra na fila. */
+function gateJob(job, { profileText = "", prefs = DEFAULT_PREFS } = {}) {
+  const gate = regras.avaliarVaga(job, prefs);
+  const scored = scoreJob(job, { profileText, prefs });
+  if (!gate.aceita) {
+    return { score: 0, motivos: [...gate.motivos, ...scored.motivos].slice(0, 8), status: "descartada" };
+  }
+  const min = Number.isFinite(Number(prefs.notaMinima)) ? Number(prefs.notaMinima) : 40;
+  return { score: scored.score, motivos: scored.motivos, status: scored.score >= min ? "nova" : "descartada" };
 }
 
 /** Rascunho de apresentação, local e sem nuvem. O Helison edita antes de aprovar. */
@@ -292,9 +304,9 @@ function createJobs(dataDir, { fetchImpl = globalThis.fetch, now = () => Date.no
         }
         for (const job of found.slice(0, 40)) {
           if (data.vagas.some((v) => v.platform === platformId && v.extId === job.extId)) continue;
-          const { score, motivos } = scoreJob(job, { profileText, prefs: p });
-          data.vagas.push({ id: newId("vaga"), platform: platformId, ...job, score, motivos, status: score >= p.notaMinima ? "nova" : "descartada", auto: score < p.notaMinima, foundAt: iso() });
-          if (score >= p.notaMinima) novas += 1;
+          const gated = gateJob(job, { profileText, prefs: p });
+          data.vagas.push({ id: newId("vaga"), platform: platformId, ...job, score: gated.score, motivos: gated.motivos, status: gated.status, auto: gated.status !== "nova", foundAt: iso() });
+          if (gated.status === "nova") novas += 1;
         }
       }
     }
@@ -372,13 +384,28 @@ function createJobs(dataDir, { fetchImpl = globalThis.fetch, now = () => Date.no
   }
 
   // ---- Leva E: modo automático ----
-  const avoided = (v) => (data.prefs.evitarEmpresas || []).some((name) => normCompany(name) && normCompany(v.company).includes(normCompany(name)));
+  const avoided = (v) => regras.empresaEvitada(v.company, data.prefs);
+  function sameApplication(item, vaga) {
+    const left = String(item.url || "");
+    const right = String(vaga.url || "");
+    if (left && right && left === right) return true;
+    const idOf = (url) => (String(url).match(/jobs\/view\/(\d+)/i) || String(url).match(/\/jobs\/(\d+)/) || [])[1] || "";
+    const a = idOf(left);
+    const b = idOf(right);
+    if (a && b && a === b) return true;
+    const company = normCompany(item.empresa);
+    const other = normCompany(vaga.company);
+    return Boolean(company && other && company === other);
+  }
   /** Já se candidatou nesta vaga (mesma URL) ou nesta empresa nos últimos X dias? */
   function recentlyApplied(v, at = now()) {
     const windowMs = (Number(data.prefs.repetirDias) || 30) * 86400e3;
     return log.some((item) => ["enviada", "enviada_auto", "aprovada"].includes(item.status)
       && at - Date.parse(item.at) < windowMs
-      && (item.url === v.url || (normCompany(item.empresa) && normCompany(item.empresa) === normCompany(v.company))));
+      && sameApplication(item, v));
+  }
+  function eligible(v) {
+    return regras.avaliarVaga(v, data.prefs).aceita && !avoided(v);
   }
   function rateLeft(at = now()) {
     const c = counts(at);
@@ -389,7 +416,7 @@ function createJobs(dataDir, { fetchImpl = globalThis.fetch, now = () => Date.no
     const left = rateLeft(at);
     if (!left) return [];
     return data.vagas
-      .filter((v) => v.status === "nova" && v.score >= data.prefs.notaMinima && !avoided(v) && !recentlyApplied(v, at))
+      .filter((v) => v.status === "nova" && v.score >= data.prefs.notaMinima && eligible(v) && !recentlyApplied(v, at))
       .sort((a, b) => b.score - a.score)
       .slice(0, left);
   }
@@ -404,6 +431,7 @@ function createJobs(dataDir, { fetchImpl = globalThis.fetch, now = () => Date.no
         if (!left) motivos.push("limite_por_hora");
         if (Number(v.score) < min) motivos.push("nota_abaixo_do_minimo");
         if (avoided(v)) motivos.push("empresa_evitada");
+        if (!regras.avaliarVaga(v, data.prefs).aceita) motivos.push("regra_do_dono");
         if (recentlyApplied(v, at)) motivos.push("candidatura_recente_na_vaga_ou_empresa");
         return { id: v.id, plataforma: v.platform, empresa: v.company, titulo: v.title, motivos };
       })
@@ -414,7 +442,7 @@ function createJobs(dataDir, { fetchImpl = globalThis.fetch, now = () => Date.no
     if (data.prefs.modo !== "automatico") throw err("O modo automático está desligado.", 409);
     const v = must(id);
     if (v.status !== "nova") throw err("Essa vaga não está na fila do automático.", 409);
-    if (avoided(v)) throw err("Empresa na lista de evitar.", 409);
+    if (!eligible(v)) throw err("A vaga foge das regras do dono ou está na lista de evitar.", 409);
     if (recentlyApplied(v)) throw err(`Já houve candidatura nessa vaga ou empresa nos últimos ${data.prefs.repetirDias} dias.`, 409);
     if (!rateLeft()) throw err("Limite por hora atingido.", 429);
     v.status = "auto_enviando";
@@ -424,16 +452,32 @@ function createJobs(dataDir, { fetchImpl = globalThis.fetch, now = () => Date.no
     return v;
   }
   /** Resultado do automático: enviada, crítica (pergunta para o Helison) ou falhou. */
-  function autoResult(id, { ok = false, critico = "", pergunta = "", nota = "", via = "", model = "", estado = "", evidencia = [] } = {}) {
+  function autoResult(id, { ok = false, critico = "", pergunta = "", nota = "", via = "", model = "", estado = "", evidencia = [], confirmacao = "" } = {}) {
     const v = must(id);
     if (v.status !== "auto_enviando") throw err("Essa vaga não está em envio automático.", 409);
     v.autoVia = String(via || "").slice(0, 40) || null;
     v.autoModelo = String(model || "").slice(0, 120) || null;
     v.autoEstado = String(estado || "").slice(0, 40) || null;
     v.autoEvidencia = Array.isArray(evidencia) ? evidencia.slice(-12) : [];
-    if (ok) {
+    const successEvidence = Array.isArray(evidencia) && evidencia.some((item) => /success|confirm/.test(String(item && item.kind || "")));
+    const confirmed = Boolean(String(confirmacao || "").trim()) || successEvidence;
+    if (ok && confirmed) {
       v.status = "enviada";
+      v.confirmacao = String(confirmacao || "confirmação do site").slice(0, 180);
       record(v, "enviada_auto", nota);
+    } else if (ok && !confirmed) {
+      v.status = "critica";
+      v.critico = {
+        motivo: "Sem confirmação positiva do site. Nada foi marcado como enviada.",
+        pergunta: "Confira no site se a candidatura saiu. O HELIOS não vai repetir sozinho.",
+        codigo: String(v.id).slice(-6),
+        via: v.autoVia,
+        modelo: v.autoModelo,
+        estado: v.autoEstado,
+        evidencia: v.autoEvidencia,
+        at: iso(),
+      };
+      record(v, "critica", v.critico.motivo);
     } else if (critico) {
       v.status = "critica";
       v.critico = {
@@ -504,6 +548,13 @@ function createJobs(dataDir, { fetchImpl = globalThis.fetch, now = () => Date.no
   if (!Array.isArray(data.prefs.recruiters)) data.prefs.recruiters = [];
   delete data.prefs.porDia;
 
+  function canonicalDay(raw) {
+    const text = String(raw || "").trim();
+    const br = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(text);
+    if (br) return `${br[3]}-${br[2]}-${br[1]}`;
+    if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10);
+    return "";
+  }
   function importHistory(rows = []) {
     let n = 0;
     for (const row of Array.isArray(rows) ? rows : []) {
@@ -511,7 +562,8 @@ function createJobs(dataDir, { fetchImpl = globalThis.fetch, now = () => Date.no
       const empresa = String(row.empresa || "").slice(0, 120);
       const titulo = String(row.titulo || "").slice(0, 200);
       const status = String(row.status || "enviada");
-      const at = row.data ? `${row.data}T12:00:00.000Z` : iso();
+      const day = canonicalDay(row.data);
+      const at = day ? `${day}T12:00:00.000Z` : iso();
       if (log.some((item) => (url && item.url === url) || (empresa && titulo && item.empresa === empresa && item.titulo === titulo && String(item.at).slice(0, 10) === String(at).slice(0, 10)))) continue;
       log.push({
         id: newId("cand"),
@@ -524,6 +576,7 @@ function createJobs(dataDir, { fetchImpl = globalThis.fetch, now = () => Date.no
         nota: String(row.motivo || "").slice(0, 300),
         at,
         importado: true,
+        fonte: String(row.fonte || "importado").slice(0, 40),
       });
       n += 1;
     }
@@ -675,21 +728,24 @@ function createJobs(dataDir, { fetchImpl = globalThis.fetch, now = () => Date.no
       const extId = String(job.extId || "").slice(0, 80);
       if (!extId) continue;
       if (data.vagas.some((v) => v.platform === platform && v.extId === extId)) continue;
-      const { score, motivos } = scoreJob(job, { profileText, prefs: p });
+      const stored = {
+        title: String(job.title || "").slice(0, 200),
+        company: String(job.company || "").slice(0, 120),
+        location: String(job.location || "").slice(0, 120),
+        description: String(job.description || "").slice(0, 1500),
+      };
+      const gated = gateJob(stored, { profileText, prefs: p });
       const row = {
         id: newId("vaga"),
         platform,
         extId,
-        title: String(job.title || "").slice(0, 200),
-        company: String(job.company || "").slice(0, 120),
-        location: String(job.location || "").slice(0, 120),
+        ...stored,
         url: String(job.url || "").slice(0, 500),
         postedAt: job.postedAt || null,
-        description: String(job.description || "").slice(0, 1500),
-        score,
-        motivos,
-        status: score >= p.notaMinima ? "nova" : "descartada",
-        auto: score < p.notaMinima,
+        score: gated.score,
+        motivos: gated.motivos,
+        status: gated.status,
+        auto: gated.status !== "nova",
         foundAt: new Date(at).toISOString(),
         fonte: "sessao-helios",
       };
@@ -792,4 +848,4 @@ function createJobs(dataDir, { fetchImpl = globalThis.fetch, now = () => Date.no
 }
 
 module.exports = {
-  normCompany, createJobs, PLATFORMS, DEFAULT_PREFS, STATUS, parseLinkedin, parseGupy, scoreJob, draftLetter, splitList };
+  normCompany, createJobs, PLATFORMS, DEFAULT_PREFS, STATUS, parseLinkedin, parseGupy, scoreJob, gateJob, draftLetter, splitList };

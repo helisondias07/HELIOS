@@ -1617,6 +1617,7 @@ async function startServer(opts = {}) {
         model: body.model || body.modelo || "",
         estado: body.estado || body.state || "",
         evidencia: body.evidencia || [],
+        confirmacao: body.confirmacao || "",
       });
       if (vaga.status === "critica") {
         telegram.send(`Vaga precisa de você (${vaga.critico.codigo}): ${vaga.title} — ${vaga.company}\n${vaga.critico.pergunta}\n${vaga.url}\n\nResponda /r ${vaga.critico.codigo} <resposta>. As outras vagas continuam.`, [[{ text: "Pular esta vaga", data: `p:${vaga.critico.codigo}` }]]);
@@ -1641,6 +1642,11 @@ async function startServer(opts = {}) {
     }
     if (req.method === "POST" && pathName === "/api/vagas/importar/aplicar") {
       return send(res, 200, await vagasImport.apply(body.previaId || body.id, { confirmar: body.confirmar === true }));
+    }
+    if (req.method === "POST" && pathName === "/api/vagas/historico/importar") {
+      const rows = Array.isArray(body.rows) ? body.rows : [];
+      if (body.confirmar !== true) return send(res, 200, { ok: false, precisaConfirmar: true, linhas: rows.length });
+      return send(res, 200, { ok: true, ...jobs.importHistory(rows) });
     }
     if (req.method === "GET" && pathName === "/api/vagas/adaptadores") {
       return send(res, 200, { adaptadores: vagasAdapters.status() });

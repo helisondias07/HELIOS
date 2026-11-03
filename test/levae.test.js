@@ -60,7 +60,7 @@ test("leva E: automático vem desligado, respeita limites, repetição e empresa
   assert.ok(jobs.autoQueue().every((v) => v.company !== "Empresa Demo 2"));
   assert.equal(jobs.autoQueue().length, 1);
   jobs.autoStart(first.id);
-  assert.equal(jobs.autoResult(first.id, { ok: true }).status, "enviada");
+  assert.equal(jobs.autoResult(first.id, { ok: true, confirmacao: "O site confirmou o envio." }).status, "enviada");
   assert.equal(jobs.autoQueue().length, 0); // limite por hora
   t += 2 * 3600e3;
   // a mesma empresa em outra plataforma não repete dentro de repetirDias

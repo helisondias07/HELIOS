@@ -123,11 +123,11 @@ test("levaM: ritmo só por hora — sem teto diário", async () => {
   const q1 = jobs.autoQueue();
   assert.ok(q1.length >= 1);
   const a = jobs.autoStart(q1[0].id);
-  jobs.autoResult(a.id, { ok: true });
+  jobs.autoResult(a.id, { ok: true, confirmacao: "O site confirmou o envio." });
   const q2 = jobs.autoQueue();
   if (q2[0]) {
     jobs.autoStart(q2[0].id);
-    jobs.autoResult(q2[0].id, { ok: true });
+    jobs.autoResult(q2[0].id, { ok: true, confirmacao: "O site confirmou o envio." });
   }
   assert.equal(jobs.rateLeft(), 0);
   // Mesmo “dia”: sem teto diário — após 1h libera de novo

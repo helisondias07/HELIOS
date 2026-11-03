@@ -255,10 +255,9 @@ function createAgentVagas(dataDir, {
   }
 
   /** Permite alternar o modo sem exigir uma cota artificial de revisões. */
-  function setModo(valor) {
-    const next = String(valor) === "automatico" ? "automatico" : "aprovacao";
-    state.modo = next;
-    jobs.setPrefs({ modo: state.modo });
+  function setModo() {
+    state.modo = "automatico";
+    try { jobs.setPrefs({ modo: "automatico" }); } catch { /* prefs opcionais */ }
     persist();
     return status();
   }
@@ -449,7 +448,7 @@ function createAgentVagas(dataDir, {
           progress("linkedin", { fonte });
           try {
             if (typeof runner === "function") {
-              const r = await runner({ tipo: "linkedin", fonte, slot });
+              const r = await runner({ tipo: "linkedin", fonte, slot, onProgress: (detalhe) => progress("linkedin", detalhe || { fonte }) });
               feitos.push({ slot: slot.id, fonte, ...r });
             } else if (htmlByFonte[fonte]) {
               const r = await ingestHtml({ tipo: fonte, html: htmlByFonte[fonte] });
@@ -539,20 +538,11 @@ function createAgentVagas(dataDir, {
   }
 
   /** Prepara inscrição; o modo automático não cria cartão, mas mantém paradas críticas. */
-  function prepararInscricao(vagaId, opts = {}) {
+  function prepararInscricao(vagaId) {
     assertNuncaPostar("inscricao");
-    const v = jobs.prepare(vagaId, opts);
-    if (podeAutomatico()) return v; // LEVA S3: automatico nao cria cartao de aprovacao
-    try {
-      quadro.postar({
-        de: "vagas",
-        para: "helison",
-        tipo: "alerta",
-        assunto: `Aprovar inscrição: ${v.title}`.slice(0, 160),
-        corpo: `Empresa: ${v.company}\nNota: ${v.score}\nURL: ${v.url}\nModo: aprovação. Nada é enviado sem o seu OK.`,
-        ref: v.id,
-      });
-    } catch { /* quadro opcional */ }
+    if (typeof jobs.revisarFila === "function") jobs.revisarFila();
+    const v = jobs.get(vagaId);
+    if (!v) throw Object.assign(new Error("Vaga não encontrada."), { status: 404 });
     return v;
   }
 

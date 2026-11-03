@@ -117,7 +117,7 @@ test("levaM: paradas críticas novas + CPF do cofre no fill", () => {
 test("levaM: ritmo só por hora — sem teto diário", async () => {
   let t = Date.parse("2026-10-31T12:00:00Z");
   const jobs = createJobs(tmp("rate"), { mock: true, now: () => t, readProfile: () => "React front-end" });
-  jobs.setPrefs({ termos: "desenvolvedor front-end", porHora: 2, porDia: 1, notaMinima: 40, modo: "automatico" });
+  jobs.setPrefs({ termos: "desenvolvedor front-end", porHora: 1, porDia: 1, notaMinima: 40, modo: "automatico" });
   assert.ok(!("porDia" in jobs.prefs()));
   await jobs.search();
   const q1 = jobs.autoQueue();

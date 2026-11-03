@@ -1313,15 +1313,11 @@ async function loadVagas(notice = "") {
   const plat = Object.fromEntries(data.plataformas.map((item) => [item.id, item.label]));
   const head = (v) => `<strong>${esc(v.title)}</strong> <span class="chip">${esc(plat[v.platform] || v.platform)}</span> <span class="chip">nota ${esc(v.score)}</span><div class="muted">${esc(v.company)}${v.location ? " · " + esc(v.location) : ""}${v.motivos && v.motivos.length ? " · " + esc(v.motivos.join("; ")) : ""}</div>`;
   const link = (v) => `<button type="button" class="link" data-vg-link="${esc(v.url)}">Ver no site</button>`;
-  const waiting = data.vagas.filter((v) => v.status === "aguardando_aprovacao").map((v) => `
-    <div class="card pending stack" style="margin-top:12px"><div>${head(v)}</div>
-      <label>Carta de apresentação (edite antes de aprovar)<textarea rows="6" data-vg-carta="${esc(v.id)}">${esc(v.carta || "")}</textarea></label>
-      <p class="muted">Aprovar libera esta candidatura. O HELIOS abre a vaga já logado e você dá o envio final no site.</p>
-      <div class="row"><button type="button" class="btn primary" data-vg-aprovar="${esc(v.id)}">Aprovar envio</button><button type="button" class="btn danger" data-vg-negar="${esc(v.id)}">Negar</button>${link(v)}</div></div>`).join("");
+  const waiting = "";
   const approved = data.vagas.filter((v) => v.status === "aprovada").map((v) => `
     <div class="status-line"><div>${head(v)}</div><div class="row"><button type="button" class="btn" data-vg-abrir="${esc(v.id)}">Abrir para enviar</button><button type="button" class="btn" data-vg-ok="${esc(v.id)}">Marcar como enviada</button><button type="button" class="btn danger" data-vg-falhou="${esc(v.id)}">Falhou</button></div></div>`).join("");
   const fresh = data.vagas.filter((v) => v.status === "nova").slice(0, 40).map((v) => `
-    <div class="status-line"><div>${head(v)}</div><div class="row">${link(v)}<button type="button" class="btn" data-vg-preparar="${esc(v.id)}">Preparar inscrição</button><button type="button" class="btn danger" data-vg-descartar="${esc(v.id)}">Descartar</button></div></div>`).join("");
+    <div class="status-line"><div>${head(v)}</div><div class="row">${link(v)}<span class="chip">Na fila do automático</span><button type="button" class="btn danger" data-vg-descartar="${esc(v.id)}">Descartar</button></div></div>`).join("");
   const pf = p.perfil || {};
   const auto = p.modo === "automatico";
   const crit = (data.criticas || []).map((v) => `
@@ -1352,7 +1348,7 @@ async function loadVagas(notice = "") {
       <div class="row"><label>Ritmo por hora<input name="porHora" type="number" min="1" max="20" value="${esc(p.porHora)}"></label><span class="muted" style="align-self:end;padding-bottom:8px">Sem teto diário</span></div>
       <div class="row">${data.plataformas.map((item) => `<label class="check"><input type="checkbox" name="plataformas" value="${esc(item.id)}"${p.plataformas.includes(item.id) ? " checked" : ""}> ${esc(item.label)}</label>`).join("")}</div>
       <h2>Modo</h2>
-      <div class="row"><label>Como se inscrever<select name="modo" id="vgModo"><option value="aprovacao"${auto ? "" : " selected"}>Com aprovação (padrão)</option><option value="automatico"${auto ? " selected" : ""}>Automático</option></select></label><label>Não repetir empresa por (dias)<input name="repetirDias" type="number" min="1" max="365" value="${esc(p.repetirDias || 30)}"></label></div>
+      <div class="row"><p class="muted">O agente de Vagas se inscreve sozinho. Você só entra se aparecer um captcha visível ou um login que ele não consiga terminar.</p><label>Não repetir empresa por (dias)<input name="repetirDias" type="number" min="1" max="365" value="${esc(p.repetirDias || 30)}"></label></div>
       <p class="muted" id="vgAviso" title="No Automático, vagas com nota ≥ mínima são preenchidas e enviadas com o seu contexto.md, o perfil e o currículo. Para só no que for crítico (pretensão sem valor, presencial fora do perfil, pergunta sem resposta, teste, pagamento, captcha, termos novos, anexo além do CV, raça/gênero, dedicação exclusiva). Os termos do LinkedIn proíbem automação: pode levar a bloqueio.">Automático para só no que for crítico. ⓘ</p>
       <label>Empresas para evitar<input name="evitarEmpresas" value="${esc((p.evitarEmpresas || []).join(", "))}" placeholder="Empresa X, Empresa Y"></label>
       <details${auto ? " open" : ""}><summary>Perfil para preencher formulários</summary><div class="stack">
@@ -1372,7 +1368,7 @@ async function loadVagas(notice = "") {
     ${crit ? `<h2 style="margin-top:16px">Precisa de você (${(data.criticas || []).length})</h2><p class="muted">Só captcha, login e pergunta sem resposta. Falha de botão ou de rede fica no histórico como falha técnica.</p>${crit}` : ""}
     ${waiting ? `<h2 style="margin-top:16px">Esperando sua aprovação (${data.pendentes})</h2>${waiting}` : ""}
     ${approved ? `<div class="card" style="margin-top:12px"><h2>Aprovadas</h2>${approved}</div>` : ""}
-    <div class="card" style="margin-top:12px"><h2>Vagas encontradas</h2>${fresh || `<div class="empty">Nenhuma vaga nova. Ajuste os termos e clique em "Salvar e buscar".</div>`}</div>
+    <div class="card" style="margin-top:12px"><h2>Vagas encontradas</h2><p class="muted">Nota na mínima entra na fila e o automático se inscreve, sem preparação.</p>${fresh || `<div class="empty">Nenhuma vaga nova. Ajuste os termos e clique em "Salvar e buscar".</div>`}</div>
     <details class="card" style="margin-top:12px"><summary>Registro de candidaturas</summary>${hist || `<div class="empty">Nada registrado ainda.</div>`}</details>`);
   const run = async (fn) => { try { await fn(); } catch (err) { banner(err.message); } };
   if ($("vgManha")) $("vgManha").onclick = () => run(async () => { $("vgManha").disabled = true; const r = await call("POST", "/api/vagas/verificacao", {}); await loadVagas(r.texto ? "Verificação feita." : ""); });

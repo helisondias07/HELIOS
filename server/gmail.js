@@ -63,6 +63,38 @@ function extractCode(text, regex) {
   return String(got).trim().slice(0, 12);
 }
 
+function encodeRaw(message) {
+  return Buffer.from(String(message || ""), "utf8").toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+/** MIME simples. O anexo é o CV; o corpo não leva senha nem CPF. */
+function rawMime({ to, subject, body, filename = "curriculo.pdf", bytes = null, mime = "application/pdf" } = {}) {
+  const dest = String(to || "").replace(/[\r\n]/g, "").slice(0, 120);
+  const title = `=?UTF-8?B?${Buffer.from(String(subject || "Candidatura")).toString("base64")}?=`;
+  const text = String(body || "");
+  const head = [`To: ${dest}`, `Subject: ${title}`, "MIME-Version: 1.0"];
+  if (!bytes) return [...head, "Content-Type: text/plain; charset=UTF-8", "", text].join("\r\n");
+  const boundary = "helios_cv";
+  const safeName = String(filename || "curriculo.pdf").replace(/[^\w.-]+/g, "_").slice(0, 80) || "curriculo.pdf";
+  return [
+    ...head,
+    `Content-Type: multipart/mixed; boundary="${boundary}"`,
+    "",
+    `--${boundary}`,
+    "Content-Type: text/plain; charset=UTF-8",
+    "",
+    text,
+    `--${boundary}`,
+    `Content-Type: ${mime}; name="${safeName}"`,
+    "Content-Transfer-Encoding: base64",
+    `Content-Disposition: attachment; filename="${safeName}"`,
+    "",
+    Buffer.from(bytes).toString("base64"),
+    `--${boundary}--`,
+    "",
+  ].join("\r\n");
+}
+
 function createGmailClient({ fetchImpl = globalThis.fetch, getAuthorization }) {
   async function get(pathname) {
     const auth = await getAuthorization();
@@ -80,7 +112,20 @@ function createGmailClient({ fetchImpl = globalThis.fetch, getAuthorization }) {
     return get(`/messages/${encodeURIComponent(id)}?format=${format}`);
   }
   async function profile() { return get("/profile"); }
-  return { search, message, profile };
+  async function sendRaw(raw) {
+    const auth = await getAuthorization();
+    if (!auth) throw Object.assign(new Error("A conta Gmail precisa entrar de novo."), { code: "REAUTH" });
+    const res = await fetchImpl(`${API}/messages/send`, {
+      method: "POST",
+      headers: { authorization: auth, accept: "application/json", "content-type": "application/json" },
+      body: JSON.stringify({ raw: encodeRaw(raw) }),
+    });
+    if (res.status === 401) throw Object.assign(new Error("A conta Gmail precisa entrar de novo."), { code: "REAUTH" });
+    if (res.status === 403) throw new Error("O Gmail conectado só tem leitura. Reconecte com permissão de envio.");
+    if (!res.ok) throw new Error(`Gmail respondeu ${res.status}.`);
+    return res.json();
+  }
+  return { search, message, profile, sendRaw };
 }
 
 /**
@@ -111,4 +156,4 @@ async function waitForCode({ clients, from = "", regex = null, since, intervalMs
   return { code: "", motivo: "O código não chegou no Gmail em 2 minutos." };
 }
 
-module.exports = { createGmailClient, waitForCode, extractCode, codeQuery, messageText, header, stripHtml, DEFAULT_CODE_RE, API };
+module.exports = { createGmailClient, waitForCode, extractCode, codeQuery, messageText, header, stripHtml, DEFAULT_CODE_RE, API, rawMime, encodeRaw };

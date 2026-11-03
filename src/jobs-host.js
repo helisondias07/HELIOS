@@ -16,6 +16,7 @@ const visual = require("../server/vagas-visual");
 const privacy = require("../server/fill-privacy");
 const { createCookieSaver, platformDomains, cleanUserAgent, cookieMeta } = require("./vagas-cookies");
 const application = require("../server/jobs-application");
+const { CAPTCHA_PAGE_SCRIPT } = require("../server/captcha-visivel");
 const { runApplication } = require("../server/application-run");
 
 const CHALLENGE_URL = /checkpoint|challenge|captcha|two-?step|2fa|mfa|verification|verify|otp|security-check/i;
@@ -61,7 +62,7 @@ const PROBE = `(() => {
     return /google|g\\s*mail/i.test(t) && /continuar|entrar|sign\\s*in|log\\s*in|with|com/i.test(t);
   });
   return {
-    captcha: Boolean(document.querySelector('iframe[src*="captcha"], iframe[src*="recaptcha"], iframe[src*="hcaptcha"], .g-recaptcha, #captcha')),
+    captcha: !!(${CAPTCHA_PAGE_SCRIPT}).visible,
     otp: Boolean(document.querySelector('input[autocomplete="one-time-code"], input[name*="pin" i], input[name*="otp" i], input[name*="code" i]')),
     password: Boolean(document.querySelector('input[type="password"]')),
     google,
@@ -248,12 +249,15 @@ const FEED_SCRIPT = `(() => {
   const primary = [...document.querySelectorAll('div.feed-shared-update-v2, div[data-urn*="activity"], article, [data-view-name*="feed" i]')];
   const nodes = primary.length ? primary : [...document.querySelectorAll('main li, main section')];
   const items = nodes.slice(0, 40).map((el) => {
-    const link = el.querySelector('a[href*="/jobs/view/"], a[href*="/feed/update/"], a[href*="/posts/"]');
+    const hrefs = [...el.querySelectorAll('a[href]')].map((a) => a.href).filter((h) => /^https:/.test(h)).slice(0, 8);
+    const job = hrefs.find((h) => /\\/jobs\\/view\\/|gupy\\.io|indeed\\.com\\/viewjob|greenhouse|jobs\\.lever\\.co/i.test(h));
+    const post = hrefs.find((h) => /\\/feed\\/update\\/|\\/posts\\//.test(h));
     return {
-      id: el.getAttribute('data-urn') || el.getAttribute('data-id') || link?.href || '',
+      id: el.getAttribute('data-urn') || el.getAttribute('data-id') || job || post || '',
       autor: (el.querySelector('.update-components-actor__title, .feed-shared-actor__name, [class*="actor"]') || {}).innerText || '',
       texto: (el.innerText || '').slice(0, 1200),
-      url: link?.href || '',
+      url: job || post || hrefs[0] || '',
+      links: hrefs,
     };
   }).filter((x) => x.texto || x.url);
   return { items, diagnostics: { selectorNodes: nodes.length, bodyChars: (document.body?.innerText || '').length, title: document.title, url: location.href } };
@@ -572,7 +576,7 @@ function registerJobs({ ipcMain, BrowserWindow, vault, serverUrl, getApiToken, m
     return { ok: true };
   }
 
-  async function scanFeed() {
+  async function scanFeed({ operacional = false, onProgress = null } = {}) {
     const blocked = assertNuncaPostarLinkedIn("feed");
     if (!blocked.ok) return blocked;
     const now = Date.now();
@@ -582,6 +586,7 @@ function registerJobs({ ipcMain, BrowserWindow, vault, serverUrl, getApiToken, m
     if (mock) {
       const posts = [{ id: "urn:demo:1", autor: "Recrutadora Demo", texto: "Estamos contratando dev front-end React remoto! #vagas", url: "https://www.linkedin.com/feed/update/demo1" }];
       const r = await api("POST", "/api/vagas/feed", { posts });
+      if (Number(r && r.vagasNovas) > 0) runAuto({ origem: "feed" }).catch(() => {});
       return { ok: true, ...r };
     }
     const platform = currentPlatforms().linkedin;
@@ -592,20 +597,24 @@ function registerJobs({ ipcMain, BrowserWindow, vault, serverUrl, getApiToken, m
     if (!sess.ok) return { ok: false, error: sess.error };
     const reloaded = await load(w, platform.feedUrl || LI_URLS.feed);
     if (!reloaded.ok) return { ok: false, error: reloaded.error, motivo: reloaded.timeout ? "timeout" : "carregamento" };
-    for (let i = 0; i < 25; i += 1) {
+    const rounds = operacional ? 3 : 25;
+    const pause = operacional ? [400, 800] : [3000, 6000];
+    for (let i = 0; i < rounds; i += 1) {
+      if (typeof onProgress === "function") onProgress({ fonte: "feed", passo: i + 1, passos: rounds });
       await w.webContents.executeJavaScript("window.scrollBy(0, Math.round(window.innerHeight * 0.9)); true", true).catch(() => {});
-      await jitter(3000, 6000);
+      await jitter(pause[0], pause[1]);
     }
     const captured = await w.webContents.executeJavaScript(FEED_SCRIPT, true).catch(() => ({ items: [], diagnostics: { erro: "executeJavaScript" } }));
     const posts = Array.isArray(captured) ? captured : (captured.items || []);
     if (!w.isVisible()) w.loadURL("about:blank").catch(() => {});
     const r = await api("POST", "/api/vagas/feed", { posts: posts.slice(0, 30) });
+    if (Number(r && r.vagasNovas) > 0) runAuto({ origem: "feed" }).catch(() => {});
     return { ok: true, ...r, diagnostico: Array.isArray(captured) ? null : captured.diagnostics };
   }
   ipcMain.handle("vagas:feed", () => scanFeed());
 
   /** LEVA O3: salvos / notificações / busca por palavras-chave — só leitura, ritmo humano, máx. 15. */
-  async function scanLinkedInKind(kind, { term = "", location = "Brasil" } = {}) {
+  async function scanLinkedInKind(kind, { term = "", location = "Brasil", operacional = false, onProgress = null } = {}) {
     const blocked = assertNuncaPostarLinkedIn(kind);
     if (!blocked.ok) return blocked;
     const now = Date.now();
@@ -644,10 +653,13 @@ function registerJobs({ ipcMain, BrowserWindow, vault, serverUrl, getApiToken, m
     if (!sess.ok) return { ok: false, error: sess.error };
     const reloaded = await load(w, target);
     if (!reloaded.ok) return { ok: false, error: reloaded.error, motivo: reloaded.timeout ? "timeout" : "carregamento" };
-    await jitter(2500, 5000);
-    for (let i = 0; i < 2; i += 1) {
+    const rounds = operacional ? 1 : 2;
+    const pause = operacional ? [400, 800] : [2500, 4500];
+    await jitter(operacional ? 400 : 2500, operacional ? 800 : 5000);
+    for (let i = 0; i < rounds; i += 1) {
+      if (typeof onProgress === "function") onProgress({ fonte: kind, passo: i + 1, passos: rounds });
       await w.webContents.executeJavaScript("window.scrollBy(0, Math.round(window.innerHeight * 0.8)); true", true).catch(() => {});
-      await jitter(2500, 4500);
+      await jitter(pause[0], pause[1]);
     }
     if (kind === "salvos") {
       const captured = await w.webContents.executeJavaScript(SAVED_SCRIPT, true).catch(() => ({ items: [], diagnostics: { erro: "executeJavaScript" } }));
@@ -679,7 +691,7 @@ function registerJobs({ ipcMain, BrowserWindow, vault, serverUrl, getApiToken, m
       if (!w.isVisible()) w.loadURL("about:blank").catch(() => {});
       return { ok: true, ...(await api("POST", "/api/vagas/ingest-html", { tipo: "busca", html: captured.html || "", term })), diagnostico: captured.diagnostics };
     }
-    return scanFeed();
+    return scanFeed({ operacional, onProgress });
   }
 
   const BROWSER_SEARCH_SCRIPT = (term) => `(() => {
@@ -867,10 +879,18 @@ function registerJobs({ ipcMain, BrowserWindow, vault, serverUrl, getApiToken, m
             if (!again.ok) return { critico: again.error, codigo: "rede", classe: "tecnico", estado: "failed" };
             probe0 = await js(PROBE).catch(() => ({}));
           }
-          const challenge0 = detectChallenge(w.webContents.getURL(), probe0);
+          const pageUrl = (() => { try { return w.webContents.getURL(); } catch { return ""; } })();
+          const challenge0 = CHALLENGE_URL.test(pageUrl) && !/viewjob|jobs\/view|gupy\.io\/job/i.test(pageUrl)
+            ? "O site pediu uma verificação (2FA ou captcha)."
+            : "";
           if (!challenge0) return null;
           try { w.show(); w.focus(); } catch { /* janela opcional */ }
-          return { critico: challenge0, codigo: probe0.captcha ? "captcha" : "login", classe: "humano", estado: "needs_user" };
+          return { critico: challenge0, codigo: /captcha/i.test(pageUrl) ? "captcha" : "login", classe: "humano", estado: "needs_user" };
+        },
+        sendEmail: async (draft) => {
+          if (!codeReader || typeof codeReader.sendApplication !== "function") throw new Error("Envio de e-mail indisponível.");
+          const sent = await codeReader.sendApplication(draft);
+          if (!sent || !sent.ok) throw new Error((sent && sent.error) || "O e-mail não saiu.");
         },
         snapshot: () => js(nav.SNAPSHOT_SCRIPT).catch((error) => ({ url: (() => { try { return w.webContents.getURL(); } catch { return vaga.url || ""; } })(), erroScript: String(error && error.message || error).slice(0, 180), buttons: [], fields: [], text: "" })),
         screenshot: async () => {
@@ -935,8 +955,9 @@ function registerJobs({ ipcMain, BrowserWindow, vault, serverUrl, getApiToken, m
       const loggedIn = new Set();
       for (const vaga of fila) {
         if (stopRequested) break;
-        if (!mock && !loggedIn.has(vaga.platform) && (await sessaoAtiva(vaga.platform))) loggedIn.add(vaga.platform);
-        if (!mock && !loggedIn.has(vaga.platform)) {
+        const porEmail = vaga.platform === "email" || vaga.aplicarPorEmail;
+        if (!mock && !porEmail && !loggedIn.has(vaga.platform) && (await sessaoAtiva(vaga.platform))) loggedIn.add(vaga.platform);
+        if (!mock && !porEmail && !loggedIn.has(vaga.platform)) {
           // O automático não pode ficar preso numa janela de login por minutos.
           // O modo silencioso ainda tenta preencher 2FA por e-mail; CAPTCHA,
           // login Google ou timeout viram bloqueio desta vaga e a fila segue.

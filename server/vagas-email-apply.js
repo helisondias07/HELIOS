@@ -65,9 +65,24 @@ async function prepareEmailApply({
   };
 }
 
+/** Envia de fato, sem cartão. O caller injeta o envio (Gmail). Confirmação só se o envio voltar. */
+async function sendEmailApply({ cargo, to, body, cvPath, lang, nome, listSent = async () => [], send } = {}) {
+  const prepared = await prepareEmailApply({ cargo, to, body, cvPath, lang, nome, listSent });
+  if (!prepared.ok) return prepared;
+  if (typeof send !== "function") return { ok: false, error: "Envio de e-mail indisponível." };
+  await send(prepared.draft);
+  return {
+    ok: true,
+    enviado: true,
+    confirmacao: `E-mail enviado para ${prepared.draft.to} com o CV em anexo.`,
+    draft: { to: prepared.draft.to, subject: prepared.draft.subject },
+  };
+}
+
 module.exports = {
   emailSubject,
   alreadySentTo,
   buildDraft,
   prepareEmailApply,
+  sendEmailApply,
 };

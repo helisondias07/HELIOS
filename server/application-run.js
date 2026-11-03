@@ -10,6 +10,9 @@
 const nav = require("./form-navigator");
 const vision = require("./form-vision");
 const regras = require("./vagas-regras");
+const { desafioVisivel } = require("./captcha-visivel");
+const { cartaDeApresentacao } = require("./jobs-fill");
+const { sendEmailApply } = require("./vagas-email-apply");
 
 function summarize(snapshot = {}) {
   return {
@@ -36,6 +39,17 @@ function pack(evidence, out, estado) {
   };
 }
 
+function captchaBloqueia(snapshot = {}) {
+  return desafioVisivel(snapshot);
+}
+
+function visaoNegaCaptcha(action) {
+  if (!action) return false;
+  if (["clicar", "preencher", "rolar", "esperar", "email"].includes(action.acao)) return true;
+  if (action.acao === "pausar" && !/captcha|rob|puzzle|desafio|human|imagens/i.test(`${action.motivo} ${action.alvo}`)) return true;
+  return false;
+}
+
 function looksLikeLogin(snapshot = {}) {
   const applyVisible = (snapshot.buttons || []).some((button) => /candidat|apply|inscrev|easy apply/i.test(`${button.text || ""} ${button.ariaLabel || ""}`));
   if (applyVisible) return false;
@@ -59,6 +73,28 @@ async function settle(io, evidence) {
 
 async function runApplication({ vaga = {}, profile = {}, respostas = {}, secrets = {}, enviar = true, llm = null, io, maxTurns = 12 } = {}) {
   const evidence = [];
+  if ((vaga.platform === "email" || vaga.aplicarPorEmail) && vaga.emailTo) {
+    if (!io || typeof io.sendEmail !== "function") {
+      return pack(evidence, { critico: "A vaga pede e-mail com CV e o envio do Gmail não está disponível.", codigo: "email", classe: "tecnico" }, "failed");
+    }
+    try {
+      const sent = await sendEmailApply({
+        cargo: vaga.title,
+        to: vaga.emailTo,
+        body: cartaDeApresentacao(vaga, profile),
+        cvPath: profile.cvPath,
+        nome: profile.nome,
+        send: io.sendEmail,
+      });
+      if (sent.ok && sent.confirmacao) {
+        note(evidence, "success-text", sent.confirmacao);
+        return pack(evidence, { ok: true, enviado: true, confirmacao: sent.confirmacao, via: "email" }, "submitted");
+      }
+      return pack(evidence, { critico: sent.error || "O e-mail não saiu.", codigo: "email", classe: "tecnico" }, "failed");
+    } catch (error) {
+      return pack(evidence, { critico: String(error && error.message || error).slice(0, 180), codigo: "email", classe: "tecnico" }, "failed");
+    }
+  }
   if (!io || typeof io.load !== "function" || typeof io.snapshot !== "function") {
     return pack(evidence, { critico: "Executor de página indisponível.", codigo: "executor", classe: "tecnico" }, "failed");
   }
@@ -77,9 +113,9 @@ async function runApplication({ vaga = {}, profile = {}, respostas = {}, secrets
     if (early) return pack(evidence, early, early.estado || "needs_user");
   }
   let snap = await settle(io, evidence);
-  if (snap.captcha) {
+  if (captchaBloqueia(snap) && !llm) {
     if (typeof io.show === "function") io.show();
-    return pack(evidence, { critico: "O site mostrou captcha. Resolva na janela; o HELIOS não contorna captcha.", codigo: "captcha", classe: "humano", via: "rules" }, "needs_user");
+    return pack(evidence, { critico: "O site mostrou um captcha visível. Resolva na janela; o HELIOS não contorna captcha.", codigo: "captcha", classe: "humano", via: "rules" }, "needs_user");
   }
   if (looksLikeLogin(snap) && !(snap.buttons || []).some((button) => /candidat|apply|inscrev/i.test(`${button.text || ""} ${button.ariaLabel || ""}`))) {
     if (typeof io.show === "function") io.show();
@@ -96,9 +132,82 @@ async function runApplication({ vaga = {}, profile = {}, respostas = {}, secrets
       snap = (await io.snapshot().catch((error) => ({ ...snap, erroScript: String(error && error.message || error) }))) || snap;
       note(evidence, "snapshot", JSON.stringify({ etapa: turn + 1, ...summarize(snap) }));
     }
-    if (snap.captcha) {
-      if (typeof io.show === "function") io.show();
-      return pack(evidence, { critico: "O site mostrou captcha. Resolva na janela; o HELIOS não contorna captcha.", codigo: "captcha", classe: "humano", via, model }, "needs_user");
+    let visaoPronta = null;
+    if (captchaBloqueia(snap)) {
+      if (!llm) {
+        if (typeof io.show === "function") io.show();
+        return pack(evidence, { critico: "O site mostrou um captcha visível. Resolva na janela; o HELIOS não contorna captcha.", codigo: "captcha", classe: "humano", via, model }, "needs_user");
+      }
+      const screenshot = typeof io.screenshot === "function" ? await io.screenshot().catch(() => "") : "";
+      visaoPronta = await vision.askNextAction(llm, { ...snap, screenshot }, secretValues);
+      model = (visaoPronta && visaoPronta.model) || model;
+      const action = visaoPronta && visaoPronta.action;
+      if (!visaoNegaCaptcha(action)) {
+        if (typeof io.show === "function") io.show();
+        return pack(evidence, { critico: "O site mostrou um captcha visível. Resolva na janela; o HELIOS não contorna captcha.", codigo: "captcha", classe: "humano", via: "visao", model }, "needs_user");
+      }
+      note(evidence, "visao", "o desafio não está na tela");
+    }
+    if (regras.paginaHibrida(snap, vaga)) {
+      note(evidence, "regra", "página indica híbrido ou presencial");
+      return pack(evidence, { critico: "A vaga não é somente remota (híbrido ou presencial na página).", codigo: "regra", classe: "tecnico", via, model }, "failed");
+    }
+    if (llm) {
+      const screenshot = visaoPronta ? "" : (typeof io.screenshot === "function" ? await io.screenshot().catch(() => "") : "");
+      const asked = visaoPronta || await vision.askNextAction(llm, { ...snap, screenshot }, secretValues);
+      model = (asked && asked.model) || model;
+      const action = asked && asked.action;
+      if (action && action.acao === "pausar" && /captcha/i.test(`${action.motivo} ${action.alvo}`) && captchaBloqueia(snap)) {
+        if (typeof io.show === "function") io.show();
+        return pack(evidence, { critico: "O site mostrou um captcha visível.", codigo: "captcha", classe: "humano", via: "visao", model }, "needs_user");
+      }
+      if (action && action.acao === "email" && typeof io.sendEmail === "function") {
+        const sent = await sendEmailApply({
+          cargo: vaga.title,
+          to: action.alvo,
+          cvPath: profile.cvPath,
+          nome: profile.nome,
+          send: io.sendEmail,
+        });
+        if (sent.ok && sent.confirmacao) {
+          note(evidence, "success-text", sent.confirmacao);
+          return pack(evidence, { ok: true, enviado: true, confirmacao: sent.confirmacao, via: "visao", model }, "submitted");
+        }
+      }
+      if (action && action.acao === "clicar") {
+        if (/mensagem|inmail|recrutador|conectar/i.test(action.alvo)) {
+          return pack(evidence, { critico: regras.nuncaMensagemRecrutador().motivo, codigo: "mensagem", classe: "tecnico", via: "visao", model }, "failed");
+        }
+        const button = vision.buttonFor(snap, action.alvo);
+        if (button) {
+          via = "visao";
+          note(evidence, "visao", `clicar ${button.text || action.alvo}`);
+          const clicked = await io.click(button.sel);
+          if (!clicked) return pack(evidence, { critico: "O botão indicado pela visão sumiu antes do clique.", codigo: "botao", classe: "tecnico", via, model }, "failed");
+          if (typeof io.sleep === "function") await io.sleep(800);
+          continue;
+        }
+      }
+      if (action && action.acao === "preencher") {
+        const field = vision.fieldFor(snap, action.alvo);
+        const valor = vision.resolveValor(action.valor, profile, vaga);
+        if (field && memory.filled && memory.filled[field.sel]) {
+          note(evidence, "visao", `já preenchido ${field.label || action.alvo}`);
+        } else if (field && valor) {
+          via = "visao";
+          note(evidence, "visao", `preencher ${field.label || action.alvo}`);
+          filledTotal += Number(await io.apply([{ sel: field.sel, kind: field.type === "file" ? "file" : "text", valor }])) || 0;
+          memory.filled = { ...(memory.filled || {}), [field.sel]: true };
+          continue;
+        }
+      }
+      if (action && (action.acao === "rolar" || action.acao === "esperar")) {
+        via = "visao";
+        note(evidence, "visao", action.acao);
+        if (action.acao === "rolar" && typeof io.scroll === "function") await io.scroll();
+        if (typeof io.sleep === "function") await io.sleep(500);
+        continue;
+      }
     }
     const decision = nav.step(snap, { profile, respostas, secrets, memory, enviar, vaga });
     memory = decision.memory || memory;
@@ -109,15 +218,17 @@ async function runApplication({ vaga = {}, profile = {}, respostas = {}, secrets
       model = (asked && asked.model) || model;
       const action = asked && asked.action;
       if (action && action.acao === "pausar") {
-        const captcha = /captcha/i.test(`${action.motivo} ${action.alvo}`);
-        if (typeof io.show === "function") io.show();
-        return pack(evidence, {
-          critico: action.motivo || "O modelo pediu para parar nesta página.",
-          codigo: captcha ? "captcha" : "login",
-          classe: "humano",
-          via: "visao",
-          model,
-        }, "needs_user");
+        const captcha = /captcha|rob|puzzle|desafio/i.test(`${action.motivo} ${action.alvo}`) && captchaBloqueia(snap);
+        if (captcha || /login|senha|2fa/i.test(`${action.motivo} ${action.alvo}`)) {
+          if (typeof io.show === "function") io.show();
+          return pack(evidence, {
+            critico: action.motivo || "O modelo pediu para parar nesta página.",
+            codigo: captcha ? "captcha" : "login",
+            classe: "humano",
+            via: "visao",
+            model,
+          }, "needs_user");
+        }
       }
       if (action && action.acao === "clicar") {
         if (/mensagem|inmail|recrutador|conectar/i.test(action.alvo)) {

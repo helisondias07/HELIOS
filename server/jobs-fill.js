@@ -5,6 +5,8 @@
  * Regra de ouro: o que não dá para preencher com segurança vira CASO CRÍTICO. Nunca chuta.
  */
 
+const { phraseCaptcha } = require("./captcha-visivel");
+
 const norm = (text) => String(text || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
 /** Tira asterisco e "(obrigatório)" para "Nome *" casar com o nome do perfil. */
 const cleanLabel = (text) => norm(text).replace(/[*]+/g, " ").replace(/\([^)]*\)/g, " ").replace(/\b(obrigatorio|obrigatoria|required|opcional)\b/g, " ").replace(/\s+/g, " ").trim();
@@ -55,6 +57,24 @@ const FIELD_RULES = [
 ];
 
 const SALARY = /(pretensao|salari|salary|remuneracao|compensation|expected pay)/;
+const LETTER = /(carta de apresentacao|carta de motivacao|cover letter|motivation letter)/;
+
+/** Carta curta a partir do perfil e da vaga. Sem telefone, e-mail ou CPF. */
+function cartaDeApresentacao(job = {}, profile = {}) {
+  const pronta = String(profile.carta || "").trim();
+  if (pronta) return pronta.slice(0, 1800);
+  const nome = String(profile.nome || "Helison Dias").trim() || "Helison Dias";
+  const cargo = String(job.title || "a vaga").replace(/\s+/g, " ").trim().slice(0, 160);
+  const empresa = String(job.company || "a equipe").replace(/\s+/g, " ").trim().slice(0, 80);
+  const resumo = String(profile.resumo || profile.bio || "").replace(/\s+/g, " ").trim().slice(0, 400);
+  const cidade = String(profile.cidade || "").replace(/\s+/g, " ").trim().slice(0, 60);
+  return [
+    `Olá, equipe ${empresa}!`.replace(" !", "!"),
+    `Tenho interesse na vaga de ${cargo}.${resumo ? ` ${resumo}` : ""}${cidade ? ` Moro em ${cidade} e trabalho remoto.` : " Trabalho remoto."}`,
+    "Acredito que posso contribuir com o time e fico à disposição para conversar.",
+    `Obrigado,\n${nome}`,
+  ].join("\n\n").slice(0, 1800);
+}
 const RELOCATION = /(mudar de cidade|mudanca|relocat|reloca|presencial|on-?site|hibrido|hybrid|disponibilidade para (trabalhar|atuar) em)/;
 const TERMS = /(termo|politica de privacidade|privacy|consent|concordo|aceito|li e)/;
 const CV = /(curriculo|\bcv\b|resume|résumé)/;
@@ -70,7 +90,9 @@ function planFill(fields, profile = {}, respostas = {}, page = {}, secrets = {})
   const criticos = [];
   const pageText = norm(page.text || "");
   for (const [re, why] of PAGE_CRITICAL) if (re.test(pageText)) criticos.push(why);
-  if (page.captcha) criticos.push("O site mostrou captcha ou 2FA.");
+  if (page.captcha && page.captchaVisivel !== false && (page.captchaVisivel === true || phraseCaptcha(page.text || ""))) {
+    criticos.push("O site mostrou captcha ou 2FA.");
+  }
   const saved = (label) => {
     const key = norm(label).slice(0, 160);
     const hit = Object.entries(respostas || {}).find(([k]) => norm(k) === key);
@@ -116,6 +138,13 @@ function planFill(fields, profile = {}, respostas = {}, page = {}, secrets = {})
       const answer = String(page.salaryAnswer || profile.pretensao || saved(f.label || f.name) || "").trim();
       if (!answer) { ask("Pretensão salarial sem valor no seu contexto"); continue; }
       acoes.push({ sel: f.sel, kind: type === "select" || type === "combobox" ? (type === "combobox" ? "combobox" : "select") : "text", valor: String(answer) });
+      continue;
+    }
+    if (LETTER.test(label)) {
+      if (String(f.value || "").trim().length > 40) continue;
+      const letter = cartaDeApresentacao(page.job || {}, profile);
+      if (!letter) { if (f.required) ask("Carta de apresentação sem texto no perfil"); continue; }
+      acoes.push({ sel: f.sel, kind: "text", valor: letter });
       continue;
     }
     if (RELOCATION.test(label)) {
@@ -258,4 +287,4 @@ function clickScript(kind) {
 const SUCCESS = /(candidatura (foi )?enviada|inscricao (foi )?(realizada|enviada|concluida)|application (was )?(sent|submitted)|you applied|voce se candidatou|candidatura realizada|obrigado por se candidatar|thank you for applying|thanks for applying|we received your application|recebemos sua candidatura)/;
 const isSuccess = (pageText) => SUCCESS.test(norm(pageText));
 
-module.exports = { profileFrom, planFill, INSPECT_SCRIPT, applyScript, clickScript, isSuccess, BUTTONS, norm, cleanLabel };
+module.exports = { profileFrom, planFill, cartaDeApresentacao, INSPECT_SCRIPT, applyScript, clickScript, isSuccess, BUTTONS, norm, cleanLabel };

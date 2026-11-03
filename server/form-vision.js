@@ -7,18 +7,20 @@
  * A resposta do modelo nunca conta como candidatura enviada.
  */
 
-const { cleanLabel } = require("./jobs-fill");
+const { cleanLabel, cartaDeApresentacao } = require("./jobs-fill");
+const { desafioVisivel } = require("./captcha-visivel");
 const regras = require("./vagas-regras");
 
 const SYSTEM = [
   "Você olha uma página de candidatura e escolhe UMA próxima ação.",
-  "Responda só JSON: {\"acao\":\"clicar\"|\"preencher\"|\"esperar\"|\"pausar\"|\"nada\",\"alvo\":\"texto visível do botão ou rótulo do campo\",\"valor\":\"{{NOME}}|{{EMAIL}}|{{TELEFONE}}|{{CIDADE}}|{{ESTADO}}|{{LINKEDIN}}|{{PRETENSAO}}|{{CV}} ou uma resposta curta que não seja dado pessoal\",\"motivo\":\"curto\"}.",
+  "Responda só JSON: {\"acao\":\"clicar\"|\"preencher\"|\"esperar\"|\"rolar\"|\"email\"|\"pausar\"|\"nada\",\"alvo\":\"texto visível do botão, rótulo do campo ou e-mail\",\"valor\":\"{{NOME}}|{{EMAIL}}|{{TELEFONE}}|{{CIDADE}}|{{ESTADO}}|{{LINKEDIN}}|{{PRETENSAO}}|{{CV}}|{{CARTA}}\",\"motivo\":\"curto\"}.",
   "Não invente nome, e-mail, telefone, CPF nem endereço. Não diga que a candidatura foi enviada.",
-  "Se aparecer captcha ou pedido de login, use acao=pausar.",
-  "Não clique em mensagem, InMail, conectar ou seguir.",
+  "Carta de apresentação ou cover letter: preencha com {{CARTA}} e depois clique em Continuar.",
+  "O selo do rodapé 'protegido pelo reCAPTCHA' NÃO é captcha. Só use acao=pausar para captcha se houver um desafio visível: checkbox, iframe de desafio ou quebra-cabeça.",
+  "Pedido de login ou 2FA: acao=pausar. Não clique em mensagem, InMail, conectar ou seguir.",
 ].join(" ");
 
-const PLACEHOLDERS = ["{{NOME}}", "{{EMAIL}}", "{{TELEFONE}}", "{{CIDADE}}", "{{ESTADO}}", "{{LINKEDIN}}", "{{PRETENSAO}}", "{{CV}}"];
+const PLACEHOLDERS = ["{{NOME}}", "{{EMAIL}}", "{{TELEFONE}}", "{{CIDADE}}", "{{ESTADO}}", "{{LINKEDIN}}", "{{PRETENSAO}}", "{{CV}}", "{{CARTA}}"];
 
 function scrub(text, secrets = []) {
   let out = String(text || "");
@@ -34,7 +36,7 @@ function publicSnapshot(snapshot = {}, secrets = []) {
     url: scrub(snapshot.url, secrets).slice(0, 300),
     titulo: scrub(snapshot.title, secrets).slice(0, 140),
     texto: scrub(snapshot.text, secrets).slice(0, 1800),
-    captcha: Boolean(snapshot.captcha),
+    captcha: desafioVisivel(snapshot),
     campos: (snapshot.fields || []).slice(0, 20).map((field) => ({
       rotulo: scrub(field.label || field.ariaLabel || field.name || "", secrets).slice(0, 80),
       tipo: String(field.type || "text").slice(0, 20),
@@ -50,7 +52,7 @@ function parseAction(content) {
   let data;
   try { data = JSON.parse(match[0]); } catch { return null; }
   const acao = String(data.acao || data.action || "").toLowerCase();
-  if (!["clicar", "preencher", "esperar", "pausar", "nada"].includes(acao)) return null;
+  if (!["clicar", "preencher", "esperar", "pausar", "nada", "rolar", "email"].includes(acao)) return null;
   return {
     acao,
     alvo: String(data.alvo || data.target || "").replace(/\s+/g, " ").trim().slice(0, 120),
@@ -69,6 +71,7 @@ function resolveValor(valor, profile = {}, job = {}) {
     "{{LINKEDIN}}": profile.linkedin || "",
     "{{PRETENSAO}}": regras.pretensao(job, profile),
     "{{CV}}": profile.cvPath || "",
+    "{{CARTA}}": cartaDeApresentacao(job, profile),
   };
   let out = String(valor || "").trim();
   if (!out) return "";

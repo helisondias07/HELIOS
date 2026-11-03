@@ -126,6 +126,6 @@ test("interface: aba Vagas em português", () => {
   const html = fs.readFileSync(path.join(ROOT, "renderer", "index.html"), "utf8");
   const app = fs.readFileSync(path.join(ROOT, "renderer", "app.js"), "utf8");
   assert.match(html, /data-view="vagas"/);
-  assert.match(app, /Aprovar envio/);
+  assert.match(app, /Na fila do automático/);
   assert.match(app, /Esperando sua aprovação/);
 });

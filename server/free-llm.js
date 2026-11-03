@@ -69,7 +69,7 @@ function scrub(text, keys) {
   return out.slice(0, 300);
 }
 
-function createFreeLlm({ getKey = () => "", fetchImpl = globalThis.fetch, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), cursorFallback = null, overrides = {}, modelOverrides = {}, roleModels = ROLE_MODELS, log = () => {} } = {}) {
+function createFreeLlm({ getKey = () => "", fetchImpl = globalThis.fetch, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), cursorFallback = null, cursorAccounts = null, overrides = {}, modelOverrides = {}, roleModels = ROLE_MODELS, log = () => {} } = {}) {
   const keyOf = (p) => { try { return String(getKey(PROVIDERS[p].keyName) || ""); } catch { return ""; } };
 
   function status() {
@@ -120,7 +120,15 @@ function createFreeLlm({ getKey = () => "", fetchImpl = globalThis.fetch, sleep 
     }
     if (typeof cursorFallback === "function") {
       tentativas.push({ model: "cursor", motivo: "ultimo recurso" });
-      const text = await cursorFallback({ agent, messages });
+      let text;
+      if (cursorAccounts) {
+        const { callRotating } = require("./cursor-rotation");
+        const rotated = await callRotating(cursorAccounts, () => cursorFallback({ agent, messages }));
+        text = rotated.result;
+        tentativas.push({ model: "cursor", motivo: rotated.trocas ? `trocou de conta (${rotated.trocas})` : "conta ativa" });
+      } else {
+        text = await cursorFallback({ agent, messages });
+      }
       return { message: { role: "assistant", content: String(text || "") }, model: "cursor", provider: "cursor", tentativas };
     }
     const err = new Error("Nenhum modelo gratis respondeu e nao ha reserva no Cursor.");

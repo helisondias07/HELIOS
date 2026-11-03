@@ -7,6 +7,7 @@
  */
 
 const { planFill, isSuccess, norm } = require("./jobs-fill");
+const { CAPTCHA_PAGE_SCRIPT, desafioVisivel } = require("./captcha-visivel");
 const { pageResult, STATES } = require("./jobs-application");
 const regras = require("./vagas-regras");
 
@@ -144,7 +145,7 @@ function finish(kind, extra, memory) {
 function step(snapshot = {}, ctx = {}) {
   const memory = { ...(ctx.memory || {}) };
   const estrategia = strategyOf(snapshot);
-  if (snapshot.captcha) {
+  if (desafioVisivel(snapshot)) {
     return finish("pause", {
       codigo: "captcha",
       motivo: "O site mostrou captcha. Resolva na janela; o HELIOS não contorna captcha.",
@@ -168,6 +169,7 @@ function step(snapshot = {}, ctx = {}) {
     text: snapshot.text || "",
     captcha: false,
     salaryAnswer,
+    job: ctx.vaga || snapshot.vaga || {},
   }, ctx.secrets || {});
   if (plan.criticos.length) {
     return finish("pause", {
@@ -367,9 +369,9 @@ const SNAPSHOT_SCRIPT = `(() => {
     }
   }
   const bodyText = (document.body && document.body.innerText || "").slice(0, 6000);
-  const captcha = Boolean(document.querySelector('iframe[src*="captcha"], iframe[src*="recaptcha"], iframe[src*="hcaptcha"], .g-recaptcha, #captcha'));
+  const captchaInfo = ${CAPTCHA_PAGE_SCRIPT};
   const modal = Boolean(document.querySelector(".jobs-easy-apply-modal, [role='dialog'], [data-test-modal]"));
-  return { url: location.href, title: document.title, text: bodyText, captcha, modal, fields, buttons, errors: alerts.slice(0, 8), frames: frames.length };
+  return { url: location.href, title: document.title, text: bodyText, captcha: !!(captchaInfo && captchaInfo.visible), captchaVisivel: !!(captchaInfo && captchaInfo.visible), captchaWidgets: (captchaInfo && captchaInfo.widgets) || [], modal, fields, buttons, errors: alerts.slice(0, 8), frames: frames.length };
 })()`;
 
 function applyScript(acoes) {

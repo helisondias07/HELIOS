@@ -125,13 +125,10 @@ test("levaO3: agente — automático sem cota artificial, ingest+quadro, teto/ho
   const achados = quadro.ler({ de: "vagas", tipo: "achado" });
   assert.ok(achados.length >= 1);
 
-  // Preparar + aprovar conta como revisão manual
   const vaga = novas[0];
   agent.prepararInscricao(vaga.id);
-  assert.equal(jobs.get(vaga.id).status, "aguardando_aprovacao");
-  agent.aprovarInscricao(vaga.id);
-  assert.equal(agent.status().revisoesManuais, 1);
-  assert.equal(agent.status().faltamRevisoes, 0);
+  assert.equal(jobs.get(vaga.id).status, "nova");
+  assert.equal(quadro.ler({ de: "vagas", status: "aberto" }).some((item) => /Aprovar inscri/i.test(item.assunto || "")), false);
 
   // Teto por hora: força usos
   for (let n = 0; n < 5; n += 1) agent.rateLeft(); // limpa

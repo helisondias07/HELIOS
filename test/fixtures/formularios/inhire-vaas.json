@@ -1,0 +1,23 @@
+[
+  {
+    "url": "https://vaas.inhire.app/vagas/desenvolvedor-frontend",
+    "title": "Desenvolvedor(a) Frontend",
+    "text": "Desenvolvedor(a) Frontend. Híbrido. Florianópolis, SC, BR. Você tem disponibilidade para trabalhar no modelo híbrido em Florianópolis, Santa Catarina, Brasil, 2x na semana? Nome completo. Seu melhor e-mail. Celular com DDD. LinkedIn. País de origem. Cidade. Currículo. Pretensão salarial como PJ. Continuar inscrição.",
+    "captcha": false,
+    "captchaVisivel": false,
+    "fields": [
+      { "sel": "#nome", "type": "text", "label": "Nome completo *", "required": true, "inForm": true, "value": "" },
+      { "sel": "#email", "type": "email", "label": "Seu melhor e-mail *", "required": true, "inForm": true, "value": "" },
+      { "sel": "#cel", "type": "tel", "label": "Celular com DDD *", "required": true, "inForm": true, "value": "" },
+      { "sel": "#li", "type": "text", "label": "LinkedIn *", "required": true, "inForm": true, "value": "" },
+      { "sel": "#pais", "type": "combobox", "label": "País de origem *", "required": true, "inForm": true, "value": "", "options": [{ "value": "BR", "text": "Brasil" }] },
+      { "sel": "#cidade", "type": "text", "label": "Cidade *", "required": true, "inForm": true, "value": "" },
+      { "sel": "#hibrido", "type": "radio", "label": "Você tem disponibilidade para trabalhar no modelo híbrido", "required": true, "inForm": true, "options": [{ "value": "sim", "text": "Sim" }, { "value": "nao", "text": "Não" }] },
+      { "sel": "#cv", "type": "file", "label": "Currículo *", "required": true, "inForm": true, "value": "" },
+      { "sel": "#pj", "type": "text", "label": "Pretensão salarial como PJ *", "required": true, "inForm": true, "value": "" }
+    ],
+    "buttons": [
+      { "sel": "#go", "text": "Continuar inscrição", "tag": "button", "visible": true, "inForm": true }
+    ]
+  }
+]

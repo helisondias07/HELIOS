@@ -5,7 +5,9 @@
  * Procura no Gmail (todas as contas conectadas) o e-mail do site, chegado depois do início do login,
  * e injeta o código direto na página do site. O código nunca vai para log, servidor, histórico ou modelo.
  */
-const { createGmailClient, waitForCode, header } = require("../server/gmail");
+const fs = require("node:fs");
+const path = require("node:path");
+const { createGmailClient, waitForCode, header, rawMime } = require("../server/gmail");
 const { classify } = require("../server/vagas-email");
 
 /** Script que digita o código na página: um campo só ou caixinhas de 1 dígito. Devolve true/false. */
@@ -64,7 +66,30 @@ function createCodeReader({ getAccounts, getAuthorization, fetchImpl = globalThi
     if (!emails.length && erros.length) return { ok: false, error: `Não consegui ler: ${erros.join(", ")}. Reconecte em Conectores.` };
     return { ok: true, emails, erros };
   }
-  return { fillCode, scanInbox, available: () => (getAccounts() || []).length > 0 };
+  /** Envia a candidatura com o CV. Não registra o corpo nem o caminho em log. */
+  async function sendApplication(draft = {}) {
+    const list = clients();
+    if (!list.length) return { ok: false, error: "Nenhuma conta Gmail conectada." };
+    let bytes = null;
+    if (draft.cvPath) {
+      try { bytes = fs.readFileSync(draft.cvPath); } catch { return { ok: false, error: "Não encontrei o arquivo do CV." }; }
+      if (bytes.length > 8 * 1024 * 1024) return { ok: false, error: "O CV passa de 8 MB." };
+    }
+    const raw = rawMime({
+      to: draft.to,
+      subject: draft.subject,
+      body: draft.body,
+      filename: path.basename(String(draft.cvPath || "curriculo.pdf")),
+      bytes,
+    });
+    try {
+      await list[0].sendRaw(raw);
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: String(error && error.message || error).slice(0, 180) };
+    }
+  }
+  return { fillCode, scanInbox, sendApplication, available: () => (getAccounts() || []).length > 0 };
 }
 
 module.exports = { createCodeReader, codeScript };

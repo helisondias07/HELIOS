@@ -6,6 +6,11 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { runApplication } = require("../src/jobs-host");
+const { captchaVisivel, desafioVisivel } = require("../server/captcha-visivel");
+const { createCodeReader } = require("../src/code-reader");
+const { sendEmailApply } = require("../server/vagas-email-apply");
+const { callRotating } = require("../server/cursor-rotation");
+const regras = require("../server/vagas-regras");
 const { planFill } = require("../server/jobs-fill");
 const { messagesFor } = require("../server/form-vision");
 const { canonicalJobUrl } = require("../server/vagas-visual");
@@ -154,6 +159,214 @@ test("levaV6 live: a fila antiga perde Quality Digital e BairesDev, e botão vir
   assert.equal(jobs.autoQueue().some((item) => /quality|baires/i.test(item.company)), false);
   assert.match(jobs.digest(), /Esperando sua resposta: 0|Falhas técnicas/);
   assert.equal(/Esperando sua resposta: [1-9]/.test(jobs.digest()), false);
+});
+
+test("levaV6 live: captcha invisível não para; híbrido Florianópolis sai da fila; falha não gasta a hora", async () => {
+  assert.equal(captchaVisivel([{ width: 0, height: 0, hidden: true }], ""), false);
+  assert.equal(captchaVisivel([{ width: 256, height: 60, badge: true }], ""), false);
+  assert.equal(captchaVisivel([{ width: 304, height: 180 }], ""), true);
+  const invisivel = scripted([{
+    url: "https://vaas.inhire.app/vagas/x",
+    text: "Nome completo. Continuar inscrição.",
+    captcha: true,
+    captchaVisivel: false,
+    fields: [{ sel: "#nome", type: "text", label: "Nome completo *", required: true, inForm: true, value: "" }],
+    buttons: [{ sel: "#go", text: "Continuar inscrição", tag: "button", visible: true, inForm: true }],
+  }, { url: "https://vaas.inhire.app/vagas/x/ok", text: "Candidatura enviada", fields: [], buttons: [] }]);
+  const followed = await invisivel.run();
+  assert.notEqual(followed.codigo, "captcha");
+  assert.ok(invisivel.clicks.includes("#go") || followed.enviado);
+
+  const hibrida = JSON.parse(fs.readFileSync(path.join(__dirname, "fixtures", "formularios", "inhire-vaas.json"), "utf8"));
+  const vaas = scripted(hibrida);
+  const dropped = await vaas.run();
+  assert.equal(dropped.codigo, "regra");
+  assert.equal(vaas.clicks.length, 0);
+  assert.equal(regras.avaliarVaga({ title: "Desenvolvedor Frontend", company: "VAAS", location: "Híbrido, Florianópolis", description: "React" }).aceita, false);
+  assert.equal(regras.avaliarVaga({ title: "Desenvolvedor Frontend", company: "VAAS", location: "Florianópolis, SC", description: "React remoto" }).aceita, false);
+
+  const jobs = createJobs(tmp("hora"), { mock: true, now: () => Date.parse("2026-11-03T15:00:00Z"), readProfile: () => "React front-end remoto" });
+  jobs.setPrefs({ modo: "automatico", porHora: 2, notaMinima: 10, termos: "desenvolvedor front-end" });
+  jobs.ingestParsedJobs(["A", "B", "C"].map((company) => ({
+    extId: company,
+    title: "Dev React Pleno",
+    company,
+    location: "Remoto",
+    url: `https://exemplo.invalid/${company}`,
+    description: "React remoto",
+  })), { platform: "gupy" });
+  for (const company of ["A", "B"]) {
+    const row = jobs.list().find((item) => item.company === company && item.status === "nova");
+    jobs.autoStart(row.id);
+    jobs.autoResult(row.id, { critico: "Não achei o próximo botão", codigo: "botao" });
+  }
+  assert.equal(jobs.rateLeft(), 2);
+  assert.ok(jobs.autoQueue().some((item) => item.company === "C"));
+  assert.equal(JSON.parse(fs.readFileSync(jobs.logFile, "utf8")).some((item) => item.status === "auto_iniciada"), false);
+});
+
+test("levaV6 live: e-mail sai com o CV e a conta do Cursor troca no mesmo pedido", async () => {
+  const sent = [];
+  const mail = await sendEmailApply({
+    cargo: "Dev React",
+    to: "rh@empresa.test",
+    cvPath: "C:\\cv.pdf",
+    nome: "Pessoa Exemplo",
+    send: async (draft) => { sent.push(draft); },
+  });
+  assert.equal(mail.ok, true);
+  assert.match(mail.confirmacao, /CV/);
+  assert.equal(sent[0].to, "rh@empresa.test");
+  assert.equal(sent[0].cvPath, "C:\\cv.pdf");
+
+  const accounts = [
+    { id: "a", apiKey: "crsr_a", label: "Conta A" },
+    { id: "b", apiKey: "crsr_b", label: "Conta B" },
+  ];
+  let active = "a";
+  const issues = [];
+  const api = {
+    active: () => accounts.find((item) => item.id === active),
+    setActive: (id) => { active = id; },
+    noteIssue: (id, kind) => issues.push({ id, kind }),
+    noteOk: () => {},
+    nextAccount: (fromId) => {
+      const next = accounts.find((item) => item.id !== fromId);
+      return next ? { id: next.id, label: next.label } : null;
+    },
+  };
+  let calls = 0;
+  const rotated = await callRotating(api, async (account) => {
+    calls += 1;
+    if (account.id === "a") throw Object.assign(new Error("usage limit"), { status: 429 });
+    return `ok ${account.id}`;
+  });
+  assert.equal(rotated.result, "ok b");
+  assert.equal(rotated.accountId, "b");
+  assert.equal(active, "b");
+  assert.equal(issues[0].kind, "usage");
+  assert.equal(calls, 2);
+  assert.equal(JSON.stringify(rotated).includes("crsr_"), false);
+});
+
+test("levaV6 live: a carta do Indeed segue e o selo do reCAPTCHA não é captcha", async () => {
+  const page = {
+    url: "https://br.indeed.com/viewjob?jk=bbchain",
+    title: "Adicionar documentos de apoio",
+    text: "Adicionar documentos de apoio. Carta de apresentação. Continuar. Este site é protegido pelo reCAPTCHA e está sujeito à Política de Privacidade e aos Termos de Serviço do Google.",
+    captcha: true,
+    fields: [{ sel: "#carta", type: "textarea", label: "Carta de apresentação *", required: true, inForm: true, value: "" }],
+    buttons: [{ sel: "#go", text: "Continuar", tag: "button", visible: true, inForm: true }],
+  };
+  assert.equal(desafioVisivel(page), false);
+  assert.equal(captchaVisivel([], page.text), false);
+  const fills = [];
+  const flow = scripted([page, { url: page.url, text: "Candidatura enviada", fields: [], buttons: [] }]);
+  flow.io.apply = async (acoes) => { fills.push(...(acoes || [])); return (acoes || []).length; };
+  const result = await flow.run();
+  assert.notEqual(result.codigo, "captcha");
+  assert.equal(result.enviado, true);
+  const carta = fills.map((item) => item.valor).join("\n");
+  assert.match(carta, /Pessoa Exemplo/);
+  assert.match(carta, /Desenvolvedor Front-end/);
+  assert.ok(flow.clicks.includes("#go"));
+
+  let passo = 0;
+  const llm = {
+    async chat() {
+      passo += 1;
+      const content = passo === 1
+        ? "{\"acao\":\"preencher\",\"alvo\":\"Carta de apresentação\",\"valor\":\"{{CARTA}}\",\"motivo\":\"campo obrigatório\"}"
+        : "{\"acao\":\"clicar\",\"alvo\":\"Continuar\",\"motivo\":\"avançar\"}";
+      return { message: { content }, model: "modelo-teste" };
+    },
+  };
+  const visto = scripted([page, { url: page.url, text: "Candidatura enviada", fields: [], buttons: [] }], { llm });
+  const fillsVisao = [];
+  visto.io.apply = async (acoes) => { fillsVisao.push(...(acoes || [])); return (acoes || []).length; };
+  const pelaVisao = await visto.run();
+  assert.notEqual(pelaVisao.codigo, "captcha");
+  assert.equal(pelaVisao.enviado, true);
+  assert.match(fillsVisao.map((item) => item.valor).join("\n"), /Pessoa Exemplo/);
+});
+
+test("levaV6 live: post nota alta vira candidatura ou e-mail; híbrido sai; captcha falso volta à fila", () => {
+  const jobs = createJobs(tmp("feed-post"), {
+    readProfile: () => "React Node desenvolvedor front-end remoto",
+    now: () => Date.parse("2026-11-03T18:00:00Z"),
+  });
+  jobs.setPrefs({ termos: "desenvolvedor", notaMinima: 40, modo: "automatico", porHora: 5 });
+  const ingested = jobs.ingestFeed([
+    { id: "p1", autor: "Empresa", texto: "OPORTUNIDADE 100% REMOTA | Desenvolvedor(a) Júnior - Integrações. Envie o CV para vagas@empresa.test", url: "https://www.linkedin.com/feed/update/p1" },
+    { id: "p2", autor: "VAAS", texto: "Desenvolvedor Frontend híbrido em Florianópolis, SC. React.", url: "https://www.linkedin.com/feed/update/p2" },
+    { id: "p3", autor: "La Moda", texto: "Desenvolvedor front-end React remoto. https://www.linkedin.com/jobs/view/99887766", url: "https://www.linkedin.com/jobs/view/99887766" },
+  ]);
+  assert.ok(ingested.vagasNovas >= 2);
+  const fila = jobs.autoQueue();
+  assert.ok(fila.some((item) => item.platform === "email" && item.emailTo === "vagas@empresa.test"));
+  assert.ok(fila.some((item) => item.extId === "99887766"));
+  assert.equal(fila.some((item) => /florian|hibrid/i.test(`${item.location} ${item.title}`)), false);
+  assert.equal(jobs.feed().find((item) => item.key === "p2").score, 0);
+
+  const dir = tmp("captcha-falso");
+  fs.writeFileSync(path.join(dir, "vagas.json"), JSON.stringify({
+    version: 1,
+    prefs: { termos: ["desenvolvedor front-end"], modo: "automatico", notaMinima: 10, plataformas: ["linkedin"] },
+    vagas: [
+      { id: "vaga_h", platform: "linkedin", extId: "h", title: "Desenvolvedor Frontend", company: "VAAS", location: "Florianópolis, SC", description: "React híbrido", score: 80, status: "critica", critico: { motivo: "O site mostrou captcha.", classe: "humano" } },
+      { id: "vaga_c", platform: "indeed", extId: "c", title: "Desenvolvedor React", company: "BBChain", location: "Remoto", description: "React remoto", score: 90, status: "critica", critico: { motivo: "O site mostrou captcha.", classe: "humano" } },
+      { id: "vaga_r", platform: "gupy", extId: "r", title: "Desenvolvedor React", company: "Empresa", location: "Remoto", description: "React remoto", score: 90, status: "critica", critico: { motivo: "O site mostrou captcha: não sou um robô", classe: "humano" } },
+    ],
+  }));
+  const filaAntiga = createJobs(dir, { readProfile: () => "React remoto" });
+  filaAntiga.revisarFila();
+  assert.equal(filaAntiga.get("vaga_h").status, "descartada");
+  assert.equal(filaAntiga.get("vaga_c").status, "nova");
+  assert.equal(filaAntiga.get("vaga_r").status, "critica");
+});
+
+test("levaV6 live: o e-mail da vaga sai com o CV e sem a chave no corpo", async () => {
+  const dir = tmp("cv");
+  const cv = path.join(dir, "cv.pdf");
+  fs.writeFileSync(cv, "CV-FIXTURE");
+  let body = "";
+  const reader = createCodeReader({
+    getAccounts: () => [{ id: "g1" }],
+    getAuthorization: async () => "Bearer teste",
+    fetchImpl: async (_url, options) => {
+      body = String(options && options.body || "");
+      return { ok: true, status: 200, json: async () => ({ id: "m1" }) };
+    },
+  });
+  const sent = await reader.sendApplication({ to: "rh@empresa.test", subject: "Dev React", body: "Olá", cvPath: cv });
+  assert.equal(sent.ok, true);
+  const raw = JSON.parse(body).raw.replace(/-/g, "+").replace(/_/g, "/");
+  const text = Buffer.from(raw, "base64").toString("utf8");
+  assert.match(text, /rh@empresa.test/);
+  assert.match(text, /cv\.pdf/);
+  assert.equal(text.includes("Bearer"), false);
+  const denied = createCodeReader({
+    getAccounts: () => [{ id: "g1" }],
+    getAuthorization: async () => "Bearer teste",
+    fetchImpl: async () => ({ ok: false, status: 403, json: async () => ({}) }),
+  });
+  const fail = await denied.sendApplication({ to: "rh@empresa.test", subject: "Dev", body: "Olá", cvPath: cv });
+  assert.match(fail.error, /leitura/);
+
+  const mailed = [];
+  const out = await runApplication({
+    vaga: { platform: "email", aplicarPorEmail: true, emailTo: "rh@empresa.test", title: "Dev React", company: "Empresa", location: "Remoto", url: "mailto:rh@empresa.test" },
+    profile: PROFILE,
+    io: {
+      load: async () => { throw new Error("não abre navegador"); },
+      snapshot: async () => ({}),
+      sendEmail: async (draft) => { mailed.push(draft); },
+    },
+  });
+  assert.equal(out.enviado, true);
+  assert.match(out.confirmacao, /CV/);
+  assert.equal(mailed[0].to, "rh@empresa.test");
+  assert.equal(mailed[0].cvPath, PROFILE.cvPath);
 });
 
 test("levaV6 live: a busca completa devolve na hora e o andamento fecha o ciclo", async () => {

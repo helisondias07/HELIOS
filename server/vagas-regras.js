@@ -111,12 +111,23 @@ function sections(job = {}) {
 }
 
 function remotoOnly(job = {}) {
+  const loc = norm(job.location || "");
   const text = norm(`${job.location || ""} ${job.title || ""} ${job.description || ""}`);
   const negatesOnsite = /\b(nao|sem)\s+(e\s+)?(hibrid|presencial|on-?site)\b/.test(text);
   const onlyRemote = /100\s*%\s*remoto|totalmente remoto|somente remoto|apenas remoto/.test(text);
   const hybrid = /\b(hibrid[oa]|presencial|on-?site|no escritorio)\b/.test(text);
   if (hybrid && !negatesOnsite && !onlyRemote) return false;
-  return /100\s*%\s*remoto|totalmente remoto|somente remoto|apenas remoto|\bremoto\b|\bremote\b|home office|trabalho remoto/.test(text);
+  const locRemote = /\bremoto\b|\bremote\b|home office|trabalho remoto/.test(loc);
+  if (loc && !locRemote && /,/.test(String(job.location || "")) && !onlyRemote) return false;
+  return onlyRemote || locRemote || /\bremoto\b|\bremote\b|home office|trabalho remoto/.test(text);
+}
+
+function paginaHibrida(snapshot = {}, vaga = {}) {
+  const text = norm(`${vaga.location || ""} ${snapshot.text || ""}`);
+  const hybrid = /\b(hibrid[oa]|presencial|on-?site)\b/.test(text);
+  const onlyRemote = /100\s*%\s*remoto|totalmente remoto|somente remoto|apenas remoto/.test(text);
+  const negates = /\b(nao|sem)\s+(e\s+)?(hibrid|presencial)/.test(text);
+  return hybrid && !onlyRemote && !negates;
 }
 
 function nivelOk(job = {}) {
@@ -184,6 +195,7 @@ module.exports = {
   nuncaMensagemRecrutador,
   classeFalha,
   remotoOnly,
+  paginaHibrida,
   nivelOk,
   papelOk,
 };

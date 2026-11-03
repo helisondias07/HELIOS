@@ -39,7 +39,8 @@ test("leva E: preenchimento cobre campos comuns e para em todo caso crítico", (
   assert.match(crit([{ sel: "q", type: "text", label: "Quantos anos de Kotlin?", required: true }]), /não responde/);
   assert.match(crit([], { text: "Etapa 2: faça o teste técnico online" }), /teste/);
   assert.match(crit([], { text: "Pague a taxa de inscrição" }), /pagamento/);
-  assert.match(crit([], { captcha: true }), /captcha/);
+  assert.match(crit([], { captcha: true, text: "não sou um robô" }), /captcha/);
+  assert.equal(/captcha/i.test(crit([], { captcha: true, text: "Este site é protegido pelo reCAPTCHA" })), false);
   assert.match(crit([{ sel: "t", type: "checkbox", label: "Li e concordo com os termos", required: true }]), /Termos/);
   assert.match(crit([{ sel: "f", type: "file", label: "Carta de recomendação", required: true }]), /além do CV/);
   assert.match(crit([{ sel: "c", type: "text", label: "CPF", required: true }]), /CPF ausente|cofre|Dado pessoal/);
@@ -52,11 +53,11 @@ test("leva E: preenchimento cobre campos comuns e para em todo caso crítico", (
 test("leva E: automático vem desligado, respeita limites, repetição e empresas evitadas", async () => {
   let t = Date.parse("2026-10-30T15:00:00Z");
   const jobs = createJobs(tmp("auto"), { mock: true, now: () => t, readProfile: () => "Desenvolvedor front-end React" });
-  assert.equal(jobs.prefs().modo, "aprovacao");
+  assert.equal(jobs.prefs().modo, "automatico");
   await jobs.search();
   const [first] = jobs.autoQueue();
-  assert.throws(() => jobs.autoStart(first.id), /desligado/);
-  jobs.setPrefs({ modo: "automatico", porHora: 1, evitarEmpresas: "Empresa Demo 2" });
+  jobs.setPrefs({ modo: "aprovacao", porHora: 1, evitarEmpresas: "Empresa Demo 2" });
+  assert.equal(jobs.prefs().modo, "automatico");
   assert.ok(jobs.autoQueue().every((v) => v.company !== "Empresa Demo 2"));
   assert.equal(jobs.autoQueue().length, 1);
   jobs.autoStart(first.id);
@@ -190,7 +191,7 @@ test("leva E: cofre aceita a chave telegram e a interface mostra Telegram no Cof
   const app = fs.readFileSync(path.join(ROOT, "renderer", "app.js"), "utf8");
   assert.match(app, /<h2>Telegram<\/h2>/);
   assert.match(app, /helios\.setKey\("telegram"/);
-  assert.match(app, /Com aprovação \(padrão\)/);
+  assert.match(app, /se inscreve sozinho/);
   assert.match(app, /termos do LinkedIn proíbem automação/);
   assert.doesNotMatch(app, /Ajustes/);
   const main = fs.readFileSync(path.join(ROOT, "src", "main.js"), "utf8");

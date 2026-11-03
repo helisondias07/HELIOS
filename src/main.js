@@ -330,7 +330,7 @@ function bootstrap() {
         // LEVA S: executor LinkedIn so leitura (persist:vagas) e rodada automatica autorizada.
         vagasRunner: async (info = {}) => {
           if (!jobsHost) return null;
-          if (info.tipo === "linkedin" && typeof jobsHost.scanLinkedInKind === "function") return jobsHost.scanLinkedInKind(info.fonte, {});
+          if (info.tipo === "linkedin" && typeof jobsHost.scanLinkedInKind === "function") return jobsHost.scanLinkedInKind(info.fonte, { operacional: true, onProgress: info.onProgress });
           if (info.tipo === "plataformas" && typeof jobsHost.searchPlatforms === "function") return jobsHost.searchPlatforms({ onProgress: info.onProgress });
           return null;
         },
@@ -440,6 +440,7 @@ function bootstrap() {
       getKey: (k) => {
         try { return (k === "nvidia" || k === "gemini") ? (vault.getKey(k) || "") : ""; } catch { return ""; }
       },
+      cursorAccounts: server && server.accounts,
     });
     jobsHost = registerJobs({
       ipcMain,
@@ -631,9 +632,14 @@ function bootstrap() {
           await apiRetry("POST", "/api/agente/vagas/ciclo", { forcar: true, completa: true, background: true });
           let scan = { ok: false, feitos: [], erros: ["busca sem resposta"] };
           const buscaDeadline = Date.now() + 20 * 60 * 1000;
+          let lastSig = "";
           while (Date.now() < buscaDeadline) {
             const state = await apiRetry("GET", "/api/agente/vagas/andamento");
-            checkpoint(state.fase || "busca", { ultimo: state.ultimo || null, erro: state.error || "" });
+            const sig = `${state.fase || ""}|${state.ultimo && state.ultimo.fonte || ""}|${state.ultimo && state.ultimo.passo || ""}`;
+            if (sig !== lastSig) {
+              checkpoint(state.fase || "busca", { ultimo: state.ultimo || null, erro: state.error || "" });
+              lastSig = sig;
+            }
             if (state.done) {
               scan = state.result || { ok: !state.error, feitos: [], erros: state.error ? [state.error] : [] };
               break;

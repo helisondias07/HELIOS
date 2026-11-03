@@ -110,7 +110,10 @@ function appendHeliosLog(dataDir, line) {
       .replace(/https?:\/\/\S+/gi, "[url]")
       .replace(/[\r\n]+/g, " ")
       .slice(0, 500);
-    fs.appendFileSync(path.join(dir, "helios.log"), `${new Date().toISOString()} ${text}\n`, { encoding: "utf8", mode: 0o600 });
+    const file = path.join(dir, "helios.log");
+    const row = `${new Date().toISOString()} ${text}\n`;
+    try { fs.appendFileSync(file, row, { encoding: "utf8", mode: 0o600 }); }
+    catch { fs.appendFileSync(file, row, "utf8"); }
   } catch {
     /* o diagnóstico não pode derrubar o login */
   }

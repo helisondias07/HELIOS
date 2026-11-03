@@ -33,8 +33,11 @@ function sameState(a, b) {
 function httpsUrl(value, label) {
   let parsed;
   try { parsed = new URL(String(value || "")); } catch { throw Object.assign(new Error(`${label} inválido.`), { status: 502 }); }
-  if (parsed.protocol !== "https:") throw Object.assign(new Error(`${label} precisa ser https.`), { status: 502 });
-  return parsed.toString();
+  const loopback = parsed.hostname === "127.0.0.1" || parsed.hostname === "localhost";
+  if (parsed.protocol === "https:") return parsed.toString();
+  // Leva P: mock OAuth/MCP local em 127.0.0.1 pode ser http (só testes).
+  if (parsed.protocol === "http:" && loopback) return parsed.toString();
+  throw Object.assign(new Error(`${label} precisa ser https.`), { status: 502 });
 }
 
 function resourceMetadataUrl(header, mcpUrl) {

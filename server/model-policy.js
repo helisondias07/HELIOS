@@ -47,6 +47,30 @@ function pickFor(level, catalog) {
   return prefs.find(has) || COMPOSER;
 }
 
+/** Fase 8: ordem de reserva. Se um modelo falhar ou bater limite, tenta o próximo (mesma conta, nunca troca de conta). */
+const FALLBACK_ORDER = [COMPOSER, GROK];
+const MODEL_FAIL_RE = /model[^\n]{0,40}(not found|not available|unavailable|unsupported|does not exist|overloaded)|modelo[^\n]{0,30}indispon|overloaded|\b50[23]\b|service unavailable/i;
+
+/** Próximo modelo da reserva que ainda não foi tentado e existe no catálogo (sem catálogo, aceita). */
+function nextModel(tried = [], catalog = null) {
+  const has = (id) => !Array.isArray(catalog) || !catalog.length || catalog.some((m) => m.id === id || (m.aliases || []).includes(id));
+  const id = FALLBACK_ORDER.find((item) => !tried.includes(item) && has(item));
+  return id ? { id, label: labelOf(id), selection: selectionFor(id) } : null;
+}
+
+/** O erro é do modelo (limite de taxa/uso, indisponível, sobrecarga)? Erro de login/autenticação não conta. */
+function isModelFailure(err, issue = null) {
+  if (issue && issue.kind === "auth") return false;
+  if (issue && (issue.kind === "rate" || issue.kind === "usage")) return true;
+  const text = String((err && (err.message || err.error?.message)) || err || "");
+  return MODEL_FAIL_RE.test(text);
+}
+
+function fallbackNotice(fromLabel, toLabel, issue) {
+  const why = issue?.kind === "usage" ? "bateu o limite de uso" : issue?.kind === "rate" ? "bateu o limite de velocidade" : "falhou";
+  return `Aviso: o ${fromLabel} ${why}; respondi com o ${toLabel}. A conta do Cursor continua a mesma (o HELIOS não troca de conta sozinho).`;
+}
+
 function chooseModel({ text = "", override = null, catalog = null } = {}) {
   const classified = classify(text);
   let level = classified.level;
@@ -85,4 +109,8 @@ module.exports = {
   chooseModel,
   pickFor,
   referenceEstimates,
+  FALLBACK_ORDER,
+  nextModel,
+  isModelFailure,
+  fallbackNotice,
 };

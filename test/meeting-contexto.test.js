@@ -80,15 +80,14 @@ test("tradução: sem contexto o prompt é idêntico ao antigo; com contexto só
   assert.equal(ctx.formalityLine("qualquer"), "");
 });
 
-test("respostas: contexto vai ao sistema e 'both' pede duas opções em EN e PT", () => {
+test("respostas: contexto vai ao sistema e 'both' pede uma resposta em EN e PT (Leva H)", () => {
   const lines = [{ who: "them", text: "Tell me about your last project?" }];
   const msgs = prompts.suggest(lines, { lang: "both", myContext: "dev", meeting: "Contexto da reunião: vaga na Wake" });
   assert.match(msgs[0].content, /vaga na Wake/);
   const user = msgs[msgs.length - 1].content;
-  assert.match(user, /OPÇÃO 1/);
-  assert.match(user, /OPÇÃO 2/);
-  assert.equal((user.match(/^EN:/gm) || []).length, 2);
-  assert.equal((user.match(/^PT:/gm) || []).length, 2);
+  assert.doesNotMatch(user, /OPÇÃO/);
+  assert.equal((user.match(/^EN:/gm) || []).length, 1);
+  assert.equal((user.match(/^PT:/gm) || []).length, 1);
   const en = prompts.suggest(lines, { lang: "en", meeting: "CTX-X" });
   assert.match(en[0].content, /CTX-X/);
   const sum = prompts.summary(lines, { meeting: "CTX-Y" });

@@ -203,4 +203,13 @@ function createSkills(dataDir) {
   };
 }
 
-module.exports = { createSkills, parseSkillMd, normalizeImport, OASIS_SKILL };
+const { createSkillFs, parseFrontmatter } = require("./skill-fs");
+
+module.exports = {
+  createSkills,
+  parseSkillMd,
+  normalizeImport,
+  OASIS_SKILL,
+  createSkillFs,
+  parseFrontmatter,
+};

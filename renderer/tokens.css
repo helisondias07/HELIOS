@@ -168,3 +168,54 @@
 @media (prefers-reduced-motion: reduce) {
   :root { --dur-fast: 0.01ms; --dur-base: 0.01ms; --dur-slow: 0.01ms; --dur-loop: 0.01ms; --enter-shift: 0px; --press-scale: 1; }
 }
+
+/* =====================================================================================
+   LEVA J — kit de design do Helison (design/DESIGN.md). Fonte da verdade das cores.
+   Escuro = tokens do kit, exatos. Claro = tema PRINCIPAL, derivado do kit (contraste >= 4,5:1).
+   Os nomes antigos (--bg, --sun, --lf-*...) apontam para estes tokens em kit.css.
+   ===================================================================================== */
+:root, [data-theme="dark"] {
+  --helios-eclipse: #0B0B0D;   --helios-obsidiana: #131316; --helios-basalto: #1C1C21; --helios-brasa: #2A2A31;
+  --helios-nevoa: #9A968C;     --helios-marfim: #F4EEE2;
+  --helios-ouro: #E8B23A;      --helios-aurora: #FFD878;    --helios-ambar: #C98A22;   --helios-bronze: #6E4B16;
+  --helios-sucesso: #7BC47F;   --helios-alerta: #E8833A;    --helios-erro: #E5574F;
+  --helios-ouro-texto: #E8B23A;     /* ouro usado como cor de texto/ícone */
+  --helios-sobre-ouro: #0B0B0D;     /* texto sobre preenchimento ouro */
+  --helios-marca: #E8B23A;          /* cor do símbolo */
+  --helios-brilho: 0 0 0 3px rgba(232,178,58,.14), 0 0 24px rgba(232,178,58,.14);
+  --helios-brilho-forte: 0 0 0 3px rgba(232,178,58,.24), 0 0 32px rgba(232,178,58,.28);
+  --helios-glow-marca: drop-shadow(0 0 18px rgba(232,178,58,.5));
+  --helios-sombra: 0 12px 32px -12px rgba(0,0,0,.6);
+}
+[data-theme="light"] {
+  --helios-eclipse: #F7F3EA;   --helios-obsidiana: #FFFDF8; --helios-basalto: #EFE7D6; --helios-brasa: #DCD1BC;
+  --helios-nevoa: #6B5D45;     --helios-marfim: #2A1D08;
+  --helios-ouro: #9A6A14;      --helios-aurora: #C98A22;    --helios-ambar: #7E5510;   --helios-bronze: #6E4B16;
+  --helios-sucesso: #2E7D32;   --helios-alerta: #A8501A;    --helios-erro: #B3261E;
+  --helios-ouro-texto: #86590F;
+  --helios-sobre-ouro: #FFFDF8;
+  --helios-marca: #9A6A14;
+  --helios-brilho: 0 0 0 3px rgba(154,106,20,.16), 0 0 24px rgba(154,106,20,.12);
+  --helios-brilho-forte: 0 0 0 3px rgba(154,106,20,.26), 0 0 32px rgba(154,106,20,.22);
+  --helios-glow-marca: drop-shadow(0 0 18px rgba(154,106,20,.35));
+  --helios-sombra: 0 12px 32px -14px rgba(42,29,8,.22);
+}
+:root {
+  --helios-raio-controle: 10px; --helios-raio-campo: 12px; --helios-raio-cartao: 16px;
+  --helios-transicao: 180ms ease-out;
+  --helios-fonte-marca: "Cinzel", serif;
+  --helios-fonte-ui: "Inter", system-ui, sans-serif;
+  --font: var(--helios-fonte-ui);
+  --font-brand: var(--helios-fonte-marca);
+  --brand-tracking: 0.24em;
+  --ease: ease-out; --dur-fast: 180ms; --dur-base: 180ms; --dur-slow: 180ms;
+  --r-md: 10px; --r-lg: 12px; --radius: 10px; --radius-lg: 16px;
+}
+
+/* Símbolo do HELIOS: sempre carregado de assets/helios-mark.svg (máscara recolorida pela cor do tema, nunca redesenhado) */
+.hx-mark {
+  display: inline-block; flex: none; width: 22px; height: 22px; background-color: var(--helios-marca);
+  -webkit-mask: url("assets/helios-mark.svg") center / contain no-repeat; mask: url("assets/helios-mark.svg") center / contain no-repeat;
+}
+.hx-18 { width: 18px; height: 18px; } .hx-22 { width: 22px; height: 22px; } .hx-28 { width: 28px; height: 28px; } .hx-96 { width: 96px; height: 96px; }
+.hx-glow { display: inline-flex; filter: var(--helios-glow-marca); }

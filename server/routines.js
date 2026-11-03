@@ -3,8 +3,19 @@
 const path = require("node:path");
 const { newId, nowIso, readJson, writeJson } = require("./util");
 
+/** Eventos que podem disparar uma rotina (Fase 5). */
+const EVENTS = {
+  app_iniciou: "Quando o HELIOS abre",
+  reuniao_terminou: "Quando uma reunião termina",
+  nota_criada: "Quando uma nota entra no Second Brain",
+};
+/** Um evento não dispara a mesma rotina de novo antes disso (evita rajada e laço). */
+const EVENT_COOLDOWN_MS = 60 * 1000;
+
 function isDue(item, at) {
   if (!item.enabled) return false;
+  if (item.event) return false;
+  if (Array.isArray(item.weekdays) && item.weekdays.length && !item.weekdays.includes(new Date(at).getDay())) return false;
   if (item.everyMinutes) {
     const last = item.lastRun ? Date.parse(item.lastRun) : Date.parse(item.createdAt || 0);
     return at - last >= Number(item.everyMinutes) * 60 * 1000;
@@ -44,6 +55,26 @@ function dispatchDue({ routines, store, send, at = Date.now() }) {
   return { ran, skipped };
 }
 
+/** Dispara as rotinas ligadas a um evento. Mesmo contrato de dispatchDue. */
+function dispatchEvent({ routines, store, send, event, detail = "", at = Date.now() }) {
+  const ran = [];
+  const skipped = [];
+  for (const item of routines.forEvent(event, at)) {
+    let conv = store.list().find((entry) => entry.title === `Rotina: ${item.title}`);
+    if (!conv) conv = store.create(`Rotina: ${item.title}`, item.assistantId || undefined);
+    try {
+      if (item.readOnly) store.update(conv.id, (current) => { current.readOnly = true; });
+      const extra = String(detail || "").trim().slice(0, 400);
+      send(conv.id, extra ? `${item.prompt}\n\nEvento: ${EVENTS[event]}. ${extra}` : item.prompt, { level: "rapido" });
+      routines.markRan(item.id, at);
+      ran.push(item.id);
+    } catch {
+      skipped.push(item.id);
+    }
+  }
+  return { ran, skipped };
+}
+
 function view(item) {
   return {
     id: item.id,
@@ -51,6 +82,9 @@ function view(item) {
     prompt: item.prompt,
     everyMinutes: item.everyMinutes,
     clock: item.clock,
+    event: item.event || null,
+    weekdays: Array.isArray(item.weekdays) ? item.weekdays : [],
+    trigger: item.event ? "evento" : item.clock ? "horario" : "intervalo",
     enabled: item.enabled,
     readOnly: item.readOnly === true,
     modelo: item.modelo || null,
@@ -74,6 +108,31 @@ const MORNING_PROMPT = [
   "Entregue um resumo curto: o que chegou, o que parece urgente e o que pode esperar.",
 ].join(" ");
 
+const BRIEF_TITLE = "Morning Brief";
+const BRIEF_MODEL = "morning-brief";
+const BRIEF_PROMPT = [
+  "Morning Brief do Helison. Só leitura: nada é enviado, publicado ou apagado.",
+  "Não use o cofre.",
+  "Monte um resumo em português, curto e em tópicos:",
+  "1) Agenda do dia (se houver conector de calendário);",
+  "2) E-mails e mensagens que pedem resposta;",
+  "3) Tarefas do ClickUp para hoje ou atrasadas (se houver conector);",
+  "4) Pendências abertas da memória e notas recentes do Second Brain;",
+  "5) Uma sugestão do que fazer primeiro.",
+  "Se uma fonte não estiver conectada, diga numa linha e siga.",
+].join(" ");
+
+const MONITOR_MODEL = "monitor";
+function monitorPrompt(target) {
+  return [
+    `Monitor: verifique ${target}.`,
+    "Só leitura: não envie, não publique, não se inscreva e não compre nada; qualquer ação vira cartão de aprovação.",
+    "Compare com a última verificação nesta conversa.",
+    "Se nada mudou, responda apenas \"Sem novidades.\"",
+    "Se mudou, diga o que mudou em até 3 linhas, com o link da fonte.",
+  ].join(" ");
+}
+
 function createRoutines(dataDir) {
   const file = path.join(dataDir, "routines.json");
   let items = readJson(file, []);
@@ -85,10 +144,20 @@ function createRoutines(dataDir) {
     const title = String(input.title || "").trim().slice(0, 80);
     const prompt = String(input.prompt || "").trim().slice(0, 1000);
     if (title.length < 2 || prompt.length < 4) throw Object.assign(new Error("Dê um nome e o que a rotina deve fazer."), { status: 400 });
+    const weekdays = normalizeWeekdays(input.weekdays);
+    if (input.trigger === "evento" || input.event) {
+      const event = String(input.event || "");
+      if (!EVENTS[event]) throw Object.assign(new Error("Escolha um evento válido para a rotina."), { status: 400 });
+      return { title, prompt, everyMinutes: null, clock: null, event, weekdays: [] };
+    }
     const every = Number(input.everyMinutes);
     const clock = /^\d{2}:\d{2}$/.test(String(input.clock || "")) ? String(input.clock) : "";
-    if (!clock && !(every >= 1 && every <= 10080)) throw Object.assign(new Error("Informe um horário (HH:MM) ou um intervalo em minutos."), { status: 400 });
-    return { title, prompt, everyMinutes: clock ? null : every, clock: clock || null };
+    if (clock) {
+      const [hh, mm] = clock.split(":").map(Number);
+      if (hh > 23 || mm > 59) throw Object.assign(new Error("Horário inválido. Use HH:MM, de 00:00 a 23:59."), { status: 400 });
+    }
+    if (!clock && !(every >= 1 && every <= 10080)) throw Object.assign(new Error("Informe um horário (HH:MM), um intervalo em minutos ou um evento."), { status: 400 });
+    return { title, prompt, everyMinutes: clock ? null : every, clock: clock || null, event: null, weekdays: clock ? weekdays : [] };
   }
 
   /**
@@ -100,7 +169,7 @@ function createRoutines(dataDir) {
     if (items.length >= maxRoutines) {
       throw Object.assign(new Error(`Já existem ${items.length} rotinas (limite: ${maxRoutines}). Apague alguma ou aumente o limite em Atividade › Limites.`), { status: 409 });
     }
-    if (fromBot && !clean.clock && clean.everyMinutes < minEveryMinutes) {
+    if (fromBot && !clean.clock && !clean.event && clean.everyMinutes < minEveryMinutes) {
       throw Object.assign(new Error(`Rotinas pedidas por assistentes precisam de pelo menos ${minEveryMinutes} minutos entre uma execução e outra.`), { status: 400 });
     }
     return clean;
@@ -114,6 +183,8 @@ function createRoutines(dataDir) {
       prompt: clean.prompt,
       everyMinutes: clean.everyMinutes,
       clock: clean.clock,
+      event: clean.event,
+      weekdays: clean.weekdays,
       enabled: input.enabled !== false,
       readOnly: input.readOnly === true,
       modelo: input.modelo ? String(input.modelo).slice(0, 40) : null,
@@ -132,6 +203,7 @@ function createRoutines(dataDir) {
     if (patch.enabled !== undefined) item.enabled = Boolean(patch.enabled);
     if (patch.title) item.title = String(patch.title).trim().slice(0, 80);
     if (patch.prompt) item.prompt = String(patch.prompt).trim().slice(0, 1000);
+    if (patch.weekdays !== undefined && item.clock) item.weekdays = normalizeWeekdays(patch.weekdays);
     save();
     return view(item);
   }
@@ -145,6 +217,42 @@ function createRoutines(dataDir) {
 
   function due(at = Date.now()) {
     return items.filter((item) => isDue(item, at)).map(view);
+  }
+
+  function forEvent(event, at = Date.now()) {
+    if (!EVENTS[event]) return [];
+    return items
+      .filter((item) => item.enabled && item.event === event)
+      .filter((item) => !item.lastRun || at - Date.parse(item.lastRun) >= EVENT_COOLDOWN_MS)
+      .map(view);
+  }
+
+  /** Morning Brief: entra pausado, 07:30 de segunda a sexta, só leitura. */
+  function installBrief({ clock = "07:30", weekdays = [1, 2, 3, 4, 5] } = {}) {
+    const existing = items.find((item) => item.modelo === BRIEF_MODEL);
+    if (existing) return view(existing);
+    const okClock = /^([01]\d|2[0-3]):[0-5]\d$/.test(String(clock)) ? String(clock) : "07:30";
+    const item = {
+      id: newId("rot"), title: BRIEF_TITLE, prompt: BRIEF_PROMPT, everyMinutes: null, clock: okClock, event: null,
+      weekdays: normalizeWeekdays(weekdays), enabled: false, readOnly: true, modelo: BRIEF_MODEL, assistantId: null, lastRun: null, createdAt: nowIso(),
+    };
+    items.push(item);
+    save();
+    return view(item);
+  }
+
+  /** Monitor: vigia algo a cada N minutos (mínimo 15), só leitura, entra pausado. */
+  function installMonitor({ target, everyMinutes = 60, title } = {}) {
+    const what = String(target || "").replace(/\s+/g, " ").trim().slice(0, 300);
+    if (what.length < 4) throw Object.assign(new Error("Diga o que o Monitor deve vigiar."), { status: 400 });
+    const every = Math.max(15, Math.min(10080, Number(everyMinutes) || 60));
+    const item = {
+      id: newId("rot"), title: String(title || `Monitor: ${what}`).trim().slice(0, 80), prompt: monitorPrompt(what), everyMinutes: every, clock: null, event: null,
+      weekdays: [], enabled: false, readOnly: true, modelo: MONITOR_MODEL, assistantId: null, lastRun: null, createdAt: nowIso(),
+    };
+    items.push(item);
+    save();
+    return view(item);
   }
 
   function installMorning() {
@@ -175,10 +283,16 @@ function createRoutines(dataDir) {
     save();
   }
 
-  return { list: () => items.map(view), add, checkLimits, update, remove, due, markRan, installMorning, file };
+  return { list: () => items.map(view), add, checkLimits, update, remove, due, forEvent, markRan, installMorning, installBrief, installMonitor, file };
+}
+
+function normalizeWeekdays(value) {
+  const list = Array.isArray(value) ? value : String(value || "").split(/[,\s]+/);
+  return [...new Set(list.map(Number).filter((day) => Number.isInteger(day) && day >= 0 && day <= 6))].sort();
 }
 
 module.exports = {
-  createRoutines, isDue, dispatchDue, DEFAULT_MAX_ROUTINES, DEFAULT_BOT_MIN_EVERY,
+  createRoutines, isDue, dispatchDue, dispatchEvent, normalizeWeekdays, monitorPrompt, EVENTS, EVENT_COOLDOWN_MS,
+  BRIEF_TITLE, BRIEF_MODEL, BRIEF_PROMPT, MONITOR_MODEL, DEFAULT_MAX_ROUTINES, DEFAULT_BOT_MIN_EVERY,
   MORNING_TITLE, MORNING_MODEL, MORNING_PROMPT,
 };

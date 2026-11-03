@@ -1,7 +1,8 @@
 "use strict";
 
+const fs = require("node:fs");
 const path = require("node:path");
-const { newId, nowIso, readJson, writeJson } = require("./util");
+const { newId, nowIso, readJson, writeJson, redact } = require("./util");
 const { cleanModes } = require("./autonomy");
 
 const DEFAULT_ID = "default";
@@ -81,6 +82,80 @@ const TEMPLATES = [
   },
 ];
 
+/**
+ * Leva G: assistentes de fábrica. Cada um tem contexto, memória, arquivos e histórico próprios,
+ * gravados só neste computador. Não dependem da conta do Cursor ativa: trocar de conta não muda nada aqui.
+ */
+const BUILTINS = [
+  {
+    id: "chefe",
+    name: "Chefe",
+    role: "Vice interno: lê o quadro, prioriza, delega e pede aprovação",
+    instructions: [
+      "Você é o Chefe (vice) do HELIOS. O presidente é o Grok Bot (MCP remoto futuro); você comanda os 4 agentes donos: Vagas, Pesquisa, Oasis e Portfólio.",
+      "Comunicação só pelo quadro compartilhado (achado|pedido|resultado|alerta). Sem esteira fixa de micro-agentes.",
+      "Priorize alertas e pedidos críticos; delegue o resto; peça aprovação ao Helison no que for irreversível. Oasis fica isolado de itens de emprego.",
+      "Nunca invente números de tokens, custo ou métricas. Conte só o que estiver no quadro ou nas ferramentas.",
+    ].join("\n"),
+  },
+  {
+    id: "vagas",
+    name: "Vagas",
+    role: "Busca e inscrição autônoma em vagas",
+    instructions: [
+      "Você cuida da busca de emprego do Helison (dev front-end). Faz login nas plataformas com o cofre, busca, filtra pelo perfil, preenche e se inscreve sozinho.",
+      "Só para em caso crítico: pretensão salarial, mudança de cidade, pergunta sem resposta no perfil, teste, pagamento, 2FA ou captcha sem solução, termos novos, anexo extra ou campo inseguro.",
+      "Quando ele disser 'faça a verificação das vagas de hoje', use helios_ajustes com acao vagas_verificacao_manha e entregue o resumo: inscrições, testes, recusas e e-mails importantes.",
+      "Recusas saem da lista ativa. Use os motivos (vagas_padroes) para sugerir o que estudar e o que ajustar no CV.",
+      "Publique achados e resultados no quadro (para o Chefe ou Pesquisa). Nunca poste no LinkedIn.",
+    ].join("\n"),
+  },
+  {
+    id: "pesquisa",
+    name: "Pesquisa",
+    role: "Skills pedidas vs perfil; lacunas no quadro",
+    instructions: [
+      "Você lê as vagas coletadas e conta skills por nível (júnior/pleno) com percentuais só dos dados reais (amostra pequena → indicar n).",
+      "Fonte única do perfil: perfil.skills com evidência (link) por skill. vagas-helison é somente leitura.",
+      "Gere lacunas e poste pedido semanal ao Portfólio no quadro. Não invente números. Não se candidate e não misture com Oasis.",
+    ].join("\n"),
+  },
+  {
+    id: "oasis",
+    name: "Oasis",
+    role: "Tarefas Oasis/ClickUp com aprovação",
+    instructions: [
+      "Você cuida do trabalho Oasis do Helison: lê tarefas atribuídas no ClickUp (token no cofre ou conector), propõe plano e executa no repo da tarefa só com aprovação.",
+      "Comentar ou atualizar status no ClickUp também exige aprovação explícita. Sem token/conector, peça para configurar.",
+      "Isolado dos itens de emprego: não leia nem escreva no quadro assuntos de vaga/candidatura.",
+      "Publicar em produção ou apagar exige cartão de aprovação.",
+    ].join("\n"),
+  },
+  {
+    id: "lojas-wake",
+    name: "Lojas Wake",
+    role: "Front-end e back-end das lojas Wake",
+    instructions: [
+      "Você trabalha nas lojas Wake Commerce do Helison: front-end (templates, componentes, CSS, JS) e back-end (integrações, APIs, configurações).",
+      "Antes de mudar algo, diga a loja, o arquivo e o efeito. Publicar em produção é irreversível: só com o cartão de aprovação.",
+      "Guarde no contexto deste assistente o estado de cada loja (o que foi feito, o que falta), para continuar de onde parou em qualquer conta.",
+    ].join("\n"),
+  },
+  {
+    id: "portfolio",
+    name: "Portfólio",
+    role: "Projetos para o portfólio",
+    instructions: [
+      "Você recebe lacunas pelo quadro (Pesquisa/Chefe), propõe 1 projeto pequeno e cria o repo LOCAL em Repositorios/portfolio-<slug> com README e espaço para mockup.",
+      "GitHub e deploy na Vercel só depois de aprovação explícita do Helison; use só credenciais do cofre/CLI dele — nunca de outros apps.",
+      "Ao concluir: poste resultado no quadro e atualize evidência (link) em perfil.skills. Subagentes curtos: planejar, codificar, revisar. Não invente links nem tokens.",
+    ].join("\n"),
+  },
+];
+const BUILTIN_IDS = new Set(BUILTINS.map((item) => item.id));
+const IMPORT_MAX = 20000;
+const IMPORT_PROMPT_MAX = 4000;
+
 function fail(message, status = 400) {
   return Object.assign(new Error(message), { status });
 }
@@ -105,6 +180,7 @@ function view(item) {
     mcp: item.mcp === null || item.mcp === undefined ? null : [...item.mcp],
     autonomy: { ...(item.autonomy || {}) },
     builtin: Boolean(item.builtin),
+    fabrica: BUILTIN_IDS.has(item.id),
     template: item.template || null,
     createdBy: item.createdBy ? { assistantId: item.createdBy.assistantId, name: item.createdBy.name } : null,
     pending: item.status === "pendente",
@@ -117,7 +193,44 @@ function createAssistants(dataDir) {
   const file = path.join(dataDir, "assistants.json");
   const saved = readJson(file, { version: 1, items: [] });
   let items = Array.isArray(saved.items) ? saved.items.filter((item) => item && typeof item.id === "string" && item.id !== DEFAULT_ID) : [];
-  const save = () => writeJson(file, { version: 1, items });
+  let seeded = Array.isArray(saved.seeded) ? saved.seeded : [];
+  const save = () => writeJson(file, { version: 1, items, seeded });
+  const folderOf = (id) => path.join(dataDir, "assistentes", String(id).replace(/[^a-z0-9_-]/gi, "_"));
+
+  /** Cria os assistentes de fábrica uma vez só. Se o Helison apagar um, ele não volta sozinho. */
+  function seedBuiltins() {
+    let changed = false;
+    for (const seed of BUILTINS) {
+      if (seeded.includes(seed.id)) continue;
+      seeded.push(seed.id);
+      changed = true;
+      if (items.some((item) => item.id === seed.id || item.name.toLowerCase() === seed.name.toLowerCase())) continue;
+      items.push({ id: seed.id, name: seed.name, role: seed.role, instructions: seed.instructions, mcp: null, autonomy: {}, template: null, createdAt: nowIso(), updatedAt: nowIso() });
+    }
+    if (changed) save();
+    for (const seed of BUILTINS) if (items.some((item) => item.id === seed.id)) fs.mkdirSync(path.join(folderOf(seed.id), "arquivos"), { recursive: true });
+    return list();
+  }
+
+  /** Importar contexto: texto exportado de um bot antigo. Fica em assistentes/<id>/importado.md. */
+  function importContext(id, text) {
+    const target = get(id);
+    if (!target) throw fail("Assistente não encontrado.", 404);
+    const clean = redact(cleanText(text, IMPORT_MAX));
+    if (clean.length < 10) throw fail("Cole o texto exportado do outro bot.");
+    const dir = folderOf(target.id);
+    fs.mkdirSync(path.join(dir, "arquivos"), { recursive: true });
+    const fileOut = path.join(dir, "importado.md");
+    let current = "";
+    try { current = fs.readFileSync(fileOut, "utf8"); } catch { current = ""; }
+    const stamp = new Date().toISOString().slice(0, 10);
+    const next = `${current}${current ? "\n\n" : ""}<!-- importado em ${stamp} -->\n${clean}`.slice(-IMPORT_MAX);
+    fs.writeFileSync(fileOut, next, "utf8");
+    return { id: target.id, chars: next.length };
+  }
+  function importedText(id, max = IMPORT_PROMPT_MAX) {
+    try { return fs.readFileSync(path.join(folderOf(id), "importado.md"), "utf8").slice(-max); } catch { return ""; }
+  }
 
   // Assistente criado por um bot só passa a existir (aparece, é resolvido, recebe conversa) depois da aprovação.
   const isActive = (item) => item.status !== "pendente";
@@ -229,7 +342,7 @@ function createAssistants(dataDir) {
     return true;
   }
 
-  return { list, listPending, get, getAny, resolve, find, create, update, remove, propose, approve, reject, createdByBots, templates: () => TEMPLATES.map((item) => ({ ...item })), file };
+  return { seedBuiltins, importContext, importedText, folderOf, list, listPending, get, getAny, resolve, find, create, update, remove, propose, approve, reject, createdByBots, templates: () => TEMPLATES.map((item) => ({ ...item })), file };
 }
 
-module.exports = { createAssistants, DEFAULT_ID, TEMPLATES };
+module.exports = { createAssistants, DEFAULT_ID, TEMPLATES, BUILTINS, IMPORT_MAX };

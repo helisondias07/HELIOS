@@ -1,7 +1,7 @@
 "use strict";
 
 const { newId, nowIso, redact, MAX_MESSAGE_CHARS } = require("./util");
-const { chooseModel } = require("./model-policy");
+const { chooseModel, nextModel, isModelFailure, fallbackNotice } = require("./model-policy");
 const { LEVELS } = require("./router");
 const { createMockAgent } = require("./mock-agent");
 const { unwrapStreamEvent, extractAssistantText, humanTool } = require("./sdk-events");
@@ -40,6 +40,7 @@ function createBot(deps) {
     mcp,
     actions,
     accounts,
+    accountUsage = null,
     routines,
     autonomy = { mode: (tipo, assistantModes) => resolveMode(tipo, assistantModes) },
     contexts,
@@ -53,6 +54,7 @@ function createBot(deps) {
     helperTimeoutMs,
     getVaultIndex,
     onLivecoding,
+    settings = null,
     cwd,
     dataDir = null,
     log = () => {},
@@ -398,6 +400,39 @@ function createBot(deps) {
           return `Abri o roteiro “${session.title}” na pílula de reunião. Nada foi salvo em disco e nenhum editor foi aberto. Use Próximo e Anterior.`;
         },
       },
+      helios_ajustes: {
+        description: "Muda configurações do HELIOS pelo chat. acao: vagas_verificacao_manha (login, busca, inscrição automática, leitura do Gmail e resumo do dia), vagas_resumo, vagas_padroes (motivos de recusa e o que estudar), vagas_recusa (valor: id ou empresa, motivo), vagas_feed (lê posts de vaga do LinkedIn, só leitura), gmail_resumo, plataforma_listar, plataforma_salvar (nome, url de login, usuario; a senha é a padrão do cofre e nunca passa pelo chat), plataforma_remover (nome), assistente_importar (assistente, texto exportado do bot antigo), assistente_listar, vagas_modo (valor: automatico|aprovacao), vagas_preferencias (termos, local, notaMinima, incluir, excluir, porHora, porDia, evitarEmpresas, repetirDias, perfil{nome,email,telefone,cidade,linkedin,portfolio,cvPath,pretensao}), vagas_rodar, vagas_status, contexto_ler, contexto_acrescentar (texto), abrir_reuniao, reuniao_ajustes (lê as configurações do modo reunião), reuniao_ajustar (preferencias{captureMic, translate, chunkSeconds, meetingLang auto|en|pt, provider groq|gemini, formality, translateHistory, opacity, myContext, meetingContext}; chaves de API só em Ajustes › Reunião). Ligar o automático das vagas e mexer no contexto abrem cartão de aprovação. Para rotina use agendar_rotina.",
+        inputSchema: {
+          type: "object",
+          properties: { acao: { type: "string" }, valor: { type: "string" }, texto: { type: "string" }, preferencias: { type: "object" } },
+          required: ["acao"],
+        },
+        execute: async (args) => {
+          if (!settings) return "Ajustes pelo chat não estão disponíveis neste processo.";
+          const acao = String(args?.acao || "").trim();
+          const risky = (acao === "vagas_modo" && String(args?.valor) === "automatico") || (settings.RISKY || ["contexto_acrescentar"]).includes(acao);
+          if (!settings.ACOES.includes(acao)) return `Ação desconhecida. Use uma destas: ${settings.ACOES.join(", ")}.`;
+          if (!risky) return clip(await settings.apply(acao, args || {}));
+          // Senha nunca vai para o cartão: só nome, endereço e login. Campos de senha são descartados aqui.
+          const cardArgs = { valor: args.valor ? String(args.valor).slice(0, 300) : "", texto: String(args.texto || "").slice(0, 20000) };
+          for (const k of ["nome", "url", "usuario", "assistente", "motivo", "papel", "id"]) if (args[k] !== undefined) cardArgs[k] = redact(String(args[k])).slice(0, 300);
+          if (settings.describe && settings.describe(acao, cardArgs)) {
+            const d = settings.describe(acao, cardArgs);
+            const cid = queueCard(convId, { kind: "ajuste", summary: d.summary, detail: redact(d.detail), action: { tipo: "ajuste", acao, args: cardArgs } });
+            return `PENDENTE — cartão ${cid}. Nada mudou ainda. Peça ao Helison para aprovar.`;
+          }
+          const detail = acao === "contexto_acrescentar"
+            ? `Acrescentar ao seu contexto.md:\n${String(args.texto || "").slice(0, 4000)}`
+            : "Ligar o modo Automático das vagas: o HELIOS passa a se inscrever sozinho nas vagas com nota alta e só pergunta o que for crítico. Os termos do LinkedIn proíbem automação.";
+          const id = queueCard(convId, {
+            kind: "ajuste",
+            summary: acao === "contexto_acrescentar" ? "Acrescentar ao contexto.md" : "Ligar o automático das vagas",
+            detail,
+            action: { tipo: "ajuste", acao, args: cardArgs },
+          });
+          return `PENDENTE — cartão ${id}. Nada mudou ainda. Peça ao Helison para aprovar.`;
+        },
+      },
       agendar_rotina: {
         description: "Pede ao Helison para agendar uma rotina local (horário HH:MM ou cadaMinutos). Abre um cartão de aprovação: nada é agendado antes de ele aprovar. Há intervalo mínimo e número máximo de rotinas.",
         inputSchema: {
@@ -435,7 +470,7 @@ function createBot(deps) {
         },
       };
     }
-    const blockedWhenReadOnly = new Set(["helios_acao", "escrever_arquivo", "helios_preencher_login", "agendar_rotina", "iniciar_livecoding", "criar_assistente", "criar_ajudante"]);
+    const blockedWhenReadOnly = new Set(["helios_acao", "escrever_arquivo", "helios_preencher_login", "agendar_rotina", "helios_ajustes", "iniciar_livecoding", "criar_assistente", "criar_ajudante"]);
     for (const [name, tool] of Object.entries(tools)) {
       const run = tool.execute.bind(tool);
       tool.execute = (args) => {
@@ -501,6 +536,30 @@ function createBot(deps) {
     });
   }
 
+  /**
+   * LEVA I: agente autônomo (trabalhador). Agente local do @cursor/sdk com a pasta do agente como cwd, só as ferramentas
+   * do HELIOS (que passam pelo gate do runtime) e retomada pelo agentId do SDK. Sem conta: agente de demonstração.
+   */
+  async function openWorker({ name, tools, cwd: workCwd, text = "", agentId = null }) {
+    const auth = resolveAuth();
+    const catalog = await catalogFor(auth);
+    const picked = chooseModel({ text: String(text).slice(-400), override: "padrao", catalog });
+    if (forceMock() || !auth?.apiKey) return { agent: createMockAgent({ tools }), selection: picked.selection, label: "demonstração", mock: true };
+    const sdk = await loadSdk();
+    const agent = await sandbox.run({
+      create: (opts) => sdk.Agent.create(opts),
+      resume: agentId ? (opts) => sdk.Agent.resume(agentId, opts) : null,
+      opts: {
+        name: String(name).slice(0, 80),
+        model: picked.selection,
+        apiKey: auth.apiKey,
+        local: { cwd: workCwd || cwd, settingSources: [], customTools: tools },
+        ...restrictedAgentOptions({ withCustomTools: true }),
+      },
+    });
+    return { agent, selection: picked.selection, label: picked.label, accountId: auth.accountId };
+  }
+
   async function openAgent(conv, auth, selection, tools, { forceNew = false } = {}) {
     if (forceMock() || !auth?.apiKey) return { agent: createMockAgent({ tools }), fresh: true };
     const sdk = await loadSdk();
@@ -537,29 +596,46 @@ function createBot(deps) {
   }
 
   /**
-   * Erro de limite de uso, de taxa ou de autenticação da conta ativa: vira um aviso claro, com o que fazer.
-   * Nunca troca de conta e nunca repete o turno: quem decide é o Helison, no botão do aviso.
+   * Erro de limite de uso, de taxa ou de autenticação da conta ativa: vira um aviso claro.
+   * Auto-troca só se o ajuste estiver ligado (LEVA N); senão quem decide é o Helison no botão.
+   * Nunca reenvia o turno sozinho.
    */
   function accountNotice(raw, auth) {
     const issue = classifyAccountError(raw);
     if (!issue || !auth?.accountId) return null;
     accounts.noteIssue?.(auth.accountId, issue.kind);
+    let switched = null;
+    if (accountUsage && (issue.kind === "usage" || issue.kind === "rate") && accountUsage.getAutoSwitch?.()) {
+      switched = accountUsage.tryAutoSwitch({
+        accountsApi: accounts,
+        fromId: auth.accountId,
+        reason: issue.kind === "usage" ? "limite/quota Cursor" : "429/taxa Cursor",
+      });
+    }
     const label = auth.label;
-    const next = issue.kind === "rate" ? null : accounts.nextAccount?.(auth.accountId) || null;
+    const next = issue.kind === "rate" && !switched ? null : accounts.nextAccount?.(auth.accountId) || null;
     const head = describeAccountIssue(issue, label);
     let tail;
-    if (issue.kind === "rate") {
+    if (switched) {
+      tail = `Troquei automaticamente para ${switched.toLabel}. Nada foi reenviado: use Reenviar mensagem se quiser.`;
+    } else if (issue.kind === "rate") {
       tail = "Isso é limite de velocidade (muitos pedidos seguidos) e passa sozinho: espere cerca de um minuto e reenvie a mensagem na mesma conta. Não precisa trocar de conta.";
     } else if (issue.kind === "usage") {
       tail = next
-        ? `O HELIOS não troca de conta sozinho. Se quiser continuar agora, troque para a ${next.label}${next.limited ? " (ela também já bateu o limite hoje)" : ""}. Ou espere o limite renovar.`
+        ? `O HELIOS não troca de conta sozinho (auto-troca desligada). Se quiser continuar agora, troque para a ${next.label}${next.limited ? " (ela também já bateu o limite)" : ""}. Ou espere o limite renovar.`
         : "Não há outra conta cadastrada. Espere o limite renovar ou cadastre outra conta em Conta Cursor.";
     } else {
       tail = next ? `Cole uma chave nova em Conta Cursor ou, se preferir, troque para a ${next.label}.` : "Cole uma chave nova em Conta Cursor.";
     }
     return {
       text: `${head} ${tail}`,
-      accountIssue: { kind: issue.kind, accountId: auth.accountId, accountLabel: label, next: next ? { id: next.id, label: next.label } : null },
+      accountIssue: {
+        kind: issue.kind,
+        accountId: auth.accountId,
+        accountLabel: label,
+        next: next ? { id: next.id, label: next.label } : null,
+        autoSwitched: switched ? { toId: switched.toId, toLabel: switched.toLabel } : null,
+      },
     };
   }
 
@@ -617,13 +693,18 @@ function createBot(deps) {
     if (!usage) return "";
     const before = usage.status(assistant.id).state;
     const after = usage.record(assistant.id, info);
+    const accountId = accounts.active?.()?.id;
+    if (accountUsage && accountId && info?.usage) {
+      accountUsage.record(accountId, info.usage);
+      accountUsage.afterRecord?.(accountId, accounts);
+    }
     if (after.state === before || (after.state !== "alerta" && after.state !== "limite")) return "";
     return after.state === "limite"
       ? `\n\n⚠ Uso do dia: limite de ${assistant.name} atingido (${after.percent}%).${after.limit.bloquear ? " Novas mensagens ficam bloqueadas até amanhã ou até você aumentar o limite." : " O bloqueio está desligado, então segue funcionando."}`
       : `\n\n⚠ Uso do dia: ${after.percent}% do limite de ${assistant.name}. Veja em Atividade › Painel de uso.`;
   }
 
-  async function runTurn(convId, text, { level, replyId }) {
+  async function runTurn(convId, text, { level, replyId, tried = [], aviso = "", forced = null }) {
     const conv = store.get(convId);
     const gate = assistants.resolve(conv.assistantId);
     const blocked = usage?.blockReason(gate.id, gate.name);
@@ -633,7 +714,21 @@ function createBot(deps) {
     }
     const auth = resolveAuth();
     const catalog = await catalogFor(auth);
-    const picked = chooseModel({ text, override: level, catalog });
+    const chosen = chooseModel({ text, override: level, catalog });
+    const picked = forced ? { ...chosen, id: forced.id, label: forced.label, selection: forced.selection, reason: `${chosen.reason} (reserva)` } : chosen;
+    // Fase 8: modelo que falhou ou bateu limite passa para o próximo da reserva, uma vez por modelo, com aviso em português.
+    const fallback = async (err, streamedSoFar) => {
+      if (streamedSoFar) return false;
+      const issue = classifyAccountError(err);
+      if (!isModelFailure(err, issue)) return false;
+      const triedNow = [...tried, picked.selection.id];
+      const next = nextModel(triedNow, catalog);
+      if (!next) return false;
+      await dispose(convId);
+      log(`[modelos] ${picked.label} falhou; tentando ${next.label}`);
+      await runTurn(convId, text, { level, replyId, tried: triedNow, aviso: fallbackNotice(picked.label, next.label, issue), forced: next });
+      return true;
+    };
     const limits = HISTORY[picked.level] || HISTORY.padrao;
     const earlier = conv.messages.filter((message) => message.id !== replyId);
     const assistant = assistants.resolve(conv.assistantId);
@@ -646,8 +741,8 @@ function createBot(deps) {
       history: rolled.summary ? compactHistory(rolled.recent, Math.max(limits[0], rolled.recent.length), limits[1]) : compactHistory(earlier, limits[0], limits[1]),
       summaryText: rolled.summary ? rolled.summary.text : "",
       assistantText: assistantPrompt(assistant),
-      memoryText: memories.for(assistant.id).context({ text, maxChars: limits[2] }).text,
-      contextText: own.promptText(),
+      memoryText: [memories.for(assistant.id).context({ text, maxChars: limits[2] }).text, deps.brain && assistant.id === "default" ? deps.brain.context({ text, maxChars: 600 }).text : ""].filter(Boolean).join("\n\n"),
+      contextText: [own.promptText(), assistants.importedText ? (() => { const imp = assistants.importedText(assistant.id); return imp ? `## Contexto importado deste assistente (de um bot antigo)\n${imp}` : ""; })() : ""].filter(Boolean).join("\n\n"),
       vaultText: vaultPrompt(getVaultIndex?.() || []),
       skillCatalog: skills ? skills.catalog(assistant.id).join("\n") : "",
     });
@@ -656,6 +751,7 @@ function createBot(deps) {
     try {
       opened = await openAgent(conv, auth, picked.selection, tools, { forceNew: rolled.updated });
     } catch (err) {
+      if (await fallback(err, "")) return;
       const notice = accountNotice(err, auth);
       finish(convId, replyId, notice
         ? { status: "error", ...notice, model: picked.label, level: picked.level, reason: picked.reason }
@@ -706,6 +802,7 @@ function createBot(deps) {
       }
       const result = await run.wait();
       if (result?.status === "error") {
+        if (await fallback(result.error || { message: String(result.result || "") }, streamed)) return;
         const failed = accountNotice(result.error || { message: String(result.result || "") }, auth);
         if (failed) {
           meter(assistant, { kind: "mensagem", charsIn: prompt.length, charsOut: streamed.length, ms: Date.now() - turnStart });
@@ -719,13 +816,15 @@ function createBot(deps) {
       const usageNote = meter(assistant, { kind: "mensagem", charsIn: prompt.length, charsOut: finalText.length, ms: Date.now() - turnStart, usage: result?.usage || run.usage });
       finish(convId, replyId, {
         status: result?.status === "error" ? "error" : "done",
-        text: clip(finalText) + usageNote,
+        text: (aviso ? `${aviso}\n\n` : "") + clip(finalText) + usageNote,
+        ...(aviso ? { aviso } : {}),
         model: picked.label,
         level: picked.level,
         reason: picked.reason,
         sources: sources.slice(0, 5),
       });
     } catch (err) {
+      if (await fallback(err, streamed)) return;
       await dispose(convId);
       meter(assistant, { kind: "mensagem", charsIn: prompt.length, charsOut: streamed.length, ms: Date.now() - turnStart });
       const notice = accountNotice(err, auth);
@@ -890,6 +989,10 @@ function createBot(deps) {
       let result;
       if (proposedAssistant) result = delegation.approveAssistant(proposedAssistant);
       else if (item.action && item.action.tipo === "rotina") result = performRoutine(item.action.rotina);
+      else if (item.action && item.action.tipo === "ajuste") {
+        if (!settings) throw new Error("Ajustes indisponíveis neste processo.");
+        result = `Aprovado. ${await settings.apply(item.action.acao, item.action.args || {})}`;
+      }
       else {
         if (item.action && item.action.mcp) {
           const checked = revalidateMcp(convId, cleanAction(item.action));
@@ -1023,7 +1126,7 @@ function createBot(deps) {
     };
   }
 
-  return { send, decide, answerQuestion, expireDue, proposeLivePlan, modelsView, dispose, resolveAuth, sandboxStatus: () => sandbox.status() };
+  return { send, decide, answerQuestion, expireDue, proposeLivePlan, modelsView, dispose, resolveAuth, openWorker, sandboxStatus: () => sandbox.status() };
 }
 
 module.exports = { createBot };

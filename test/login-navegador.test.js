@@ -139,12 +139,12 @@ test("tela: botão principal de login, estados honestos e chave de API como alte
   const models = { mock: true, auto: { label: "a", level: "b", reason: "c" }, estimates: [] };
   const html = contas.accountsHtml(data, models, null, esc);
   assert.match(html, /id="doLogin"[^>]*>Entrar com o Cursor pelo navegador/);
-  assert.match(html, /Ou use uma chave de API/);
+  assert.match(html, /Usar chave de API/);
   assert.match(html, /name="apiKey"/);
   assert.equal(/demo=1/.test(html), false);
 
   const waiting = contas.loginStateHtml({ status: "waiting", url: "https://cursor.com/loginDeepControl?x=1" }, false, esc);
-  assert.match(waiting, /Aguardando você entrar no navegador/);
+  assert.match(waiting, /Aguardando você no navegador/);
   assert.match(waiting, /abrir o link de novo/);
   assert.match(waiting, /id="cancelLogin"/);
 

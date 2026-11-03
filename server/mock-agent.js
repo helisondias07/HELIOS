@@ -134,16 +134,43 @@ function baseScript(text, role) {
   ]];
 }
 
+/** LEVA I: roteiro do agente autônomo em modo demonstração (sem modelo). */
+function agentScript(text, role) {
+  const raw = String(text || "");
+  if (role === "instrucao") {
+    if (/APROVOU/.test(raw)) return [["tool", "concluir", { resumo: "Feito depois da sua aprovação." }], ["say", "Feito depois da sua aprovação."]];
+    if (/NEGOU/.test(raw)) return [["tool", "concluir", { resumo: "Entendi, não fiz. Tarefa encerrada sem essa parte." }], ["say", "Encerrado."]];
+    return [["tool", "arquivo_escrever", { caminho: "instrucoes.txt", conteudo: raw.slice(0, 400) }], ["tool", "concluir", { resumo: `Instrução aplicada: ${raw.replace(/^[\s\S]*?\n/, "").slice(0, 120)}` }], ["say", "Pronto."]];
+  }
+  const steps = [];
+  const passos = raw.match(/\[\[passos:(\d+)\]\]/);
+  if (passos) for (let i = 0; i < Number(passos[1]); i += 1) steps.push(["tool", "arquivo_listar", { pasta: "." }]);
+  const url = raw.match(/https?:\/\/[^\s"')]+/);
+  if (url) { steps.push(["tool", "navegador_abrir", { url: url[0] }]); steps.push(["tool", "navegador_ler", {}]); }
+  if (/\bclique em ([^.]+)/i.test(raw)) steps.push(["tool", "navegador_clicar", { texto: raw.match(/\bclique em ([^.]+)/i)[1].trim() }]);
+  if (url && /\bprint\b/i.test(raw)) steps.push(["tool", "navegador_print", {}]);
+  const file = raw.match(/\barquivo\s+([\w.-]+\.\w+)/i);
+  if (file) steps.push(["tool", "arquivo_escrever", { caminho: file[1], conteudo: `Gerado pelo agente do HELIOS em modo demonstração.\nTarefa: ${raw.slice(0, 200)}\n` }]);
+  const ps = raw.match(/powershell:\s*`([^`]+)`/i);
+  if (ps) steps.push(["tool", "pc_powershell", { comando: ps[1] }]);
+  const del = raw.match(/\bapag(?:ue|ar)\s+(\S+)/i);
+  if (del) { steps.push(["tool", "arquivo_apagar", { caminho: del[1] }]); steps.push(["say", "Pedi sua aprovação para apagar."]); return steps; }
+  if (/\bpergunte\b/i.test(raw)) { steps.push(["tool", "perguntar_ao_helison", { pergunta: "Qual pretensão salarial devo informar?", opcoes: ["Combinar", "R$ 8.000"] }]); return steps; }
+  steps.push(["tool", "concluir", { resumo: `Tarefa feita em modo demonstração (${steps.length} passos).` }]);
+  steps.push(["say", "Concluído."]);
+  return steps;
+}
+
 function createMockAgent({ tools }) {
   const id = `mock-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
   return {
     agentId: id,
     async send(message, opts = {}) {
       const full = typeof message === "string" ? message : message?.text || "";
-      const marker = /## (Mensagem do Helison|Tarefa do ajudante|Afirmação a verificar|Pergunta de outro assistente[^\n]*)\n/g;
+      const marker = /## (Mensagem do Helison|Tarefa do ajudante|Tarefa do agente|Instrução do Helison|Afirmação a verificar|Pergunta de outro assistente[^\n]*)\n/g;
       let last = null;
       for (const found of full.matchAll(marker)) last = found;
-      const role = last ? (last[1].startsWith("Tarefa") ? "ajudante" : last[1].startsWith("Afirma") ? "verificador" : last[1].startsWith("Pergunta") ? "consulta" : "usuario") : "usuario";
+      const role = last ? (last[1] === "Tarefa do agente" ? "agente" : last[1] === "Instrução do Helison" ? "instrucao" : last[1].startsWith("Tarefa") ? "ajudante" : last[1].startsWith("Afirma") ? "verificador" : last[1].startsWith("Pergunta") ? "consulta" : "usuario") : "usuario";
       const text = (last ? full.slice(last.index + last[0].length) : full).trim();
       // Ganchos só para testar o aviso de limite sem gastar nada (modo demonstração).
       const simulated = /\[\[simular:(uso|taxa|auth)\]\]/.exec(text);
@@ -155,7 +182,7 @@ function createMockAgent({ tools }) {
         }[simulated[1]];
         throw Object.assign(new Error(fake[0]), { name: fake[1], status: fake[2] });
       }
-      const steps = script(text, role);
+      const steps = role === "agente" || role === "instrucao" ? agentScript(text, role) : script(text, role);
       let finalText = "";
       let resolveDone;
       const done = new Promise((resolve) => {
@@ -204,4 +231,4 @@ function createMockAgent({ tools }) {
   };
 }
 
-module.exports = { createMockAgent, script };
+module.exports = { createMockAgent, script, agentScript };

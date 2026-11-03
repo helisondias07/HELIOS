@@ -30,9 +30,9 @@ test("a pílula fica fora da captura e da barra de tarefas", () => {
   assert.equal(pill.frame, false);
   assert.equal(pill.alwaysOnTop, true);
   assert.equal(pill.hasShadow, false);
-  assert.equal(pill.width, 920);
+  assert.equal(pill.width, 600); // Leva H: pílula compacta
   assert.equal(pill.resizable, true);
-  assert.ok(pill.minWidth >= 640);
+  assert.ok(pill.minWidth >= 480);
   const main = mainBrowserOptions();
   assert.equal(main.skipTaskbar, false);
   assert.equal(main.title, "HELIOS");
@@ -139,19 +139,15 @@ test("a janela de reunião traz Livecoding e a principal abre o modo", () => {
   const meeting = fs.readFileSync(path.join(__dirname, "..", "renderer", "meeting", "index.html"), "utf8");
   const main = fs.readFileSync(path.join(__dirname, "..", "renderer", "index.html"), "utf8");
   const preload = fs.readFileSync(path.join(__dirname, "..", "src", "preload-meeting.cjs"), "utf8");
-  assert.match(meeting, /id="tabChat"/);
-  assert.match(meeting, /id="tabTranscript"/);
-  assert.match(meeting, /id="tabLive"/);
+  // Leva H: sem abas; Livecoding virou chip no card
+  assert.match(meeting, /id="chipLive"/);
   assert.match(meeting, /Livecoding/);
   assert.match(meeting, /id="btnHide"[^>]*aria-label="Fechar"/);
   assert.equal(meeting.includes(">Fechar modo de reunião<"), false);
   assert.equal(meeting.includes("Sair do app"), false);
   assert.equal(meeting.includes('id="btnQuit"'), false);
-  assert.ok(meeting.indexOf('id="btnSugBoth"') < meeting.indexOf('id="btnSugEn"'));
-  assert.ok(meeting.indexOf('id="btnSugEn"') < meeting.indexOf('id="btnTranslate"'));
-  assert.match(meeting, /class="card-head tabs"[\s\S]*?<\/div>\s*<div class="card-head status-row">/);
-  assert.match(meeting, /class="wide-next"/);
-  assert.match(meeting, /id="btnExplain"/);
+  assert.ok(meeting.indexOf('id="chipSay"') < meeting.indexOf('id="chipSug"'));
+  assert.ok(meeting.indexOf('id="chipSug"') < meeting.indexOf('id="chipTr"'));
   assert.equal(main.includes('id="tabLive"'), false);
   assert.equal(main.includes('id="liveTab"'), false);
   assert.match(main, /Modo de reunião/);

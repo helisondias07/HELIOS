@@ -40,17 +40,18 @@ test("regra geral: sempre português, inglês só se pedido", () => {
   assert.doesNotMatch(prompts.summary(LINES)[1].content, /em inglês/i);
 });
 
-test("sugestão em português: 2 opções, sem EN", () => {
+test("sugestão em português: 1 resposta curta, sem EN (Leva H)", () => {
   const u = prompts.suggest(LINES, { lang: "pt" })[1].content;
-  assert.match(u, /OPÇÃO 1 \(direta\)/);
-  assert.match(u, /OPÇÃO 2 \(mais elaborada\)/);
+  assert.match(u, /UMA resposta/);
+  assert.match(u, /no máximo 2 frases e 25 palavras/);
+  assert.doesNotMatch(u, /OPÇÃO/);
   assert.doesNotMatch(u, /EN: </);
   assert.match(u, /última fala marcada "Outro\(s\)"/);
 });
 
-test("sugestão em inglês: 2 opções, inglês simples e português ao lado", () => {
+test("sugestão em inglês: 1 resposta, inglês simples e português ao lado", () => {
   const u = prompts.suggest(LINES, { lang: "en" })[1].content;
-  assert.match(u, /EN: <1 frase curta/);
+  assert.match(u, /EN: <a resposta em inglês simples/);
   assert.match(u, /PT: <tradução em português>/);
   assert.match(u, /nível de um desenvolvedor brasileiro intermediário/);
   assert.match(u, /não invente/i);
@@ -94,9 +95,9 @@ test("mock: transcrição em ordem, MOCK: força a fala, tradução e respostas 
   const tr = mock.mockChat(prompts.translateBatch([{ id: 7, text: mock.SCRIPT[1].en }], []));
   assert.match(tr, new RegExp(`^1\\| ${mock.SCRIPT[1].pt.slice(0, 12)}`));
   const en = mock.mockChat(prompts.suggest(LINES, { lang: "en" }));
-  assert.match(en, /OPÇÃO 1/); assert.match(en, /EN: /); assert.match(en, /PT: /);
+  assert.match(en, /^EN: /); assert.match(en, /PT: /);
   const pt = mock.mockChat(prompts.suggest(LINES, { lang: "pt" }));
-  assert.match(pt, /OPÇÃO 2/); assert.doesNotMatch(pt, /EN: /);
+  assert.ok(pt.length > 10); assert.doesNotMatch(pt, /EN: /);
   assert.match(mock.MOCK_PREVIEW, /^data:image\//);
 });
 
@@ -176,11 +177,11 @@ test("sem chave e sem mock: erro claro em português, sem travar", async () => {
 });
 
 // ---------- janela: fechar, parar captura, separação de falantes ----------
-test("gravadores separados: PC = Outro(s), microfone = Você", () => {
+test("gravadores separados: PC = Outro, microfone = Você", () => {
   assert.match(app, /sources\.push\(\{ who: 'them'/);
   assert.match(app, /sources\.push\(\{ who: 'me'/);
   assert.match(app, /makeRecorder\(s\.stream, ctx, ctx\.createMediaStreamSource\(s\.stream\), s\.who\)/);
-  assert.match(app, /const WHO = \{ me: 'Você', them: 'Outro\(s\)' \}/);
+  assert.match(app, /const WHO = \{ me: 'Você', them: 'Outro' \}/);
   assert.match(app, /api\.transcribe\(await blob\.arrayBuffer\(\), blob\.type, who, state\.mode\)/);
   assert.match(preload, /transcribe: \(buf, mime, who, mode\)/);
   assert.match(host, /transcribeLang\(current\.meetingLang, who, mode\)/);
@@ -202,23 +203,19 @@ test("fechar para a captura: atalho de alternar não deixa gravando, corrida de 
   assert.match(app, /toggleStart = \(\) => \(state\.recording \|\| state\.starting \? stopSession\(false\) : start\(\)\)/);
 });
 
-test("interface: 1 clique, ferramentas recolhidas, prévia com cancelar, chunk 6/9, tempos", () => {
-  assert.ok(html.indexOf('id="btnSugBoth"') < html.indexOf('id="btnTranslate"'));
-  assert.match(html, /<details id="moreBox" class="more">/);
-  assert.match(html, /O que eu digo\?/);
-  assert.match(html, /Sugestão de resposta/);
-  assert.match(html, /id="sayInput"/);
+test("interface (Leva H): chips, prévia do print com cancelar, legenda", () => {
+  assert.ok(html.indexOf('id="chipSay"') < html.indexOf('id="chipTr"'));
+  assert.match(html, /O que digo/);
+  assert.match(html, /id="askInput"/);
   assert.match(html, /id="shotBox"[^>]*hidden/);
   assert.match(html, /id="btnShotCancel"/);
-  assert.match(html, /id="chunk6"/); assert.match(html, /id="chunk9"/);
-  assert.match(html, /id="timing"/);
   assert.match(html, /id="caption"/);
   assert.match(app, /if \(state\.shotPending\) \{ shotCancel\(\); return; \}/);
   assert.match(main, /"CommandOrControl\+Shift\+E": "say"/);
 });
 
-test("copiar sugestão em inglês e abrir fontes", () => {
-  assert.match(app, /Clique para copiar a frase em inglês/);
+test("copiar resposta e abrir fontes", () => {
+  assert.match(html, /id="btnCopy"/);
   assert.match(app, /data-link/);
   assert.match(preload, /openLink/);
 });
@@ -237,40 +234,25 @@ test("idioma do Whisper por aba e por falante", () => {
   assert.equal(transcribeLang("pt", "them", "en"), "pt");
 });
 
-test("duas abas no HTML: botões de cada aba, cada função só na sua aba", () => {
-  assert.match(html, /id="modePt"[^>]*>Reunião em português</);
-  assert.match(html, /id="modeEn"[^>]*>Reunião em inglês</);
-  assert.match(html, /id="btnSugBoth" class="translate-band only-pt"/);
-  assert.match(html, /id="btnSugEn" class="translate-band only-en"/);
-  assert.match(html, /id="btnTranslate" class="bigbtn only-en"[^>]*>Traduzir o que a outra pessoa disse</);
-  assert.match(html, /id="askForm" class="only-pt"/);
-  assert.match(html, /id="translator"[^>]*only-en/);
-  assert.match(html, /id="showOrig"/);
+test("PT|EN na pílula: cada função só no seu modo", () => {
+  assert.match(html, /id="modePt"[^>]*>PT</);
+  assert.match(html, /id="modeEn"[^>]*>EN</);
+  assert.match(html, /id="chipSay" class="chip only-pt"/);
+  assert.match(html, /id="chipSug" class="chip only-en"/);
+  assert.match(html, /id="chipTr" class="chip only-en"/);
+  assert.match(html, /id="chipAsk" class="chip only-pt"/);
   const css = read("renderer/meeting/style.css");
-  assert.match(css, /#root\.mode-pt \.only-en, #root\.mode-en \.only-pt \{ display: none !important; \}/);
-  assert.match(css, /\.line:not\(\.plain\) \.orig \{ display: none; \}/);
+  assert.match(css, /\.mode-pt \.only-en, \.mode-en \.only-pt \{ display: none !important; \}/);
+  assert.match(css, /\.orig \{ display: none; \}/);
 });
 
-test("aba em inglês: só a tradução na tela, original opcional; aba em português sem tradução", () => {
-  assert.match(app, /const hide = state\.mode === 'en' && l\.who === 'them' && l\.lang !== 'pt'/);
-  assert.match(app, /state\.mode === 'en' && state\.settings\.translate && who !== 'me'/);
-  assert.match(app, /Mostrar original/);
+test("modo EN: só a tradução do Outro na tela, original ao expandir; PT sem tradução", () => {
+  assert.match(app, /state\.mode === 'en'/);
   assert.match(app, /async function translateRecent\(\)/);
-  assert.match(app, /api\.ask\(linesForAI\(\), `\$\{question\}\$\{only\}`/);
-  assert.match(app, /Responda somente em português/);
-});
-
-test("tradutor: Enter envia, texto grande, copiar, histórico de 5, sem usar o chat", () => {
-  assert.match(app, /async function translatePhrase\(text\)/);
-  assert.match(app, /state\.trHist\.slice\(0, 5\)/);
-  assert.match(app, /btnTrCopy/);
-  const fn = app.slice(app.indexOf("async function translatePhrase"), app.indexOf("// Alterna entre"));
-  assert.doesNotMatch(fn, /addMsg|runAI/);
-  assert.match(read("renderer/meeting/style.css"), /\.tr-en \{ font-size: 1\.9em/);
-});
-
-test("atalhos respeitam a aba", () => {
-  assert.match(app, /n === 'sugEn' \|\| n === 'sugPt'\) \(state\.mode === 'en' \? sugEn\(\) : sugPt\(\)\)/);
-  assert.match(app, /onlyIn\('en', 'O tradutor'\)/);
   assert.match(app, /localStorage\.setItem\('heliosMeetingMode'/);
+});
+
+test("tradutor PT→EN: texto grande e sem usar o chat", () => {
+  assert.match(html, /id="trEn"/);
+  assert.match(read("renderer/meeting/style.css"), /\.tr-en \{[^}]*font-size/);
 });

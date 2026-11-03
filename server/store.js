@@ -3,6 +3,27 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { newId, nowIso, readJson, writeJson } = require("./util");
+const { maskSecrets, maskDeep } = require("./secret-scan");
+const { maskValue } = require("./approval-preview");
+
+/**
+ * Segurança (leva D): cartões já decididos não precisam mais dos argumentos reais. Mascara segredos em
+ * action/detail/summary/result. Pendentes e expirados (podem voltar a pendente) ficam intactos para não
+ * quebrar a impressão digital. Devolve quantos cartões mudaram.
+ */
+function maskDecidedCards(items) {
+  let changed = 0;
+  for (const conv of items) {
+    for (const message of conv?.messages || []) {
+      if (!message || message.role !== "approval" || message.state === "pending" || message.state === "expired") continue;
+      const before = JSON.stringify([message.action, message.detail, message.summary, message.result]);
+      if (message.action !== undefined) message.action = maskDeep(maskValue(message.action), "", []);
+      for (const key of ["detail", "summary", "result"]) if (typeof message[key] === "string") message[key] = maskSecrets(message[key]);
+      if (JSON.stringify([message.action, message.detail, message.summary, message.result]) !== before) changed += 1;
+    }
+  }
+  return changed;
+}
 
 function publicMessage(message) {
   if (message.role === "approval") {
@@ -55,6 +76,8 @@ function publicConv(conv) {
     title: conv.title,
     assistantId: conv.assistantId || "default",
     busy: Boolean(conv.busy),
+    // Agente: trabalhando (busy), aguardando voce (cartao/pergunta pendente) ou concluido.
+    status: conv.busy ? "working" : conv.messages.some((m) => (m.role === "approval" || m.role === "question") && m.state === "pending") ? "waiting" : conv.messages.length ? "done" : "new",
     readOnly: conv.readOnly === true,
     summary: conv.summary && conv.summary.text
       ? { active: true, text: conv.summary.text, chars: conv.summary.text.length, covered: conv.summary.covered || 0, updatedAt: conv.summary.updatedAt || null, rollovers: conv.summary.rollovers || 0 }
@@ -109,6 +132,21 @@ function createStore(dataDir) {
     save();
   }
 
+  // Migração única com cópia: mascara argumentos de cartões antigos já decididos.
+  if (!data.cartoesMascarados) {
+    const backup = path.join(dataDir, "conversations.pre-mascara.json");
+    try {
+      if (fs.existsSync(file) && !fs.existsSync(backup)) fs.copyFileSync(file, backup);
+    } catch {
+      /* sem cópia não mascara: tenta de novo na próxima abertura */
+    }
+    if (!fs.existsSync(file) || fs.existsSync(backup)) {
+      const count = maskDecidedCards(data.items);
+      data.cartoesMascarados = { at: nowIso(), cartoes: count };
+      save();
+    }
+  }
+
   function get(id) {
     return data.items.find((conv) => conv.id === id) || null;
   }
@@ -146,6 +184,32 @@ function createStore(dataDir) {
     return data.items.length !== before;
   }
 
+  // Apagar pelo historico: nunca e permanente. Vai para conversations.archive.json e pode voltar (desfazer).
+  const archiveFile = path.join(dataDir, "conversations.archive.json");
+  function archive(id) {
+    const conv = get(id);
+    if (!conv) return false;
+    const arc = readJson(archiveFile, { version: 1, items: [] });
+    if (!Array.isArray(arc.items)) arc.items = [];
+    arc.items = arc.items.filter((c) => c && c.id !== id);
+    arc.items.unshift({ ...conv, busy: false, archivedAt: nowIso() });
+    writeJson(archiveFile, arc);
+    data.items = data.items.filter((c) => c.id !== id);
+    save();
+    return true;
+  }
+  function restore(id) {
+    const arc = readJson(archiveFile, { version: 1, items: [] });
+    const conv = (arc.items || []).find((c) => c && c.id === id);
+    if (!conv || get(id)) return null;
+    delete conv.archivedAt;
+    data.items.unshift(conv);
+    save();
+    arc.items = arc.items.filter((c) => c.id !== id);
+    writeJson(archiveFile, arc);
+    return conv;
+  }
+
   /** Move as conversas de um assistente removido para outro. */
   function reassign(fromId, toId) {
     let moved = 0;
@@ -163,7 +227,7 @@ function createStore(dataDir) {
     return [...data.items].sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
   }
 
-  return { list, get, create, update, remove, reassign, file };
+  return { list, get, create, update, remove, archive, restore, reassign, file, archiveFile };
 }
 
-module.exports = { createStore, publicConv, publicMessage };
+module.exports = { createStore, publicConv, publicMessage, maskDecidedCards };

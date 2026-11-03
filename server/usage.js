@@ -14,6 +14,8 @@ const { readJson, writeJson } = require("./util");
 
 const ALERT_AT = 0.8;
 const KINDS = { mensagem: "mensagens", ajudante: "ajudantes", consulta: "consultas", resumo: "resumos" };
+/** Quatro agentes do gabinete (O7: share da conta + limite diário). */
+const AGENT_IDS = ["vagas", "pesquisa", "oasis", "portfolio"];
 
 const emptyUsage = () => ({ mensagens: 0, chamadas: 0, ajudantes: 0, consultas: 0, resumos: 0, caracteresEnviados: 0, caracteresRecebidos: 0, tempoMs: 0, tokens: 0, execucoesComTokens: 0 });
 
@@ -44,13 +46,20 @@ function cleanLimit(input = {}, base = {}) {
  */
 const DEFAULT_GLOBAL_CALLS = 500;
 
-function createUsage(dataDir, { now = () => Date.now(), globalCallsPerDay = () => DEFAULT_GLOBAL_CALLS, activeAccountId = () => null } = {}) {
+function createUsage(dataDir, {
+  now = () => Date.now(),
+  globalCallsPerDay = () => DEFAULT_GLOBAL_CALLS,
+  activeAccountId = () => null,
+  onTokenLimitHit = null,
+} = {}) {
   const file = path.join(dataDir, "uso.json");
   const saved = readJson(file, {});
   const limits = {};
   const byAssistant = {};
   // Uso local por conta do Cursor (só o que passou pelo HELIOS), por dia. Guarda 14 dias.
   const byAccount = {};
+  // Dia em que já alertamos/pausamos por limite de tokens (evita spam no quadro).
+  const limitAlertDay = {};
   if (saved && typeof saved.byAccount === "object" && saved.byAccount) {
     for (const [id, value] of Object.entries(saved.byAccount)) {
       if (!value || typeof value !== "object" || typeof value.days !== "object" || !value.days) continue;
@@ -68,6 +77,11 @@ function createUsage(dataDir, { now = () => Date.now(), globalCallsPerDay = () =
     for (const [id, value] of Object.entries(saved.byAssistant)) {
       if (!value || typeof value !== "object") continue;
       byAssistant[id] = { day: String(value.day || ""), today: { ...emptyUsage(), ...(value.today || {}) }, total: { ...emptyUsage(), ...(value.total || {}) } };
+    }
+  }
+  if (saved && typeof saved.limitAlertDay === "object" && saved.limitAlertDay) {
+    for (const [id, day] of Object.entries(saved.limitAlertDay)) {
+      if (typeof day === "string" && /^\d{4}-\d{2}-\d{2}$/.test(day)) limitAlertDay[id] = day;
     }
   }
 
@@ -88,7 +102,7 @@ function createUsage(dataDir, { now = () => Date.now(), globalCallsPerDay = () =
     return byAssistant[key];
   }
 
-  const persist = () => writeJson(file, { version: 1, limits, byAssistant, byAccount });
+  const persist = () => writeJson(file, { version: 1, limits, byAssistant, byAccount, limitAlertDay });
 
   const dayKeyOf = (ms) => {
     const d = new Date(ms);
@@ -123,6 +137,79 @@ function createUsage(dataDir, { now = () => Date.now(), globalCallsPerDay = () =
     return { today: sum(1), week: sum(7) };
   }
 
+  /** Tokens de hoje do assistente (só o que o SDK informou; nunca inventa). */
+  function tokensHoje(assistantId) {
+    return entry(assistantId).today.tokens;
+  }
+
+  /** Soma de tokens de hoje dos agentes do gabinete (ou lista passada). */
+  function totalTokensAgentes(ids = AGENT_IDS) {
+    let sum = 0;
+    for (const id of ids) sum += tokensHoje(id);
+    return sum;
+  }
+
+  /**
+   * % do uso (tokens) da conta ativa atribuído a este agente entre o gabinete.
+   * null = sem dados de tokens hoje (nunca inventa).
+   */
+  function accountSharePct(assistantId, ids = AGENT_IDS) {
+    const total = totalTokensAgentes(ids);
+    if (total <= 0) return null;
+    const own = tokensHoje(assistantId);
+    return Math.min(100, Math.max(0, Math.round((own / total) * 100)));
+  }
+
+  /** Log de observabilidade por agente: tokens + % da conta + estado do limite. Sem $. */
+  function agentLog(assistantId, ids = AGENT_IDS) {
+    const st = status(assistantId);
+    const limiteTokens = st.limit.tokensPorDia || 0;
+    return {
+      assistantId: String(assistantId || "default"),
+      tokensHoje: st.today.tokens,
+      chamadasHoje: st.today.chamadas,
+      execucoesComTokens: st.today.execucoesComTokens,
+      usoContaPct: accountSharePct(assistantId, ids),
+      limiteTokens,
+      limitePct: limiteTokens > 0 ? Math.min(100, Math.round((st.today.tokens / limiteTokens) * 100)) : null,
+      state: st.state,
+      blocked: st.blocked,
+    };
+  }
+
+  function agentsObservability(ids = AGENT_IDS) {
+    return (ids || AGENT_IDS).map((id) => agentLog(id, ids || AGENT_IDS));
+  }
+
+  /** Limite diário de tokens atingido (tokensPorDia > 0 e used >= max). */
+  function tokenLimitHit(assistantId) {
+    const st = status(assistantId);
+    return Boolean(st.limit.tokensPorDia && st.today.tokens >= st.limit.tokensPorDia);
+  }
+
+  /**
+   * Consome o alerta de limite uma vez por dia por agente.
+   * true = primeira vez hoje → caller deve pausar e alertar no quadro.
+   */
+  function consumeLimitAlert(assistantId) {
+    const key = String(assistantId || "");
+    if (!key || !tokenLimitHit(key)) return false;
+    const today = dayKey();
+    if (limitAlertDay[key] === today) return false;
+    limitAlertDay[key] = today;
+    persist();
+    return true;
+  }
+
+  function maybeNotifyLimit(assistantId) {
+    const key = String(assistantId || "");
+    if (!AGENT_IDS.includes(key)) return;
+    if (!consumeLimitAlert(key)) return;
+    if (typeof onTokenLimitHit === "function") {
+      try { onTokenLimitHit(key, status(key)); } catch { /* hook opcional */ }
+    }
+  }
+
   /** Registra uma chamada ao modelo. `usage` é o objeto do SDK (se houver); nada é estimado em tokens. */
   function record(assistantId, { kind = "mensagem", charsIn = 0, charsOut = 0, ms = 0, usage = null } = {}) {
     const own = entry(assistantId);
@@ -140,7 +227,9 @@ function createUsage(dataDir, { now = () => Date.now(), globalCallsPerDay = () =
     }
     countAccount(activeAccountId(), tokens);
     persist();
-    return status(assistantId);
+    const st = status(assistantId);
+    maybeNotifyLimit(assistantId);
+    return st;
   }
 
   /** Estado do assistente frente ao limite: ok, alerta (80%+) ou limite (100%+). */
@@ -160,6 +249,7 @@ function createUsage(dataDir, { now = () => Date.now(), globalCallsPerDay = () =
       total: { ...own.total },
       limit: { ...limit },
       percent: worst ? Math.round(ratio * 100) : null,
+      usoContaPct: accountSharePct(key),
       state,
       worst,
       blocked: state === "limite" && limit.bloquear,
@@ -190,7 +280,9 @@ function createUsage(dataDir, { now = () => Date.now(), globalCallsPerDay = () =
     const key = String(assistantId || "default");
     limits[key] = cleanLimit(patch && typeof patch === "object" ? patch : {}, limits[key] || {});
     persist();
-    return status(key);
+    const st = status(key);
+    maybeNotifyLimit(key);
+    return st;
   }
 
   function list(ids = []) {
@@ -198,9 +290,27 @@ function createUsage(dataDir, { now = () => Date.now(), globalCallsPerDay = () =
     return [...all].map(status);
   }
 
-  return { record, status, accountStatus, blockReason, globalStatus, setLimit, list, ALERT_AT, file };
+  return {
+    record,
+    status,
+    accountStatus,
+    blockReason,
+    globalStatus,
+    setLimit,
+    list,
+    tokensHoje,
+    totalTokensAgentes,
+    accountSharePct,
+    agentLog,
+    agentsObservability,
+    tokenLimitHit,
+    consumeLimitAlert,
+    AGENT_IDS,
+    ALERT_AT,
+    file,
+  };
 }
 
-const NOTE = "Uso aproximado: conta mensagens, chamadas ao modelo, caracteres e tempo. Tokens só aparecem quando o SDK informa (o modo demonstração nunca informa). Não é fatura: confira o gasto real no painel do provedor.";
+const NOTE = "Uso aproximado: conta mensagens, chamadas ao modelo, caracteres e tempo. Tokens só aparecem quando o SDK informa (o modo demonstração nunca informa). Na tela do gabinete o uso aparece só em % da conta ativa — nunca em dinheiro.";
 
-module.exports = { createUsage, cleanLimit, NOTE, ALERT_AT, DEFAULT_GLOBAL_CALLS };
+module.exports = { createUsage, cleanLimit, NOTE, ALERT_AT, DEFAULT_GLOBAL_CALLS, AGENT_IDS };

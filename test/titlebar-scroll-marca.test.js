@@ -13,24 +13,24 @@ test("janela principal usa barra de título integrada com as cores do tema", () 
   const dark = mainBrowserOptions();
   assert.equal(dark.titleBarStyle, "hidden");
   assert.equal(dark.frame, true);
-  assert.deepEqual(dark.titleBarOverlay, { color: "#0a0a0a", symbolColor: "#fafafa", height: TITLEBAR_HEIGHT });
-  assert.equal(dark.backgroundColor, "#0a0a0a");
+  assert.deepEqual(dark.titleBarOverlay, { color: "#0B0B0D", symbolColor: "#F4EEE2", height: TITLEBAR_HEIGHT });
+  assert.equal(dark.backgroundColor, "#0B0B0D");
   const light = mainBrowserOptions("light");
-  assert.deepEqual(light.titleBarOverlay, { color: "#fafafa", symbolColor: "#171717", height: TITLEBAR_HEIGHT });
-  assert.equal(TITLEBAR_HEIGHT, 44);
+  assert.deepEqual(light.titleBarOverlay, { color: "#F7F3EA", symbolColor: "#2A1D08", height: TITLEBAR_HEIGHT });
+  assert.equal(TITLEBAR_HEIGHT, 48);
 });
 
 test("tema desconhecido vindo do renderer cai no escuro", () => {
   for (const bad of [undefined, null, 7, "solar", "LIGHT", { x: 1 }]) assert.equal(normalizeTheme(bad), "dark");
   assert.equal(normalizeTheme("light"), "light");
-  assert.equal(titleBarOverlayFor("x").color, "#0a0a0a");
+  assert.equal(titleBarOverlayFor("x").color, "#0B0B0D");
 });
 
 test("applyMainWindowTheme troca overlay e fundo, e ignora janela destruída", () => {
   const calls = [];
   const win = { isDestroyed: () => false, setTitleBarOverlay: (o) => calls.push(["overlay", o]), setBackgroundColor: (c) => calls.push(["bg", c]) };
   assert.equal(applyMainWindowTheme(win, "light"), true);
-  assert.deepEqual(calls, [["overlay", { color: "#fafafa", symbolColor: "#171717", height: 44 }], ["bg", "#fafafa"]]);
+  assert.deepEqual(calls, [["overlay", { color: "#F7F3EA", symbolColor: "#2A1D08", height: 48 }], ["bg", "#F7F3EA"]]);
   assert.equal(applyMainWindowTheme({ isDestroyed: () => true }, "dark"), false);
   assert.equal(applyMainWindowTheme(null, "dark"), false);
 });

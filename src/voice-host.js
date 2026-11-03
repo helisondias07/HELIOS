@@ -5,6 +5,7 @@ const providers = require("./providers");
 
 const STT_MODEL = "whisper-large-v3-turbo";
 const TTS_MODEL = "gemini-2.5-flash-preview-tts";
+const GEMINI_STT_MODEL = "gemini-2.5-flash";
 const MAX_AUDIO_BYTES = 20 * 1024 * 1024;
 const MAX_TTS_CHARS = 1500;
 
@@ -34,6 +35,17 @@ function createVoiceHandlers({ getKey, api = providers }) {
       const result = await api.groqTranscribe({ key, model: STT_MODEL, audio, mime: String(mime || "audio/webm"), language: "pt" });
       return { ok: true, text: api.cleanHallucination(result.text) };
     } catch (err) {
+      // Fase 8: escalonamento de voz. Groq falhou (limite ou fora do ar) e há chave do Gemini: tenta uma vez lá, com aviso.
+      const gem = getKey("gemini");
+      const status = Number(err && err.status) || 0;
+      if (gem && (status === 429 || status >= 500 || !status)) {
+        try {
+          const result = await api.geminiTranscribe({ key: gem, model: GEMINI_STT_MODEL, audio, mime: String(mime || "audio/webm") });
+          return { ok: true, text: api.cleanHallucination(result.text), aviso: `A Groq ${status === 429 ? "bateu o limite" : "falhou"}; transcrevi com o Gemini.` };
+        } catch (err2) {
+          return { ok: false, error: `${scrub(err, key)} / Gemini: ${scrub(err2, gem)}` };
+        }
+      }
       return { ok: false, error: scrub(err, key) };
     }
   }

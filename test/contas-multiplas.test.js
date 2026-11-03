@@ -301,12 +301,13 @@ test("uso local por conta ativa e alerta de 80% do teto diário", () => {
   assert.equal(again.accountStatus("acc_b").week.chamadas, 8);
 });
 
-test("o texto não promete o limite semanal real: só o uso local e o link do painel", async () => {
+test("o texto descreve a barra do plano Cursor e o fallback manual, com link do painel", async () => {
   const app = await boot();
   try {
     const data = (await json(app, "/api/accounts")).body;
-    assert.match(data.usage.note, /só o que o HELIOS enviou/);
-    assert.match(data.usage.note, /limite semanal de verdade/);
+    assert.match(data.usage.note, /plano Cursor|GetCurrentPeriodUsage/i);
+    assert.match(data.usage.note, /Limite manual/i);
+    assert.match(data.usage.note, /SDK/i);
     assert.equal(data.usage.realLimitUrl, "https://cursor.com/dashboard");
   } finally {
     await app.close();
@@ -317,7 +318,7 @@ test("a caixa de acesso MCP está explicada, recolhida e com o token oculto", ()
   const html = contas.accountsHtml({ accounts: [], max: 3, slotNames: ["Conta A"], usage: {} }, { mock: true, auto: { label: "x", level: "y", reason: "z" } }, null, esc);
   assert.match(html, /<details class="card stack acct-mcp"/);
   assert.doesNotMatch(html, /<details[^>]*acct-mcp[^>]* open/);
-  assert.match(html, /Isto não é uma conta nem um login/);
+  assert.match(html, /Não é uma conta/);
   assert.match(html, /id="mcpToken" type="password"/);
-  assert.match(html, /Claude Code se você usar/);
+  assert.match(html, /127.0.0.1/);
 });

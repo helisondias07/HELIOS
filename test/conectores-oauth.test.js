@@ -260,19 +260,51 @@ test("o Gmail abre o navegador com o client id do aplicativo, não com um id col
   assert.equal(box.url.includes("resource="), false);
 });
 
-test("o GitHub volta numa porta fixa, para o callback cadastrado uma vez", async () => {
+test("o GitHub usa Device Flow (sem porta fixa de callback)", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "helios-gh-"));
-  const box = {};
+  const box = { opened: "", listenCalled: false };
   const gallery = createConectores({
     dataDir: dir,
+    sealer: sealer(),
     oauthClients: { github: "Iv1.abcdef0123456789" },
-    fetchImpl: async () => { throw new Error("não chegou a descobrir"); },
-    listen: async (opts) => { box.port = opts.port; throw Object.assign(new Error("parar"), { code: "STOP" }); },
+    fetchImpl: async (url) => {
+      if (String(url).includes("/login/device/code")) {
+        return {
+          ok: true, status: 200,
+          text: async () => JSON.stringify({
+            device_code: "dc", user_code: "CODE-1234",
+            verification_uri: "https://github.com/login/device", interval: 0,
+          }),
+          headers: { get: () => null },
+        };
+      }
+      if (String(url).includes("/login/oauth/access_token")) {
+        return {
+          ok: true, status: 200,
+          text: async () => JSON.stringify({ access_token: "gho_x", login: "u" }),
+          headers: { get: () => null },
+        };
+      }
+      if (String(url).includes("api.github.com/user")) {
+        return { ok: true, status: 200, json: async () => ({ login: "u" }), text: async () => "{}", headers: { get: () => null } };
+      }
+      throw new Error(String(url));
+    },
+    openExternal: async (url) => { box.opened = url; },
+    listen: async () => { box.listenCalled = true; throw new Error("device flow não usa listen"); },
   });
-  gallery.start("github");
-  for (let i = 0; i < 20 && box.port === undefined; i += 1) await wait(10);
-  assert.equal(box.port, GITHUB_LOOPBACK_PORT);
-  assert.equal(GITHUB_LOOPBACK_PORT, 47332);
+  const started = gallery.start("github");
+  assert.equal(started.status, "waiting");
+  let done = null;
+  for (let i = 0; i < 40; i += 1) {
+    await wait(25);
+    done = gallery.view().connections.find((c) => c.id === started.id);
+    if (done?.status === "connected" || done?.status === "error") break;
+  }
+  assert.equal(done.status, "connected", done && done.error);
+  assert.match(box.opened, /github\.com\/login\/device/);
+  assert.equal(box.listenCalled, false);
+  assert.equal(GITHUB_LOOPBACK_PORT, 47332); // constante legada mantida; device flow não a usa
 });
 
 test("a configuração lê o arquivo, a pasta de dados e a variável, e descarta id inválido", () => {
@@ -327,10 +359,13 @@ test("a grade tem busca, contas conectadas e um botão só, sem campo técnico",
   assert.match(html, /configuração do app pendente/);
   assert.match(html, /id="connectAdvanced"/);
   assert.match(html, /connectAdvancedPanel" hidden/);
-  assert.equal(html.includes("clientId"), false);
-  assert.equal(html.includes("apiKey"), false);
+  // Grade principal sem campos técnicos; Client ID / tokens só no painel Avançado (Leva P).
+  const cardsOnly = html.split('id="connectAdvancedPanel"')[0];
+  assert.equal(cardsOnly.includes("clientId"), false);
+  assert.equal(cardsOnly.includes("apiKey"), false);
   assert.equal(html.includes("name=\"url\""), true);
   assert.equal((html.match(/name="url"/g) || []).length, 1);
+  assert.match(html, /Tokens manuais|Entrar com ClickUp|Avançado/);
 
   const failed = galleryHtml({
     presets: [{ id: "cursor", name: "Cursor", blurb: "A conta que move o agente.", configured: true }],

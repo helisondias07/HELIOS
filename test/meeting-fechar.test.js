@@ -50,17 +50,18 @@ test("a janela da reuni\u00e3o tem bot\u00e3o X vis\u00edvel, Esc e atalho globa
   const main = read("src", "main.js");
   const host = read("src", "meeting-host.js");
   assert.match(html, /<button id="btnHide"[^>]*aria-label="Fechar"><svg/);
-  assert.ok(html.indexOf('id="btnSettings"') < html.indexOf('id="btnHide"'));
-  assert.ok(html.indexOf('id="btnHide"') - html.indexOf('id="btnSettings"') < 600);
-  assert.match(html, /<button id="btnHide"[^>]*Ctrl\+Shift\+W/);
+  // Leva H: o X fica no fim da pílula, logo após o menu (sem textos de ajuda)
+  assert.ok(html.indexOf('id="btnMenu"') < html.indexOf('id="btnHide"'));
+  assert.ok(html.indexOf('id="btnHide"') - html.indexOf('id="btnMenu"') < 600);
   assert.match(app, /\$\('btnHide'\)\.onclick = \(\) => \{ stopSession\(\); api\.hide\(\); \}/);
   assert.match(app, /e\.key !== 'Escape'/);
   assert.match(app, /if \(state\.recording\) return;/);
   assert.match(app, /api\.onMeetingStop/);
   assert.match(preload, /onMeetingStop/);
   assert.match(preload, /"win:hide"/);
-  assert.match(main, /"CommandOrControl\+Shift\+W": "close"/);
-  assert.match(main, /closeMeetingNow\(\);\s*\n\s*\}\);/);
+  // Leva H: Ctrl+\\ alterna (abre/fecha) a pílula
+  assert.match(main, /"CommandOrControl\+\\\\": "toggle"/);
+  assert.match(main, /closeMeetingNow\(\);/);
   assert.match(host, /closeMeeting\(\)/);
   // continua sempre no topo, fora da barra e protegida da captura
   const win = read("src", "meeting-window.js");

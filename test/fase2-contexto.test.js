@@ -19,6 +19,7 @@ async function boot(extra = {}) {
   const dataDir = extra.dataDir || tmp("dados");
   const app = await startServer({
     dataDir,
+    seedAssistants: false, // leva G: estes testes contam só os assistentes que eles criam
     projectsDir: path.join(dataDir, "projetos"),
     port: 0,
     mock: true,

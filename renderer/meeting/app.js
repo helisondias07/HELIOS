@@ -1,41 +1,41 @@
 'use strict';
+// LEVA H: modo reunião no estilo Cluely. Pílula + card de resposta; nada aparece até você pedir.
 const $ = (id) => document.getElementById(id);
 const state = {
-  lines: [], mode: 'pt', trHist: [], trCurrent: null, recording: false, starting: false, gen: 0, discard: false, shotPending: false, timing: {}, recs: [], streams: [], ctx: null, settings: {}, clickThrough: false,
-  sessionId: newSessionId(), chat: [], pendingTr: [], trBusy: false, trPauseUntil: 0, trTimer: null, chunkAuto: 0, rateWaitMs: 5000, trShownId: 0, translating: false, rid: 0, tab: 'chat', startedAt: 0, timerIv: null,
+  lines: [], mode: 'pt', trCurrent: null, recording: false, starting: false, gen: 0, discard: false, shotPending: false, timing: {}, recs: [], streams: [], ctx: null, settings: {}, clickThrough: false,
+  sessionId: newSessionId(), chat: [], pendingTr: [], trBusy: false, trPauseUntil: 0, trTimer: null, chunkAuto: 0, rateWaitMs: 5000, trShownId: 0, translating: false, rid: 0, startedAt: 0, timerIv: null,
+  input: 'ask', view: '', last: null, question: '', capTimer: null, cardOpen: false, transcriptOpen: false,
 };
 function newSessionId() { const d = new Date(); const p = (n) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`; }
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-// ---------- janela / painel ----------
+// ---------- janela / card ----------
 const fit = () => api.setHeight(Math.ceil($('root').getBoundingClientRect().height) + 4);
 new ResizeObserver(fit).observe($('root'));
-function showTab(tab) {
-  state.tab = tab;
-  $('panel').classList.remove('hidden');
-  $('main').classList.toggle('hidden', tab === 'settings');
-  $('chatTab').classList.toggle('hidden', tab !== 'chat');
-  $('transcriptTab').classList.toggle('hidden', tab !== 'transcript');
-  $('liveTab').classList.toggle('hidden', tab !== 'live');
-  $('settings').classList.toggle('hidden', tab !== 'settings');
-  $('tabChat').classList.toggle('active', tab === 'chat');
-  $('tabTranscript').classList.toggle('active', tab === 'transcript');
-  $('tabLive').classList.toggle('active', tab === 'live');
+function openCard(on = true) { state.cardOpen = on; $('card').classList.toggle('hidden', !on); }
+// Uma área de resultado por vez: resposta, tradução, código, histórico ou transcrição
+function showView(view) {
+  state.view = view; openCard(true);
+  for (const [v, id] of [['answer', 'answer'], ['tr', 'trOut'], ['code', 'codeOut'], ['history', 'history']]) $(id).classList.toggle('hidden', v !== view);
+  $('chipHist').classList.toggle('on', view === 'history');
 }
-function toast(msg, ms = 5000) {
+function toggleTranscript(force) {
+  state.transcriptOpen = typeof force === 'boolean' ? force : !state.transcriptOpen;
+  openCard(true);
+  $('transcript').classList.toggle('hidden', !state.transcriptOpen);
+  $('chipTranscript').classList.toggle('on', state.transcriptOpen);
+  if (state.transcriptOpen) { const b = $('transcript'); b.scrollTop = b.scrollHeight; }
+}
+function toast(msg, ms = 3500) {
   const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg;
   $('root').appendChild(t); setTimeout(() => t.remove(), ms);
 }
-const setStatus = (t) => { $('status').textContent = t; };
-// Tempo de cada etapa, discreto na barra de status
-function setTiming(part) {
-  Object.assign(state.timing, part);
-  const t = state.timing; const f = (x) => `${x.toFixed(1).replace('.', ',')}s`;
-  $('timing').textContent = [t.cap ? `bloco ${t.cap}s` : '', t.stt != null ? `transcrição ${f(t.stt)}` : '', t.tr != null ? `tradução ${f(t.tr)}` : '', t.ai != null ? `resposta ${f(t.ai)}` : ''].filter(Boolean).join(' · ');
-}
+// Sem linha de status: o estado vira só a cor do ponto (o texto fica no título, para leitor de tela)
+const setStatus = (t) => { $('btnStart').title = t; $('dot').classList.toggle('err', /erro/.test(t)); };
+function setTiming(part) { Object.assign(state.timing, part); }
 // Avisos repetidos (erro a cada bloco de áudio) aparecem no máximo 1 vez a cada 30 s
 const lastToast = new Map();
-function toastOnce(msg, ms = 6000) { const now = Date.now(); if (now - (lastToast.get(msg) || 0) < 30000) return; lastToast.set(msg, now); toast(msg, ms); }
+function toastOnce(msg, ms = 5000) { const now = Date.now(); if (now - (lastToast.get(msg) || 0) < 30000) return; lastToast.set(msg, now); toast(msg, ms); }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // Blocos de áudio em segundos: o automático (depois de um 429 da Groq) vale só nesta sessão
 const chunkSecs = () => state.chunkAuto || Number(state.settings.chunkSeconds) || 9;
@@ -43,108 +43,143 @@ const chunkSecs = () => state.chunkAuto || Number(state.settings.chunkSeconds) |
 function onRateLimit(where) {
   if (chunkSecs() < 9) {
     state.chunkAuto = 9; setTiming({ cap: 9 });
-    toastOnce(`Limite da Groq atingido (${where}). Aumentei o bloco de áudio para 9 s automaticamente e vou tentar de novo.`, 9000);
-  } else toastOnce(`Limite da Groq atingido (${where}). Espero alguns segundos e continuo; se repetir, confira a cota em console.groq.com.`, 9000);
+    toastOnce(`Limite da Groq (${where}). Aumentei o bloco de áudio para 9 s automaticamente.`, 6000);
+  } else toastOnce(`Limite da Groq (${where}). Continuo em alguns segundos.`, 6000);
 }
-// Respostas em streaming de tradução (rid -> função que recebe o texto parcial)
+// Respostas em streaming (rid -> função que recebe o texto parcial)
 const deltaHandlers = new Map();
+const streams = deltaHandlers;
+api.onDelta((rid, text) => { const h = deltaHandlers.get(rid); if (h) h(text); });
 function mediaMessage(e, label) {
   const n = (e && e.name) || '';
-  if (n === 'NotAllowedError' || n === 'SecurityError') return `${label}: o Windows ou o app negou a permissão. Libere em Configurações do Windows > Privacidade > Microfone e tente de novo.`;
+  if (n === 'NotAllowedError' || n === 'SecurityError') return `${label}: o Windows ou o app negou a permissão.`;
   if (n === 'NotFoundError' || n === 'OverconstrainedError') return `${label}: nenhum dispositivo encontrado.`;
-  if (n === 'NotReadableError' || n === 'AbortError') return `${label}: o dispositivo está em uso por outro app ou indisponível.`;
-  if (n === 'NoAudio') return `${label}: a captura não trouxe áudio (compartilhe a tela inteira com o áudio do sistema).`;
+  if (n === 'NotReadableError' || n === 'AbortError') return `${label}: em uso por outro app.`;
+  if (n === 'NoAudio') return `${label}: sem áudio do sistema.`;
   return `${label}: ${(e && e.message) || 'falhou'}.`;
 }
 async function copyText(text) {
   try { await navigator.clipboard.writeText(text); return true; } catch { /* sem foco: plano B */ }
   try { const ta = document.createElement('textarea'); ta.value = text; ta.style.cssText = 'position:fixed;opacity:0'; document.body.appendChild(ta); ta.select(); const ok = document.execCommand('copy'); ta.remove(); return ok; } catch { return false; }
 }
-async function copyToast(text, what) { toast((await copyText(text)) ? `${what} copiado.` : 'Não consegui copiar. Selecione o texto e use Ctrl+C.', 1800); }
+async function copyToast(text, what) { toast((await copyText(text)) ? `${what} copiado.` : 'Não copiei.', 1500); }
 
-// ---------- transcrição ----------
+// ---------- transcrição (escondida por padrão) ----------
+const WHO = { me: 'Você', them: 'Outro' };
 function renderLine(l) {
   const box = $('transcript');
   let el = box.querySelector(`[data-id="${l.id}"]`);
   const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
-  if (!el) { box.querySelector('.empty')?.remove(); el = document.createElement('div'); el.dataset.id = l.id; box.appendChild(el); }
-  // Aba em inglês: só a tradução do Outro(s) aparece; o original fica escondido (dá para mostrar)
+  if (!el) { el = document.createElement('div'); el.dataset.id = l.id; el.onclick = () => el.classList.toggle('open'); box.appendChild(el); }
+  // Modo EN: só a tradução do Outro aparece; o original abre ao clicar na linha
   const hide = state.mode === 'en' && l.who === 'them' && l.lang !== 'pt';
-  el.className = `line ${l.who || ''}${hide ? '' : ' plain'}`;
-  const tag = WHO[l.who] ? `<span class="who">${WHO[l.who]}</span>` : '<span class="who"></span>';
-  const pt = l.pt || l.live || (hide ? (l.trFailed ? 'não consegui traduzir esta fala (use "Traduzir o que a outra pessoa disse")' : state.settings.translate ? 'traduzindo…' : 'use "Traduzir o que a outra pessoa disse"') : '');
-  el.innerHTML = `${tag}<span class="orig">${esc(l.text)}</span><span class="pt">${esc(pt)}</span>`;
+  el.className = `line ${l.who || ''}${hide ? '' : ' plain'}${el.classList.contains('open') ? ' open' : ''}`;
+  const tag = `<span class="who">${WHO[l.who] || ''}</span>`;
+  const pt = l.pt || l.live || (hide ? (l.trFailed ? '…' : state.settings.translate ? 'traduzindo…' : '…') : '');
+  el.innerHTML = `${tag}<span class="pt">${esc(pt)}</span><span class="orig">${esc(l.text)}</span>`;
   if (atBottom) box.scrollTop = box.scrollHeight;
   const last = state.lines[state.lines.length - 1];
   if (last && last.id === l.id) renderCaption(l);
 }
-const WHO = { me: 'Você', them: 'Outro(s)' };
-// Legenda grande da última fala: original pequeno e tradução em destaque
+// Legenda ao vivo (só EN): uma linha fina com o PT da última fala do Outro; some depois de 8 s
 function renderCaption(l) {
-  const el = $('caption'); if (!l || !l.text) return;
-  const en = state.mode === 'en' && l.who === 'them' && l.lang !== 'pt';
-  el.classList.remove('hidden'); el.classList.toggle('plain', !en);
-  el.querySelector('.cap-who').textContent = WHO[l.who] || 'Ouvindo';
-  el.querySelector('.cap-orig').textContent = l.text;
-  el.querySelector('.cap-pt').textContent = en ? (l.pt || l.live || 'traduzindo…') : '';
+  const el = $('caption');
+  if (!l || state.mode !== 'en' || l.who !== 'them' || l.lang === 'pt' || !(l.pt || l.live)) return;
+  el.querySelector('.cap-pt').textContent = l.pt || l.live;
+  el.classList.remove('hidden');
+  clearTimeout(state.capTimer); state.capTimer = setTimeout(() => el.classList.add('hidden'), 8000);
 }
 
-// ---------- chat ----------
-function fmtBot(text) {
-  return esc(text).replace(/(https?:\/\/[^\s<)\]]+)/g, '<a class="lnk" data-link="$1">$1</a>').replace(/^(EN:.*)$/gm, '<span class="en">$1</span>').replace(/^(PT:.*)$/gm, '<span class="ptl">$1</span>');
+// ---------- card de resposta ----------
+function parseAnswer(text) {
+  const rows = String(text || '').split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+  const en = rows.find((r) => /^EN:/i.test(r)); const pt = rows.find((r) => /^PT:/i.test(r));
+  if (en) return { main: en.replace(/^EN:\s*/i, ''), sub: pt ? pt.replace(/^PT:\s*/i, '') : '', bullets: [] };
+  const clean = rows.map((r) => r.replace(/^(PT:|OPÇÃO \d.*$)\s*/i, '')).filter(Boolean);
+  const [main = '', ...rest] = clean;
+  return { main, sub: '', bullets: rest.map((r) => r.replace(/^[-+•*]\s*|^\d+[.)]\s*/, '')).filter(Boolean).slice(0, 3) };
 }
-function addMsg(role, text, title = '') {
-  const m = { role, text, title, prov: '', at: new Date().toLocaleTimeString('pt-BR') };
-  state.chat.push(m);
-  const box = $('chat'); box.querySelector('.empty')?.remove();
-  m.el = document.createElement('div'); m.el.className = `msg ${role}`;
-  box.appendChild(m.el); paintMsg(m);
-  return m;
+const linkify = (s) => esc(s).replace(/(https?:\/\/[^\s<)\]]+)/g, '<a class="lnk" data-link="$1">$1</a>');
+function paintAnswer(text, streaming = false) {
+  const a = parseAnswer(text);
+  $('ansMain').innerHTML = linkify(a.main || (streaming ? '…' : ''));
+  $('ansMain').classList.toggle('wait', streaming && !a.main);
+  $('ansSub').textContent = a.sub;
+  $('ansList').innerHTML = a.bullets.map((b) => `<li>${linkify(b)}</li>`).join('');
+  $('answer').querySelectorAll('[data-link]').forEach((k) => { k.onclick = async () => { const o = await api.openLink(k.dataset.link); if (!o.ok) toast(o.error || 'Não abri o link.'); }; });
 }
-function paintMsg(m) {
-  if (m.role === 'user') m.el.textContent = m.text;
-  else m.el.innerHTML = `<div class="t"><span>${esc(m.title)}</span><span>${esc(m.prov)}</span><a data-copy>Copiar</a></div>${fmtBot(m.text)}${m.orig ? `<details class="origbox"><summary>Mostrar original</summary>${esc(m.orig)}</details>` : ''}`;
-  const c = m.el.querySelector('[data-copy]'); if (c) c.onclick = () => copyToast(m.text, 'Texto');
-  m.el.querySelectorAll('.en').forEach((s) => { s.title = 'Clique para copiar a frase em inglês'; s.onclick = () => copyToast(s.textContent.replace(/^EN:\s*/, ''), 'Inglês'); });
-  m.el.querySelectorAll('.ptl').forEach((s) => { s.title = 'Clique para copiar em português'; s.onclick = () => copyToast(s.textContent.replace(/^PT:\s*/, ''), 'Português'); });
-  m.el.querySelectorAll('[data-link]').forEach((k) => { k.onclick = async () => { const o = await api.openLink(k.dataset.link); if (!o.ok) toast(o.error || 'Não abri o link.'); }; });
-  const box = $('chat'); box.scrollTop = box.scrollHeight;
+function setAnswer(text, { title = '', more = null } = {}) {
+  showView('answer');
+  state.last = { title, text, more };
+  paintAnswer(text);
+  $('btnMore').classList.toggle('hidden', !more);
 }
-const streams = new Map();
-api.onDelta((rid, text) => { const h = deltaHandlers.get(rid); if (h) { h(text); return; } const m = streams.get(rid); if (m) { m.text = text; paintMsg(m); } });
-
-async function runAI(title, fn, userText) {
-  showTab('chat');
-  if (userText) addMsg('user', userText);
-  const m = addMsg('bot', 'Pensando…', title);
-  const rid = ++state.rid; streams.set(rid, m);
+async function runAI(title, fn, { more = null, record = true } = {}) {
+  showView('answer'); $('btnMore').classList.add('hidden');
+  paintAnswer('', true);
+  const rid = ++state.rid;
+  deltaHandlers.set(rid, (t) => paintAnswer(t, true));
   const t0 = performance.now();
   const r = await fn(rid);
   setTiming({ ai: (performance.now() - t0) / 1000 });
-  streams.delete(rid);
-  m.text = r.ok ? (r.text || '(sem resposta)') : `Erro: ${r.error}`; m.prov = r.ok && r.provider ? `via ${r.provider}` : '';
-  paintMsg(m); saveHistory(); refreshRate();
+  deltaHandlers.delete(rid);
+  if (r.cancelled) return r;
+  const text = r.ok ? (r.text || '—') : r.error;
+  setAnswer(text, { title, more: r.ok ? more : null });
+  if (!r.ok) { setStatus('erro'); if (r.rate) onRateLimit('resposta'); }
+  if (r.ok && record) { state.chat.push({ role: 'bot', title, text, at: new Date().toLocaleTimeString('pt-BR') }); renderHistory(); saveHistory(); }
+  return r;
+}
+function renderHistory() {
+  const box = $('history'); box.innerHTML = '';
+  state.chat.slice().reverse().slice(0, 12).forEach((m) => {
+    const b = document.createElement('button'); b.type = 'button'; b.textContent = `${m.at} · ${parseAnswer(m.text).main}`;
+    b.onclick = () => setAnswer(m.text, { title: m.title }); box.appendChild(b);
+  });
 }
 
 const linesForAI = () => state.lines.map(({ who, text }) => ({ who, text }));
-const chatContext = () => state.chat.filter((m) => m.text && m.text !== 'Pensando…').slice(-4)
-  .map((m) => `${m.role === 'user' ? 'Helison perguntou' : 'Você respondeu'}: ${m.text.slice(0, 400)}`).join('\n');
+const chatContext = () => state.chat.filter((m) => m.text).slice(-3).map((m) => `${m.title}: ${m.text.slice(0, 300)}`).join('\n');
 
-const sugEn = () => runAI('Sugerir em inglês (2 opções + português)', (rid) => api.suggest(linesForAI(), 'en', rid));
-const sugPt = () => runAI('O que eu digo? (2 opções)', (rid) => api.suggest(linesForAI(), 'pt', rid));
-// ---------- contexto da reunião ----------
-// Tradutor (aba em inglês): digita em português, recebe o inglês grande para ler em voz alta; não usa o chat nem outras funções
-function showTranslation(item) {
-  state.trCurrent = item; $('trOut').classList.remove('hidden');
-  $('trEn').textContent = item.en; $('trPt').textContent = item.pt ? `Em português: ${item.pt}` : '';
+// O que digo (PT) / Sugestão (EN): 1 resposta curta; "Mais" gera a versão elaborada
+function assist(more = false) {
+  const lang = state.mode === 'en' ? 'en' : 'pt';
+  hideQuestion();
+  return runAI(lang === 'en' ? 'Sugestão' : 'O que digo', (rid) => api.suggest(linesForAI(), lang, rid, more), { more: more ? null : () => assist(true) });
 }
-function renderTrHist() {
-  const box = $('trHist'); box.innerHTML = '';
-  state.trHist.forEach((it) => { const b = document.createElement('button'); b.className = 'mini'; b.type = 'button'; b.textContent = it.src; b.title = it.en; b.onclick = () => showTranslation(it); box.appendChild(b); });
+
+// ---------- campo único: Perguntar (PT) · Dizer em EN (EN) · Livecoding ----------
+const INPUTS = { ask: ['', 'Pergunte…'], say: ['EN', 'Dizer em inglês…'], code: ['</>', 'Código…'] };
+function setInput(kind, focus = false) {
+  state.input = INPUTS[kind] ? kind : 'ask';
+  const [tag, ph] = INPUTS[state.input];
+  $('askTag').textContent = tag; $('askInput').placeholder = ph;
+  $('chipLive').classList.toggle('on', state.input === 'code');
+  $('chipSayEn').classList.toggle('on', state.input === 'say');
+  if (focus) { openCard(true); api.focus(); setTimeout(() => $('askInput').focus(), 40); }
+}
+const defaultInput = () => (state.mode === 'en' ? 'say' : 'ask');
+function submitInput(q) {
+  const t = String(q || '').trim(); if (!t) return;
+  if (state.input === 'code') return liveCode(t);
+  if (state.input === 'say' && state.mode === 'en') return translatePhrase(t);
+  return ask(t);
+}
+function ask(q) {
+  const ctx = chatContext();
+  const question = ctx ? `${q}\n\n(Respostas anteriores, para contexto:\n${ctx})` : q;
+  const only = state.mode === 'pt' ? '\n\n(Responda somente em português, sem frases em inglês.)' : '';
+  return runAI('Perguntar', (rid) => api.ask(linesForAI(), `${question}${only}`, false, rid));
+}
+
+// Tradutor PT→EN (modo EN): o inglês sai grande para ler em voz alta, o PT pequeno embaixo
+function showTranslation(item) {
+  state.trCurrent = item; showView('tr');
+  $('trEn').textContent = item.en; $('trPt').textContent = item.pt || '';
 }
 async function translatePhrase(text) {
   const t = String(text || '').trim(); if (!t) return;
-  $('trOut').classList.remove('hidden'); $('trEn').textContent = 'Traduzindo…'; $('trPt').textContent = '';
+  showView('tr'); $('trEn').textContent = '…'; $('trPt').textContent = '';
   const t0 = performance.now();
   const rid = ++state.rid;
   deltaHandlers.set(rid, (text) => { const part = (text.match(/^EN:\s*(.*)$/m) || [])[1]; if (part) $('trEn').textContent = part; });
@@ -152,168 +187,89 @@ async function translatePhrase(text) {
   deltaHandlers.delete(rid);
   setTiming({ ai: (performance.now() - t0) / 1000 });
   if (r.cancelled) return;
-  if (!r.ok) { $('trEn').textContent = ''; $('trPt').textContent = `Erro: ${r.error}`; return; }
+  if (!r.ok) { $('trEn').textContent = ''; $('trPt').textContent = r.error; return; }
   const en = ((r.text || '').match(/^EN:\s*(.*)$/m) || [])[1] || (r.text || '').trim();
   const pt = ((r.text || '').match(/^PT:\s*(.*)$/m) || [])[1] || '';
   const item = { src: t, en, pt };
-  state.trHist.unshift(item); state.trHist = state.trHist.slice(0, 5);
-  renderTrHist(); showTranslation(item);
+  state.chat.push({ role: 'bot', title: 'Dizer em EN', text: `EN: ${en}\nPT: ${pt}`, at: new Date().toLocaleTimeString('pt-BR') }); renderHistory();
+  showTranslation(item);
 }
-// Alterna entre "Reunião em português" e "Reunião em inglês" (lembra a última escolha)
+
+// ---------- Livecoding: só o código, curto e direto ----------
+let live = null;
+async function liveCode(request) {
+  live = null; $('liveNav').classList.add('hidden');
+  showView('code'); $('codeText').textContent = '…';
+  const rid = ++state.rid;
+  deltaHandlers.set(rid, (t) => { $('codeText').textContent = t.replace(/^\s*```[\w-]*\s*\n?/, ''); });
+  const r = await api.code(linesForAI(), request, rid);
+  deltaHandlers.delete(rid);
+  if (r.cancelled) return;
+  $('codeText').textContent = r.ok ? (r.text || '') : r.error;
+  if (r.ok) { state.chat.push({ role: 'bot', title: 'Livecoding', text: r.text, at: new Date().toLocaleTimeString('pt-BR') }); renderHistory(); saveHistory(); }
+}
+// Roteiro de livecoding aberto pelo chat do HELIOS: mostra só o bloco de código atual, com ‹ ›
+function renderLive() {
+  if (!live) return;
+  showView('code');
+  const total = live.total || 1; const cursor = Number(live.cursor) || 0;
+  const atual = live.atual;
+  $('codeText').textContent = atual && atual.codigo ? `${atual.arquivo ? `// ${atual.arquivo}\n` : ''}${atual.codigo}` : (live.arquivos || []).map((f) => `// ${f.path}`).join('\n') || live.title || '';
+  $('liveNav').classList.remove('hidden');
+  $('liveCount').textContent = `${Math.min(total, cursor + 1)}/${total}`;
+  $('btnPrev').disabled = cursor <= 0;
+  $('btnNext').disabled = live.status === 'done' || cursor >= total - 1;
+}
+async function stepLive(dir) {
+  if (!live) return;
+  const r = dir > 0 ? await api.liveNext(live.id) : await api.livePrev(live.id);
+  if (!r.ok) { toast(r.error || 'Não andei o roteiro.'); return; }
+  live = r.session; renderLive();
+}
+
+// Alterna PT/EN (lembra a última escolha). PT não tem nada em inglês.
 function setMode(mode, persist = true) {
   state.mode = mode === 'en' ? 'en' : 'pt';
   $('root').classList.toggle('mode-en', state.mode === 'en'); $('root').classList.toggle('mode-pt', state.mode === 'pt');
   $('modePt').classList.toggle('active', state.mode === 'pt'); $('modeEn').classList.toggle('active', state.mode === 'en');
   if (persist) { try { localStorage.setItem('heliosMeetingMode', state.mode); } catch { /* sem armazenamento */ } }
+  if (state.mode === 'pt') { $('caption').classList.add('hidden'); if (state.view === 'tr') showView(''); }
+  if (state.input !== 'code') setInput(defaultInput());
   state.lines.forEach(renderLine);
-  const last = state.lines[state.lines.length - 1]; if (last) renderCaption(last);
 }
-const onlyIn = (mode, what) => { if (state.mode === mode) return true; toast(`${what} fica na aba "Reunião em ${mode === 'en' ? 'inglês' : 'português'}".`, 3000); return false; };
-// Falas anteriores (só texto original) que acompanham a tradução; a quantidade vem das configurações
+// Falas anteriores (só texto original) que acompanham a tradução; a quantidade vem dos Ajustes
 function historyBefore(id) {
   const n = Number(state.settings.translateHistory ?? 3);
   return n > 0 ? state.lines.filter((l) => l.id < id && l.text).slice(-n).map((l) => l.text) : [];
 }
-const rpcError = (e) => String((e && e.message) || e || 'erro').replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
-function fillContext() { $('meetingContext').value = state.settings.meetingContext || ''; $('ctxState').textContent = state.settings.meetingContext ? '(preenchido)' : ''; }
-async function saveMeetingContext() {
-  try {
-    state.settings = await api.setSettings({ meetingContext: $('meetingContext').value });
-    fillContext(); toast('Contexto da reunião salvo.', 1200);
-  } catch (e) { toast(rpcError(e), 5000); }
-}
-const glossaryNote = (r, verb) => `${r.count} termos${verb}${r.skipped ? ` · ${r.skipped} linha(s) ignorada(s) por parecer segredo` : ''}`;
-async function loadGlossaryUi() {
-  const r = await api.glossaryGet();
-  if (!r.ok) { $('glossaryState').textContent = r.error || 'Não li o glossário.'; return; }
-  $('glossary').value = r.text; $('glossary').dataset.dirty = '';
-  $('glossaryState').textContent = glossaryNote(r, '');
-}
-async function saveGlossary() {
-  const r = await api.glossarySet($('glossary').value);
-  if (!r.ok) { toast(r.error || 'Não salvei o glossário.'); return; }
-  $('glossary').dataset.dirty = '';
-  $('glossaryState').textContent = glossaryNote(r, ' salvos');
-}
-// Pesquisa só de leitura, com o contexto da vaga: resposta curta em português com as fontes
-async function searchWithContext() {
-  showTab('chat');
-  const sel = String(window.getSelection() || '').trim();
-  const last = [...state.lines].reverse().find((l) => l.text);
-  const r = await api.searchBuild(sel, last ? last.text : '');
-  if (!r.ok) { addMsg('bot', r.error || 'Não montei a pesquisa.', 'Pesquisa'); return; }
-  const m = addMsg('bot', `Pesquisando: ${r.query}…`, 'Pesquisa com contexto');
-  const rid = ++state.rid; streams.set(rid, m);
-  const t0 = performance.now();
-  const res = await api.research(linesForAI(), r.query, rid);
-  setTiming({ ai: (performance.now() - t0) / 1000 });
-  streams.delete(rid);
-  if (res.ok) {
-    const text = res.text || '(sem resposta)';
-    m.text = /https?:\/\//.test(text) ? text : `${text}\n\n(Sem fontes citadas: confirme antes de usar.)`;
-    m.prov = res.provider ? `via ${res.provider}` : '';
-  } else m.text = `A pesquisa não funcionou: ${res.error}\nVocê ainda pode abrir a busca no Google pelo botão abaixo.`;
-  paintMsg(m); saveHistory();
-  const open = document.createElement('button'); open.className = 'mini'; open.textContent = 'Abrir no Google';
-  open.onclick = async () => { const o = await api.searchOpen(r.query); if (!o.ok) toast(o.error || 'Não abri o navegador.'); };
-  m.el.appendChild(open);
-}
 
-const summary = () => runAI('Resumo da reunião', (rid) => api.summary(linesForAI(), rid));
-function explain() {
-  const sel = String(window.getSelection() || '').trim();
-  return runAI(sel ? sel.slice(0, 40) : 'Explica isso', (rid) => api.explain(linesForAI(), sel || null, rid));
+// ---------- pergunta detectada (chip dinâmico, Tab responde) ----------
+async function detectQuestion(line) {
+  if (!api.detect || line.who !== 'them') return;
+  const r = await api.detect(line.text);
+  if (!r || !r.ok || !r.question || state.discard) return;
+  state.question = r.question;
+  $('chipQText').textContent = r.question; $('chipQ').classList.remove('hidden'); openCard(true);
 }
-const roteiro = () => runAI('Roteiro', (rid) => api.roteiro(linesForAI(), '', rid));
+function hideQuestion() { state.question = ''; $('chipQ').classList.add('hidden'); }
 
-let live = null;
-function renderLive() {
-  const box = $('livePlan');
-  const btn = $('btnNext');
-  const prev = $('btnPrev');
-  const progress = $('liveProgress');
-  const bar = $('liveBar');
-  if (!live) {
-    box.innerHTML = '<div class="empty">Descreva o que vamos construir. O roteiro aparece aqui para você digitar. Nada é gravado e nenhum editor abre.</div>';
-    btn.disabled = true;
-    if (prev) prev.disabled = true;
-    btn.textContent = 'Próximo, 1 de 1';
-    if (progress) progress.hidden = true;
-    return;
-  }
-  const total = live.total || 1;
-  const cursor = Number(live.cursor) || 0;
-  const n = Math.min(total, cursor + 1);
-  if (progress) progress.hidden = false;
-  if (bar) bar.style.transform = `scaleX(${Number(live.progresso) || 0})`;
-  let body = '';
-  if (live.tela === 'mapa' || !live.atual) {
-    const files = (live.arquivos || []).map((file) => `<li><code>${esc(file.path)}</code><span>${esc(file.papel)}</span></li>`).join('');
-    body = `<section class="roteiro"><p class="kicker">Visão geral</p><h3>${esc(live.title)}</h3><p>${esc(live.visao || '')}</p><p>Arquivos, nesta ordem:</p><ul class="file-list">${files}</ul><p class="onde">Nada foi gravado em disco e nenhum editor foi aberto.</p></section>`;
-  } else {
-    const atual = live.atual;
-    const code = atual.codigo ? `<pre class="roteiro-code">${esc(atual.codigo)}</pre><button type="button" class="mini" id="btnCopyCode">Copiar bloco</button>` : '';
-    body = `<section class="roteiro"><p class="kicker">Seção ${esc(String(atual.n))} de ${esc(String((live.secoes && live.secoes.length) || total - 1))}</p><h3>${esc(atual.titulo)}</h3><p>${esc(atual.explicacao)}</p>${atual.arquivo ? `<p><code>${esc(atual.arquivo)}</code></p>` : ''}${atual.onde ? `<p class="onde">Onde colar: ${esc(atual.onde)}</p>` : ''}${code}</section>`;
-  }
-  box.innerHTML = body;
-  const copy = $('btnCopyCode');
-  if (copy && live.atual) copy.onclick = () => copyToast(live.atual.codigo, 'Bloco');
-  const atEnd = live.status === 'done' || cursor >= total - 1;
-  btn.disabled = atEnd;
-  if (prev) prev.disabled = cursor <= 0;
-  btn.textContent = atEnd ? `Roteiro concluído, ${total} de ${total}` : `Próximo, ${n} de ${total}`;
-}
-async function startLive(description) {
-  const r = await api.liveStart(description);
-  if (!r.ok) { toast(r.error || 'Não abri o livecoding.'); return; }
-  live = r.session;
-  showTab('live');
-  renderLive();
-}
-async function nextLive() {
-  if (!live || live.status === 'done') return;
-  $('btnNext').disabled = true;
-  const r = await api.liveNext(live.id);
-  $('btnNext').disabled = false;
-  if (!r.ok) { toast(r.error || 'O passo não rodou.'); return; }
-  live = r.session;
-  renderLive();
-}
-async function prevLive() {
-  if (!live || !api.livePrev || !live.cursor) return;
-  $('btnPrev').disabled = true;
-  const r = await api.livePrev(live.id);
-  $('btnPrev').disabled = false;
-  if (!r.ok) { toast(r.error || 'Não voltei o roteiro.'); return; }
-  live = r.session;
-  renderLive();
-}
-// Print da tela: mostra a prévia e só envia depois do clique em Enviar
+// Print da tela: miniatura com ✓ e ✕; nada é enviado antes do ✓
 async function screenAsk() {
-  showTab('chat');
   const r = await api.screenPreview();
-  if (!r.ok) { toast(r.error || 'Não consegui capturar a tela.', 7000); return; }
+  if (!r.ok) { toast(r.error || 'Não capturei a tela.', 5000); return; }
+  openCard(true);
   state.shotPending = true; $('shotImg').src = r.preview; $('shotBox').classList.remove('hidden');
 }
 function shotHide() { state.shotPending = false; $('shotBox').classList.add('hidden'); $('shotImg').removeAttribute('src'); }
-function shotCancel() { shotHide(); api.screenCancel(); toast('Print descartado: nada foi enviado.', 2200); }
+function shotCancel() { shotHide(); api.screenCancel(); }
 function shotDrop() { if (state.shotPending) { shotHide(); api.screenCancel(); } }
-async function shotSend() { shotHide(); await runAI('Análise da tela', (rid) => api.ask(linesForAI(), 'Analise minha tela junto com a conversa e diga, em português, o que eu devo fazer ou dizer agora.', true, rid)); }
-function ask(q) {
-  if (!q) return;
-  const ctx = chatContext();
-  const question = ctx ? `${q}\n\n(Conversa anterior no chat, para contexto:\n${ctx})` : q;
-  const only = state.mode === 'pt' ? '\n\n(Responda somente em português, sem frases em inglês.)' : '';
-  return runAI('Resposta', (rid) => api.ask(linesForAI(), `${question}${only}`, false, rid), q);
-}
+async function shotSend() { shotHide(); await runAI('Tela', (rid) => api.ask(linesForAI(), 'Analise minha tela junto com a conversa e diga, em português, o que eu devo fazer ou dizer agora.', true, rid)); }
 
-// Aba em inglês: só a tradução em português do que o Outro(s) disse por último (3 falas); o original é opcional
+// Modo EN: só a tradução em português do que o Outro disse por último (3 falas); o original não aparece
 async function translateRecent() {
-  showTab('chat');
   const them = state.lines.filter((l) => l.who === 'them' && l.lang !== 'pt').slice(-3);
-  if (!them.length) { toast('Ainda não ouvi a outra pessoa. Clique em Iniciar.', 2500); return; }
-  const m = addMsg('bot', 'Traduzindo…', 'O que a outra pessoa disse');
-  $('btnTranslate').disabled = true;
+  if (!them.length) { toast('Ainda não ouvi o Outro.', 2000); return; }
+  showView('answer'); paintAnswer('', true); $('btnMore').classList.add('hidden');
   let err = '';
   try {
     // não traduz de novo o que já está a caminho (legenda ao vivo): espera o lote em andamento terminar
@@ -324,14 +280,13 @@ async function translateRecent() {
       const t0 = performance.now();
       const r = await api.translateBatch(missing.map((l) => ({ id: l.id, text: l.text })), historyBefore(missing[0].id));
       setTiming({ tr: (performance.now() - t0) / 1000 });
-      if (r.ok) { for (const it of r.items) { const l = state.lines.find((x) => x.id === it.id); if (l && it.pt) { l.pt = it.pt; renderLine(l); } } m.prov = r.provider ? `via ${r.provider}` : ''; } else err = r.error || 'falha na tradução';
+      if (r.ok) { for (const it of r.items) { const l = state.lines.find((x) => x.id === it.id); if (l && it.pt) { l.pt = it.pt; renderLine(l); } } } else err = r.error || 'falha na tradução';
     }
   } catch (e) { err = (e && e.message) || 'falha na tradução'; }
-  $('btnTranslate').disabled = false;
-  m.text = err ? `Erro: ${err}` : (them.map((l) => l.pt).filter(Boolean).join('\n') || 'Não consegui traduzir esse trecho.');
-  m.orig = err ? '' : them.map((l) => l.text).join('\n');
+  const pts = them.map((l) => l.pt).filter(Boolean);
+  setAnswer(err || (pts.length ? [pts[pts.length - 1], ...pts.slice(0, -1).map((p) => `- ${p}`)].join('\n') : 'Não traduzi esse trecho.'), { title: 'Traduzir' });
   state.trShownId = LineUtil.shownCursor(state.lines, state.trShownId);
-  paintMsg(m); saveHistory(); refreshRate();
+  saveHistory();
 }
 
 // ---------- histórico ----------
@@ -341,19 +296,12 @@ function saveHistory() {
   saveTimer = setTimeout(() => {
     if (!state.lines.length && !state.chat.length) return;
     const md = `# Reunião ${state.sessionId}\n\n## Transcrição\n\n` +
-      state.lines.map((l) => `- ${l.who === 'me' ? '**Você:** ' : l.who === 'them' ? '**Outro(s):** ' : ''}${l.text}${l.pt ? `\n  > ${l.pt}` : ''}`).join('\n') +
-      (state.chat.length ? '\n\n## Chat\n\n' + state.chat.map((m) => (m.role === 'user' ? `**Você (${m.at}):** ${m.text}` : `**${m.title} (${m.at}):**\n\n${m.text}`)).join('\n\n') : '') + '\n';
+      state.lines.map((l) => `- ${l.who === 'me' ? '**Você:** ' : l.who === 'them' ? '**Outro:** ' : ''}${l.text}${l.pt ? `\n  > ${l.pt}` : ''}`).join('\n') +
+      (state.chat.length ? '\n\n## Respostas\n\n' + state.chat.map((m) => `**${m.title} (${m.at}):**\n\n${m.text}`).join('\n\n') : '') + '\n';
     api.saveHistory(state.sessionId, md);
   }, 1500);
 }
-
-async function refreshRate() {
-  if (state.settings.mock) { $('quota').textContent = 'modo demonstração: sem chamadas à IA'; return; }
-  const r = await api.getRate();
-  const f = (x, label) => (x ? `${label} ${x.reqLeft ?? '?'}/${x.reqLimit ?? '?'}${x.status === 429 ? ' ⚠' : ''}` : '');
-  const t = [f(r.audio, 'áudio'), f(r.chat, 'IA')].filter(Boolean).join(' · ');
-  $('quota').textContent = t ? `cota hoje: ${t}` : '';
-}
+async function refreshRate() { /* a cota fica no app principal; aqui só o ponto colorido */ }
 
 // ---------- captura: som do PC (Outro) e microfone (Você) em dois gravadores separados ----------
 const MIME = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus'].find((m) => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
@@ -409,6 +357,7 @@ async function handleChunk(blob, who = 'them', retried = false, forcedId = 0) {
   const line = { id, who, text: r.text, lang: r.language || '', pt: '' };
   state.lines.push(line); state.lines.sort((a, b) => a.id - b.id);
   renderLine(line); saveHistory();
+  if (who === 'them') detectQuestion(line);
   if (state.mode === 'en' && state.settings.translate && who !== 'me' && line.lang !== 'pt') { line.trq = true; state.pendingTr.push(line); pumpTranslate(); }
 }
 
@@ -452,7 +401,8 @@ function tick() { const s = Math.floor((Date.now() - state.startedAt) / 1000); $
 
 async function start() {
   if (state.starting || state.recording) return;
-  if (!state.settings.hasGroqKey && !state.settings.hasGeminiKey) { openSettings(); toast('Cole sua chave da Groq em Configurações para começar.'); setStatus('sem chave'); return; }
+  state.settings = await api.getSettings();
+  if (!state.settings.hasGroqKey && !state.settings.hasGeminiKey) { toast('Falta a chave da Groq: Ajustes › Reunião, ou peça ao HELIOS.', 6000); setStatus('erro: sem chave'); return; }
   state.starting = true; state.discard = false; state.chunkAuto = 0;
   if (typeof api.warm === 'function') api.warm().catch(() => {}); // aquece a conexão com a Groq enquanto o áudio abre
   const gen = state.gen; const alive = () => state.gen === gen;
@@ -475,141 +425,111 @@ async function start() {
       } catch (e) { problems.push(mediaMessage(e, 'Microfone')); }
       if (!alive()) { giveUp(); return; }
     }
-    if (!sources.length) { giveUp(); setStatus('parado'); toast(`Não consegui ouvir nada. ${problems.join(' ')} Tente de novo; se o som do PC não funcionar, use o microfone com o alto-falante ligado.`, 14000); return; }
-    const hasThem = sources.some((s) => s.who === 'them'); const hasMe = sources.some((s) => s.who === 'me');
-    if (problems.length) toast(`${problems.join(' ')} Sigo só com ${hasThem ? 'o áudio do PC (suas falas não serão captadas)' : 'o seu microfone (as falas dos outros não serão captadas)'}.`, 14000);
+    if (!sources.length) { giveUp(); setStatus('parado'); toast(`Não consegui ouvir nada. ${problems.join(' ')} Tente de novo ou use o microfone com o alto-falante ligado.`, 9000); return; }
+    const hasThem = sources.some((s) => s.who === 'them');
+    if (problems.length) toast(`${problems.join(' ')} Sigo só com ${hasThem ? 'o áudio do PC' : 'o microfone'}.`, 7000);
     state.streams = opened; state.ctx = ctx;
     state.recs = sources.map((s) => makeRecorder(s.stream, ctx, ctx.createMediaStreamSource(s.stream), s.who));
-    state.recording = true; state.listenText = `ouvindo: ${[hasMe ? 'você' : '', hasThem ? 'outros' : ''].filter(Boolean).join(' + ')}`;
-    setTiming({ cap: chunkSecs() });
+    state.recording = true; setTiming({ cap: chunkSecs() });
     state.startedAt = Date.now(); tick(); state.timerIv = setInterval(tick, 1000);
-    $('btnStart').textContent = 'Parar'; $('btnStart').classList.add('on'); $('dot').classList.add('live'); $('timer').classList.remove('hidden');
-    setStatus(state.listenText); showTab(state.tab === 'settings' ? 'chat' : state.tab);
+    $('btnStart').classList.add('on'); $('dot').classList.add('live'); $('btnEnd').classList.remove('hidden');
+    setStatus('ouvindo'); openCard(true);
+    if (api.setHotkeysActive) api.setHotkeysActive(true); // Ctrl+Enter só durante a reunião
   } catch (e) {
-    giveUp(); setStatus('parado'); toast(`Não consegui iniciar: ${(e && e.message) || e}`, 10000);
+    giveUp(); setStatus('parado'); toast(`Não consegui iniciar: ${(e && e.message) || e}`, 7000);
   } finally { state.starting = false; }
 }
 // Por padrão descarta o que ainda estava a caminho (fechar a janela não manda mais nada para a nuvem); "Parar" mantém o último trecho.
 function stopSession(discard = true) {
-  state.gen += 1; state.discard = discard; state.listenText = '';
+  state.gen += 1; state.discard = discard;
   state.recs.forEach((r) => r.stop()); state.recs = [];
   state.streams.forEach((s) => s.getTracks().forEach((t) => t.stop())); state.streams = [];
   if (state.ctx) { state.ctx.close(); state.ctx = null; }
   clearInterval(state.timerIv); state.recording = false;
   state.pendingTr.forEach((l) => { l.trq = false; }); state.pendingTr = []; clearTimeout(state.trTimer); state.trTimer = null; state.trPauseUntil = 0;
   if (discard) { deltaHandlers.clear(); streams.clear(); }
-  shotDrop();
-  $('btnStart').textContent = 'Iniciar'; $('btnStart').classList.remove('on'); $('dot').classList.remove('live'); $('timer').classList.add('hidden');
+  shotDrop(); hideQuestion();
+  if (api.setHotkeysActive) api.setHotkeysActive(false);
+  $('btnStart').classList.remove('on'); $('dot').classList.remove('live'); $('btnEnd').classList.add('hidden');
   setStatus('parado'); saveHistory();
 }
 const toggleStart = () => (state.recording || state.starting ? stopSession(false) : start());
-
-// ---------- configurações ----------
-const FIELDS = ['provider', 'meetingLang', 'captureMic', 'myContext', 'sttModel', 'chunkSeconds', 'llmModel', 'fastModel', 'geminiModel', 'opacity', 'formality', 'translateHistory', 'translateContextChars'];
-function fillSettings() {
-  const s = state.settings;
-  for (const f of FIELDS) { const el = $(f); if (el.type === 'checkbox') el.checked = !!s[f]; else el.value = s[f] ?? ''; }
-  $('groqKey').value = ''; $('geminiKey').value = '';
-  $('groqState').textContent = s.hasGroqKey ? '✓ chave salva (criptografada)' : '';
-  $('geminiState').textContent = s.hasGeminiKey ? '✓ chave salva (criptografada)' : '';
-  $('liveTr').checked = !!s.translate;
-  fillContext(); loadGlossaryUi();
-}
-function openSettings() { if (state.tab === 'settings' && !$('panel').classList.contains('hidden')) return showTab(state.prevTab || 'chat'); state.prevTab = state.tab; fillSettings(); showTab('settings'); api.focus(); }
-async function saveSettings() {
-  if ($('glossary').dataset.dirty) await saveGlossary();
-  const patch = {};
-  for (const f of FIELDS) { const el = $(f); patch[f] = el.type === 'checkbox' ? el.checked : el.type === 'number' ? Number(el.value) : el.value; }
-  if ($('groqKey').value.trim()) patch.groqKey = $('groqKey').value.trim();
-  if ($('geminiKey').value.trim()) patch.geminiKey = $('geminiKey').value.trim();
-  state.settings = await api.setSettings(patch);
-  fillSettings(); $('testResult').textContent = 'Salvo.';
+// Encerrar: para, roda o fechamento (resumo + pendências salvos no Second Brain) e já começa uma reunião nova
+async function endMeeting() {
+  stopSession(false);
+  if (state.lines.length) await runAI('Encerrar', (rid) => api.wrapup(linesForAI(), rid), { record: false });
+  saveHistory();
+  state.lines = []; state.chat = []; state.trShownId = 0; state.sessionId = newSessionId();
+  $('transcript').innerHTML = ''; renderHistory(); $('caption').classList.add('hidden');
 }
 
-function showPersonal(i) {
-  if (!i) return;
-  const tok = Math.round(i.chars / 4);
-  $('personalState').textContent = i.error ? `Erro: ${i.error}` : i.truncated
-    ? `⚠ meu contexto tem ~${tok} tokens; só os primeiros ~1.500 são usados. Encurte o arquivo.`
-    : `personallycontext.md carregado (~${tok} tokens)`;
-  $('personalState').style.color = i.truncated ? '#ffb84d' : '';
+// ---------- menu (3 itens: tema, opacidade, microfone) ----------
+function applyTheme(t) { document.documentElement.setAttribute('data-mtheme', t === 'light' ? 'light' : 'dark'); }
+function fillMenu() {
+  $('mOpacity').value = Number(state.settings.opacity) || 1;
+  $('mMic').checked = !!state.settings.captureMic;
 }
 
 function bind() {
   $('btnStart').onclick = toggleStart;
-  $('tabChat').onclick = () => showTab('chat');
-  $('tabTranscript').onclick = () => showTab('transcript');
-  $('tabLive').onclick = () => { showTab('live'); renderLive(); };
+  $('btnEnd').onclick = endMeeting;
+  $('btnLogo').onclick = () => openCard(!state.cardOpen);
   $('btnHide').onclick = () => { stopSession(); api.hide(); };
-  $('btnSettings').onclick = openSettings;
-  $('btnCloseSettings').onclick = () => showTab(state.prevTab || 'chat');
-  $('btnSaveSettings').onclick = saveSettings;
-  $('btnTest').onclick = async () => {
-    await saveSettings(); $('testResult').textContent = 'Testando…';
-    const r = await api.testKeys();
-    $('testResult').textContent = !r.ok ? r.error : (Object.entries(r.result).map(([k, v]) => `${k === 'groq' ? 'Groq' : 'Gemini'}: ${v}`).join(' · ') || 'Nenhuma chave salva.');
-    refreshRate();
-  };
-  $('btnPersonal').onclick = async () => showPersonal(await api.openPersonal());
-  api.onPersonal(showPersonal);
-  $('btnSugEn').onclick = sugEn;
-  $('btnSugBoth').onclick = sugPt;
-  $('sayForm').onsubmit = (e) => { e.preventDefault(); const q = $('sayInput').value; $('sayInput').value = ''; translatePhrase(q); };
-  $('btnTrCopy').onclick = () => { if (state.trCurrent) copyToast(state.trCurrent.en, 'Inglês'); };
-  $('trEn').onclick = () => { if (state.trCurrent) copyToast(state.trCurrent.en, 'Inglês'); };
+  $('btnMenu').onclick = (e) => { e.stopPropagation(); fillMenu(); $('menu').classList.toggle('hidden'); };
+  document.addEventListener('click', (e) => { if (!$('menu').contains(e.target)) $('menu').classList.add('hidden'); });
+  $('mTheme').onclick = () => { const t = document.documentElement.getAttribute('data-mtheme') === 'light' ? 'dark' : 'light'; applyTheme(t); try { localStorage.setItem('heliosMeetingTheme', t); } catch { /* ok */ } };
+  $('mOpacity').onchange = async () => { state.settings = await api.setSettings({ opacity: Number($('mOpacity').value) }); };
+  $('mMic').onchange = async () => { state.settings = await api.setSettings({ captureMic: $('mMic').checked }); };
   $('modePt').onclick = () => setMode('pt'); $('modeEn').onclick = () => setMode('en');
-  $('showOrig').onchange = () => { $('root').classList.toggle('show-orig', $('showOrig').checked); };
-  $('btnShot').onclick = screenAsk;
+  $('chipSay').onclick = () => assist();
+  $('chipSug').onclick = () => assist();
+  $('chipAsk').onclick = () => setInput('ask', true);
+  $('chipTr').onclick = translateRecent;
+  $('chipSayEn').onclick = () => setInput('say', true);
+  $('chipLive').onclick = () => setInput(state.input === 'code' ? defaultInput() : 'code', true);
+  $('chipShot').onclick = screenAsk;
+  $('chipTranscript').onclick = () => toggleTranscript();
+  $('chipHist').onclick = () => (state.view === 'history' ? showView(state.last ? 'answer' : '') : (renderHistory(), showView('history')));
+  $('chipQ').onclick = () => assist();
+  $('btnMore').onclick = () => { if (state.last && state.last.more) state.last.more(); };
+  $('btnCopy').onclick = () => { if (state.last) { const a = parseAnswer(state.last.text); copyToast([a.main, ...a.bullets].join('\n'), 'Texto'); } };
+  $('trEn').onclick = () => { if (state.trCurrent) copyToast(state.trCurrent.en, 'Inglês'); };
+  $('btnCodeCopy').onclick = () => copyToast($('codeText').textContent, 'Código');
+  $('btnPrev').onclick = () => stepLive(-1); $('btnNext').onclick = () => stepLive(1);
+  api.onLiveSession((session) => { live = session; renderLive(); });
   $('btnShotSend').onclick = shotSend;
   $('btnShotCancel').onclick = shotCancel;
-  $('chunk6').onclick = () => { $('chunkSeconds').value = 6; };
-  $('chunk9').onclick = () => { $('chunkSeconds').value = 9; };
-  $('btnSearch').onclick = searchWithContext;
-  $('meetingContext').onchange = saveMeetingContext;
-  $('glossary').oninput = () => { $('glossary').dataset.dirty = '1'; };
-  $('btnGlossarySave').onclick = saveGlossary;
-  $('btnGlossaryOpen').onclick = () => api.glossaryOpen();
-  $('btnTranslate').onclick = translateRecent;
-  $('btnSummary').onclick = summary;
-  $('btnExplain').onclick = () => explain();
-  $('btnRoteiro').onclick = roteiro;
-  $('liveForm').onsubmit = (e) => { e.preventDefault(); const q = $('liveInput').value.trim(); if (q) startLive(q); };
-  $('btnNext').onclick = nextLive;
-  if ($('btnPrev')) $('btnPrev').onclick = prevLive;
-  api.onLiveSession((session) => { live = session; showTab('live'); renderLive(); });
-  $('btnHistory').onclick = () => api.openHistory();
-  $('btnNew').onclick = () => {
-    saveHistory(); state.lines = []; state.chat = []; state.trShownId = 0; $('caption').classList.add('hidden'); state.sessionId = newSessionId();
-    $('transcript').innerHTML = '<div class="empty">Nova reunião.</div>'; $('chat').innerHTML = '<div class="empty">Nova reunião.</div>';
-  };
-  $('liveTr').onchange = async () => { state.settings = await api.setSettings({ translate: $('liveTr').checked }); };
-  $('askForm').onsubmit = (e) => { e.preventDefault(); const q = $('askInput').value.trim(); $('askInput').value = ''; ask(q); };
+  $('askForm').onsubmit = (e) => { e.preventDefault(); const q = $('askInput').value; $('askInput').value = ''; submitInput(q); };
   api.onHotkey((n) => {
-    if (n === 'sugEn' || n === 'sugPt') (state.mode === 'en' ? sugEn() : sugPt());
-    else if (n === 'translate') { if (onlyIn('en', 'Traduzir o que a outra pessoa disse')) translateRecent(); }
+    if (n === 'assist') { if (state.recording) assist(); }
+    else if (n === 'translate') { if (state.mode === 'en') translateRecent(); }
     else if (n === 'record') toggleStart();
-    else if (n === 'ask') { if (onlyIn('pt', 'A pergunta livre')) { showTab('chat'); api.focus(); setTimeout(() => $('askInput').focus(), 50); } }
+    else if (n === 'say') setInput(state.mode === 'en' ? 'say' : 'ask', true);
+    else if (n === 'live') setInput('code', true);
+    else if (n === 'mode') setMode(state.mode === 'en' ? 'pt' : 'en');
     else if (n === 'screen') screenAsk();
-    else if (n === 'say') { if (onlyIn('en', 'O tradutor')) { showTab('chat'); api.focus(); setTimeout(() => $('sayInput').focus(), 50); } }
-    else if (n === 'settings') openSettings();
-    else if (n === 'clickthrough') { state.clickThrough = !state.clickThrough; $('ctBadge').classList.toggle('hidden', !state.clickThrough); toast(state.clickThrough ? 'Modo atravessar ligado (Ctrl+Shift+T desliga).' : 'Modo atravessar desligado.', 2500); }
+    else if (n === 'clickthrough') { state.clickThrough = !state.clickThrough; $('ctBadge').classList.toggle('hidden', !state.clickThrough); }
   });
   // O main avisa quando a janela fecha por fora do botão (Esc, Alt+F4, atalho): para a captura e desliga o modo atravessar.
   api.onMeetingStop((info) => {
     if (info && info.stop) { if (state.recording || state.starting) stopSession(); shotDrop(); }
     if (state.clickThrough) { state.clickThrough = false; $('ctBadge').classList.add('hidden'); }
   });
-  // Esc fecha o modo de reunião, mas não enquanto grava; nas configurações só volta; em campo de texto com conteúdo só tira o foco.
   document.addEventListener('keydown', (e) => {
-    if (e.key !== 'Escape' || e.defaultPrevented || e.isComposing) return;
+    if (e.defaultPrevented || e.isComposing) return;
+    const el = document.activeElement; const typing = el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName);
+    // Tab (com foco na janela, fora do campo) responde à pergunta detectada
+    if (e.key === 'Tab' && state.question && !typing) { e.preventDefault(); assist(); return; }
+    // Ctrl+Enter dentro da janela também pede a resposta, mas só com a reunião ativa
+    if (e.key === 'Enter' && e.ctrlKey && !e.shiftKey && state.recording) { e.preventDefault(); assist(); return; }
+    if (e.key !== 'Escape') return;
     if (state.shotPending) { shotCancel(); return; }
+    if (!$('menu').classList.contains('hidden')) { $('menu').classList.add('hidden'); return; }
     if (state.recording) return;
-    const el = document.activeElement;
-    if (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) && el.value) { el.blur(); return; }
-    if (state.tab === 'settings' && !$('panel').classList.contains('hidden')) { showTab(state.prevTab || 'chat'); return; }
+    if (typing && el.value) { el.blur(); return; }
     api.hide();
   });
-  api.onHotkeysFailed((l) => toast(`Atalhos já usados por outro app: ${l.join(', ')}`, 8000));
+  api.onHotkeysFailed((l) => toast(`Atalho em uso por outro app: ${l.join(', ')}`, 6000));
   window.addEventListener('beforeunload', () => saveHistory());
 }
 
@@ -635,11 +555,8 @@ async function selftest() {
   if (api.selftest) return selftest();
   bind();
   let savedMode = 'pt'; try { savedMode = localStorage.getItem('heliosMeetingMode') || 'pt'; } catch { /* sem armazenamento */ }
+  try { applyTheme(localStorage.getItem('heliosMeetingTheme') || 'dark'); } catch { applyTheme('dark'); }
   setMode(savedMode, false);
   state.settings = await api.getSettings();
-  fillSettings();
-  showPersonal(await api.personalInfo());
-  if (!state.settings.hasGroqKey && !state.settings.hasGeminiKey) showTab('settings');
-  else showTab('chat');
   fit();
 })();

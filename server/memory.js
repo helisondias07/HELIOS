@@ -4,7 +4,8 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { newId, nowIso, readJson, writeJson, redact } = require("./util");
 
-const KINDS = ["fato", "preferencia", "regra"];
+const KINDS = ["fato", "preferencia", "regra", "pendencia"];
+const LEAN_MAX_ACTIVE = 120;
 const MAX_ITEMS = 300;
 const STOP = new Set("a o e de da do das dos em no na nos nas um uma para pra por com sem que se ao aos as os ou mais como quando onde qual eu voce vc me te ja nao sim tem ser estar the and of to in is it on for".split(" "));
 
@@ -33,6 +34,68 @@ function createMemory(dataDir, fileName = "memory.json") {
   let data = readJson(file, { version: 1, items: [] });
   if (!Array.isArray(data.items)) data = { version: 1, items: [] };
   const save = () => writeJson(file, data);
+  // Memória enxuta: item fechado sai do prompt e vai para o arquivo (memory*.arquivo.json). Nada é apagado.
+  const archiveFile = file.replace(/\.json$/, ".arquivo.json");
+  let archive = null;
+  const loadArchive = () => {
+    if (!archive) {
+      archive = readJson(archiveFile, { version: 1, items: [] });
+      if (!Array.isArray(archive.items)) archive = { version: 1, items: [] };
+    }
+    return archive;
+  };
+  const saveArchive = () => writeJson(archiveFile, loadArchive());
+
+  function moveToArchive(item, reason) {
+    loadArchive().items.push({ ...item, status: "fechado", closedAt: nowIso(), archiveReason: reason });
+    data.items = data.items.filter((entry) => entry.id !== item.id);
+  }
+
+  /** Fecha um item: some do prompt e fica no arquivo, de onde pode voltar. */
+  function close(id, reason = "fechado") {
+    const item = data.items.find((entry) => entry.id === id);
+    if (!item) return false;
+    moveToArchive(item, reason);
+    saveArchive();
+    save();
+    return true;
+  }
+
+  function restore(id) {
+    const arch = loadArchive();
+    const item = arch.items.find((entry) => entry.id === id);
+    if (!item) return false;
+    arch.items = arch.items.filter((entry) => entry.id !== id);
+    const { closedAt, archiveReason, ...rest } = item;
+    void closedAt; void archiveReason;
+    data.items.push({ ...rest, status: "aberto", updatedAt: nowIso() });
+    saveArchive();
+    save();
+    return true;
+  }
+
+  function archived() {
+    return [...loadArchive().items].sort((a, b) => String(b.closedAt).localeCompare(String(a.closedAt)));
+  }
+
+  /**
+   * Enxuga: arquiva o que já está fechado e, se passar do teto ativo, os itens mais antigos
+   * (regras ficam). Devolve quantos foram para o arquivo.
+   */
+  function compact({ maxActive = LEAN_MAX_ACTIVE } = {}) {
+    let moved = 0;
+    for (const item of data.items.filter((entry) => entry.status === "fechado")) { moveToArchive(item, "fechado"); moved += 1; }
+    const extra = data.items.length - maxActive;
+    if (extra > 0) {
+      const old = data.items
+        .filter((entry) => entry.kind !== "regra")
+        .sort((a, b) => String(a.updatedAt).localeCompare(String(b.updatedAt)))
+        .slice(0, extra);
+      for (const item of old) { moveToArchive(item, "antigo"); moved += 1; }
+    }
+    if (moved) { saveArchive(); save(); }
+    return { moved, active: data.items.length, archived: loadArchive().items.length };
+  }
 
   function list() {
     return [...data.items].sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
@@ -52,8 +115,9 @@ function createMemory(dataDir, fileName = "memory.json") {
       save();
       return { item: same, updated: true };
     }
-    const item = { id: newId("mem"), kind: k, text: clean, source, createdAt: nowIso(), updatedAt: nowIso() };
+    const item = { id: newId("mem"), kind: k, status: "aberto", text: clean, source, createdAt: nowIso(), updatedAt: nowIso() };
     data.items.push(item);
+    if (data.items.length > LEAN_MAX_ACTIVE) compact();
     if (data.items.length > MAX_ITEMS) data.items.splice(0, data.items.length - MAX_ITEMS);
     save();
     return { item, updated: false };
@@ -84,6 +148,7 @@ function createMemory(dataDir, fileName = "memory.json") {
   function context({ text = "", maxChars = 800 } = {}) {
     const wanted = new Set(tokens(text));
     const ranked = list()
+      .filter((item) => item.status !== "fechado")
       .map((item) => {
         const own = tokens(item.text);
         let score = 0;
@@ -106,7 +171,7 @@ function createMemory(dataDir, fileName = "memory.json") {
     return { text: lines.length ? `Memória sobre o Helison:\n${lines.join("\n")}` : "", ids };
   }
 
-  return { list, remember, addImported, forget, context, file, maxItems: MAX_ITEMS };
+  return { list, remember, addImported, forget, context, close, restore, archived, compact, file, archiveFile, maxItems: MAX_ITEMS, maxActive: LEAN_MAX_ACTIVE };
 }
 
 function overlap(a, b) {
@@ -121,8 +186,18 @@ function overlap(a, b) {
 /**
  * Uma memória por assistente. O assistente padrão continua no memory.json de sempre
  * (nada a migrar); os outros ficam em memory-<id>.json e não se misturam.
+ * LEVA L: prefere backend híbrido (SQLite FTS5 + vetores) quando node:sqlite está disponível.
  */
 function createMemories(dataDir) {
+  let hybrid = null;
+  try {
+    require("node:sqlite");
+    hybrid = require("./memory-hybrid").createHybridMemories(dataDir);
+  } catch {
+    hybrid = null;
+  }
+  if (hybrid) return hybrid;
+
   const cache = new Map();
   const keyOf = (id) => {
     const value = String(id || "default");
@@ -144,10 +219,11 @@ function createMemories(dataDir) {
     if (key === "default") return false;
     cache.delete(key);
     fs.rmSync(path.join(dataDir, fileOf(key)), { force: true });
+    fs.rmSync(path.join(dataDir, fileOf(key).replace(/\.json$/, ".arquivo.json")), { force: true });
     return true;
   }
 
-  return { for: forAssistant, drop };
+  return { for: forAssistant, drop, backend: "json" };
 }
 
-module.exports = { createMemory, createMemories, unsafeReason, tokens, overlap, MAX_ITEMS };
+module.exports = { createMemory, createMemories, unsafeReason, tokens, overlap, MAX_ITEMS, LEAN_MAX_ACTIVE };

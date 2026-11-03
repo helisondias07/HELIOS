@@ -66,23 +66,11 @@ function mockChat(messages) {
   if (/Pesquise na web \(somente leitura\)/.test(user)) {
     return "A Wake é uma plataforma brasileira de e-commerce (demonstração, nenhuma pesquisa real foi feita).\nFontes:\nhttps://example.com/wake-plataforma\nhttps://example.com/wake-docs";
   }
-  if (/OPÇÃO 1/.test(user)) {
-    if (/EN: </.test(user)) {
-      return [
-        "OPÇÃO 1 (direta)",
-        "EN: I have three years building Wake storefronts, mostly focused on speed.",
-        "PT: Tenho três anos construindo lojas na Wake, com foco em velocidade.",
-        "OPÇÃO 2 (mais elaborada)",
-        "EN: I built and tuned Wake storefronts, and I usually start by measuring the page before I change anything.",
-        "PT: Eu construí e ajustei lojas na Wake e costumo começar medindo a página antes de mudar qualquer coisa.",
-      ].join("\n");
-    }
-    return [
-      "OPÇÃO 1 (direta)",
-      "PT: Tenho três anos de experiência com lojas na Wake, focado em velocidade.",
-      "OPÇÃO 2 (mais elaborada)",
-      "PT: Eu construí e ajustei lojas na Wake e costumo começar medindo a página antes de mudar qualquer coisa.",
-    ].join("\n");
+  if (/Você detecta perguntas/.test(system)) return /\?\s*$/.test(user.trim()) ? toPt(user).replace(/^\(demonstração\)\s*/, "").split(/\s+/).slice(0, 8).join(" ") : "NONE";
+  if (/cola de livecoding/.test(system)) return "function debounce(fn, ms = 300) {\n  let t;\n  return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };\n}";
+  if (/Escreva UMA resposta/.test(user)) {
+    if (/EN: </.test(user)) return "EN: I have three years building Wake storefronts, mostly focused on speed.\nPT: Tenho três anos construindo lojas na Wake, com foco em velocidade.";
+    return "Tenho três anos com lojas na Wake, focado em velocidade.\n+ Começo sempre medindo a página.";
   }
   return "(demonstração) Resposta simulada em português: nenhuma chamada de IA foi feita.";
 }

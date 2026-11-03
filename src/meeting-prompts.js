@@ -62,23 +62,49 @@ function parseBatch(text, items) {
 
 const OUTRO_RULE = 'Foque no que o(s) OUTRO(s) acabou de dizer (a última fala marcada "Outro(s)"). Se a última fala for do Helison, ajude-o a continuar a conversa.';
 
-// 2 opções (direta e mais elaborada). Em português por padrão; em inglês só quando pedido, sempre com a versão em português.
-function suggest(lines, { myContext, lang, meeting } = {}) {
+// Leva H (estilo Cluely): 1 resposta só, pronta para falar, no máximo 2 frases e 25 palavras. "Mais" pede a versão elaborada.
+const CHEAT = 'Responda como cola de tela: o mínimo de palavras, nada de explicações a menos que pedidas. Sem preâmbulo, sem "Claro!", sem repetir a pergunta.';
+function suggest(lines, { myContext, lang, meeting, more = false } = {}) {
   const english = lang === 'en' || lang === 'both';
+  const size = more ? 'no máximo 3 frases e 45 palavras' : 'no máximo 2 frases e 25 palavras';
   const format = english
-    ? 'Formato obrigatório (nada além disso):\nOPÇÃO 1 (direta)\nEN: <1 frase curta em inglês simples>\nPT: <tradução em português>\nOPÇÃO 2 (mais elaborada)\nEN: <2 a 3 frases em inglês simples>\nPT: <tradução em português>'
-    : 'Formato obrigatório (nada além disso):\nOPÇÃO 1 (direta)\nPT: <1 frase curta, pronta para falar>\nOPÇÃO 2 (mais elaborada)\nPT: <2 a 3 frases prontas para falar>';
+    ? `Formato obrigatório (nada além disso):\nEN: <a resposta em inglês simples, ${size}>\nPT: <tradução em português>`
+    : `Formato obrigatório (nada além disso): só a frase em português, ${size}. Opcional: uma linha "+ <detalhe extra de no máximo 10 palavras>".`;
   const style = english
     ? 'Inglês natural e simples, no nível de um desenvolvedor brasileiro intermediário: frases curtas, vocabulário comum, contrações naturais (I\'m, I\'ve), sem gírias raras nem palavras difíceis.'
-    : 'Português do Brasil natural, fácil de falar em voz alta.';
+    : 'Português do Brasil natural, fácil de falar em voz alta. Nada em inglês.';
   return [
-    { role: 'system', content: base(myContext, meeting) },
+    { role: 'system', content: `${base(myContext, meeting)}\n${CHEAT}` },
     { role: 'user', content: `${transcriptBlock(lines)}
 
 ${OUTRO_RULE}
-Escreva DUAS opções do que o Helison pode responder em voz alta AGORA, em primeira pessoa. ${style} Use o contexto da vaga/reunião (quando houver) e o perfil dele; não invente números, datas, empresas nem experiência que ele não tenha. Não repita a pergunta nem explique o raciocínio.
+Escreva UMA resposta que o Helison pode falar em voz alta AGORA, em primeira pessoa${more ? ', um pouco mais elaborada' : ''}. ${style} Use o contexto da vaga/reunião (quando houver) e o perfil dele; não invente números, datas, empresas nem experiência que ele não tenha. Sem rótulos de opção.
 ${format}` },
   ];
+}
+
+// Pergunta detectada na última fala do Outro(s): até 8 palavras ou NONE. Barato (modelo rápido), alimenta o chip.
+function detectQuestion(text) {
+  return [
+    { role: 'system', content: 'Você detecta perguntas feitas ao Helison numa reunião. Se a fala contém uma pergunta ou pedido dirigido a ele, devolva só essa pergunta resumida em português, em até 8 palavras, sem aspas. Se não houver pergunta, devolva exatamente NONE.' },
+    { role: 'user', content: String(text || '').slice(0, 600) },
+  ];
+}
+function parseDetect(text) {
+  const t = String(text || '').trim().split(/\r?\n/)[0].replace(/^["'“]|["'”]$/g, '').trim();
+  if (!t || /^none\.?$/i.test(t)) return '';
+  return t.split(/\s+/).slice(0, 8).join(' ');
+}
+
+// Livecoding (Leva H): só código, curto e direto, sem texto em volta.
+function code(lines, request, { myContext, meeting } = {}) {
+  return [
+    { role: 'system', content: ['Você é a cola de livecoding do Helison (dev front-end/e-commerce) numa entrevista ou reunião ao vivo.', 'Responda SÓ com um bloco de código curto e funcional, sem explicação antes ou depois, sem cercas ```.', 'Comentários no código só se indispensáveis, em português, curtos. No máximo 40 linhas. Use a linguagem pedida; se não disser, JavaScript.', myContext ? `Instruções do Helison: ${myContext}` : '', meeting ? `Contexto da reunião (não repita):\n${meeting}` : ''].filter(Boolean).join('\n') },
+    { role: 'user', content: `${lines && lines.length ? `${transcriptBlock(lines)}\n\n` : ''}Pedido: ${String(request || '').slice(0, 800)}` },
+  ];
+}
+function stripFences(text) {
+  return String(text || '').replace(/^\s*```[\w-]*\s*\n?/, '').replace(/\n?```\s*$/, '').trim();
 }
 
 function suggestBoth(lines, { myContext, meeting } = {}) {
@@ -121,7 +147,7 @@ function ask(lines, question, { myContext, withScreen, meeting } = {}) {
     { role: 'user', content: `${transcriptBlock(lines)}
 ${withScreen ? '\nUm print da tela atual do Helison está anexado.\n' : ''}
 Pergunta do Helison: ${question}
-Responda em português, curto (até 6 linhas). Se ele pedir algo para falar em inglês, dê a frase em inglês e a tradução. Se ele perguntar "o que é X?", "não entendi X" ou pedir para explicar um termo, ferramenta, empresa ou sigla: pesquise na web (browser_search) se não tiver certeza, explique em português simples em 2-3 linhas (só dê frase em inglês se ele pedir). Fora isso, pesquise na web só se precisar de informação atual ou que você não sabe; cite a fonte em 1 linha. Nunca invente experiência do Helison.` },
+Primeira linha: a resposta direta, em até 20 palavras. Depois, no máximo 3 bullets curtos ("- "). Sem preâmbulo, sem "Claro!", sem repetir a pergunta. Responda em português. Se ele pedir algo para falar em inglês, dê a frase em inglês e a tradução. Se ele perguntar "o que é X?", "não entendi X" ou pedir para explicar um termo, ferramenta, empresa ou sigla: pesquise na web (browser_search) se não tiver certeza, explique em português simples em 2-3 linhas (só dê frase em inglês se ele pedir). Fora isso, pesquise na web só se precisar de informação atual ou que você não sabe; cite a fonte em 1 linha só se pesquisou. Nunca invente experiência do Helison.` },
   ];
 }
 
@@ -141,4 +167,4 @@ Faça um resumo da reunião em português: tópicos principais, decisões e pró
   ];
 }
 
-module.exports = { sayEn, research, suggestBoth, setPersonal, PERSONAL_MAX, recent, translateBatch, parseBatch, translate, suggest, explain, ask, summary, roteiro, transcriptBlock };
+module.exports = { CHEAT, detectQuestion, parseDetect, code, stripFences, sayEn, research, suggestBoth, setPersonal, PERSONAL_MAX, recent, translateBatch, parseBatch, translate, suggest, explain, ask, summary, roteiro, transcriptBlock };

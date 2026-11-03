@@ -1,6 +1,7 @@
 "use strict";
 
 const fs = require("node:fs");
+const wrapupLib = require("./meeting-wrapup");
 const path = require("node:path");
 const providers = require("./providers");
 const prompts = require("./meeting-prompts");
@@ -180,14 +181,18 @@ function registerMeeting({ getWin, closeMeeting, settings, vault, serverUrl, get
     }
     if (!plan.length) throw new Error("Nenhuma chave de API no cofre. Abra o cadeado do HELIOS e cole a chave da Groq.");
     let lastErr;
+    const firstLabel = plan[0].p === "groq" ? `Groq · ${String(plan[0].m).replace("openai/", "")}` : "Gemini";
+    // Fase 8: se o primeiro falhar, o próximo assume e a janela mostra o aviso em português.
+    const tag = (label) => (lastErr ? `${label} (reserva: ${firstLabel} ${lastErr.status === 429 ? "bateu o limite" : "falhou"})` : label);
     for (const step of plan) {
       try {
         if (step.p === "groq") {
-          return { text: await providers.groqChat({ key: current.groq, model: step.m, messages, maxTokens, onDelta, search, signal }), provider: `Groq · ${step.m.replace("openai/", "")}` };
+          const text = await providers.groqChat({ key: current.groq, model: step.m, messages, maxTokens, onDelta, search, signal });
+          return { text, provider: tag(`Groq · ${step.m.replace("openai/", "")}`) };
         }
         const text = await providers.geminiChat({ key: current.gemini, model: current.geminiModel, messages, imageBase64, search, signal });
         if (onDelta) onDelta(text);
-        return { text, provider: "Gemini" };
+        return { text, provider: tag("Gemini") };
       } catch (err) {
         lastErr = err;
         if (signal && signal.aborted) break; // janela fechada: não tenta outro modelo
@@ -329,8 +334,57 @@ function registerMeeting({ getWin, closeMeeting, settings, vault, serverUrl, get
     return { items: [...hits, ...parsed], provider: result.provider, cached: hits.length };
   }));
   ipcMain.handle("rate:get", () => providers.getRate());
-  ipcMain.handle("ai:suggest", wrap(async (lines, lang, rid) => chat(prompts.suggest(lines, { myContext: settings.get("myContext"), lang, meeting: meetingText(lines) }), { maxTokens: 220, onDelta: stream(rid) })));
+  // Leva H: 1 resposta curta (maxTokens 120, modelo rápido); "more" gera a versão elaborada sob demanda.
+  ipcMain.handle("ai:suggest", wrap(async (lines, lang, rid, more) => chat(prompts.suggest(lines, { myContext: settings.get("myContext"), lang, more: !!more, meeting: meetingText(lines) }), { fast: true, maxTokens: more ? 200 : 120, onDelta: stream(rid) })));
+  // Pergunta detectada na última fala do Outro(s): barata, alimenta o chip dinâmico (Tab responde).
+  ipcMain.handle("ai:detect", wrap(async (text) => {
+    const clean = String(text || "").trim();
+    if (clean.length < 8) return { question: "" };
+    const r = await chat(prompts.detectQuestion(clean), { fast: true, maxTokens: 30 });
+    return { question: prompts.parseDetect(r.text), provider: r.provider };
+  }));
+  // Livecoding (Leva H): só o código, curto e direto.
+  ipcMain.handle("ai:code", wrap(async (lines, request, rid) => {
+    const clean = String(request || "").trim();
+    if (!clean) throw new Error("Escreva o que precisa em código.");
+    const r = await chat(prompts.code((lines || []).slice(-6), clean, { myContext: settings.get("myContext"), meeting: meetingText(lines) }), { maxTokens: 700, onDelta: stream(rid) });
+    return { ...r, text: prompts.stripFences(r.text) };
+  }));
   ipcMain.handle("ai:explain", wrap(async (lines, term, rid) => chat(prompts.explain(lines, { myContext: settings.get("myContext"), term, meeting: meetingText(lines) }), { maxTokens: 400, onDelta: stream(rid) })));
+  // Fase 6: encerrar com resumo, pendências e rascunho de follow-up (só rascunho). Vira nota no Second Brain e dispara "reunião termina".
+  async function localApi(method, pathname, body) {
+    const res = await fetch(`${serverUrl()}${pathname}`, {
+      method,
+      headers: { "content-type": "application/json", authorization: `Bearer ${typeof getApiToken === "function" ? getApiToken() : ""}` },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    return data;
+  }
+  ipcMain.handle("meeting:wrapup", wrap(async (lines, rid) => {
+    if (!Array.isArray(lines) || !lines.some((line) => line && String(line.text || "").trim())) throw new Error("Ainda não há transcrição para resumir.");
+    const meetingContext = settings.get("meetingContext") || "";
+    const result = mock
+      ? { text: wrapupLib.mockWrapupText(), provider: "demonstração" }
+      : await chat(wrapupLib.wrapupPrompt(lines, { meetingContext }), { maxTokens: 1400, onDelta: stream(rid) });
+    const parsed = wrapupLib.parseWrapup(result.text);
+    const note = wrapupLib.noteFromWrapup(parsed, { at: new Date(), meetingContext });
+    let saved = "";
+    try {
+      const out = await localApi("POST", "/api/brain", note);
+      saved = out.note ? out.note.title : "";
+    } catch (err) {
+      saved = "";
+      result.warn = `Não salvei a nota: ${err.message}`;
+    }
+    for (const item of parsed.pendencias.slice(0, 8)) {
+      try { await localApi("POST", "/api/memory", { text: `Pendência da ${note.title}: ${item}`, kind: "pendencia" }); } catch { /* item recusado (ex.: e-mail) fica só na nota */ }
+    }
+    try { await localApi("POST", "/api/routines/evento", { event: "reuniao_terminou", detail: saved ? `Nota: ${saved}` : "" }); } catch { /* opcional */ }
+    const tail = saved ? `\n\nSalvo no Second Brain como "${saved}". O follow-up é só rascunho: nada foi enviado.` : `\n\n${result.warn || ""}`;
+    return { text: `${result.text}${tail}`, provider: result.provider, note: saved, pendencias: parsed.pendencias.length };
+  }));
   ipcMain.handle("ai:summary", wrap(async (lines, rid) => chat(prompts.summary(lines, { myContext: settings.get("myContext"), meeting: meetingText(lines) }), { maxTokens: 1200, onDelta: stream(rid) })));
   ipcMain.handle("screen:preview", wrap(async () => {
     if (mock) {
@@ -379,7 +433,7 @@ function registerMeeting({ getWin, closeMeeting, settings, vault, serverUrl, get
       pendingShot = null;
       image = shot.base64;
     }
-    return chat(prompts.ask(lines, question, { myContext: settings.get("myContext"), withScreen: !!image, meeting: meetingText(lines) }), { imageBase64: image, onDelta: stream(rid), search: !image, maxTokens: 900 });
+    return chat(prompts.ask(lines, question, { myContext: settings.get("myContext"), withScreen: !!image, meeting: meetingText(lines) }), { imageBase64: image, onDelta: stream(rid), search: !image, maxTokens: 300 });
   }));
   ipcMain.handle("ai:roteiro", wrap(async (lines, topic, rid) => {
     const current = cfg();
@@ -406,7 +460,7 @@ function registerMeeting({ getWin, closeMeeting, settings, vault, serverUrl, get
     const win = getWin();
     if (!win) return;
     const { workArea } = screen.getDisplayMatching(win.getBounds());
-    const next = Math.max(56, Math.min(Math.round(Number(height) || 64), workArea.height - 40));
+    const next = Math.max(48, Math.min(Math.round(Number(height) || 48), workArea.height - 40));
     const bounds = win.getBounds();
     if (bounds.height !== next) win.setBounds({ ...bounds, height: next });
   });

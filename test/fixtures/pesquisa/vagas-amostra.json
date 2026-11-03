@@ -1,0 +1,38 @@
+[
+  {
+    "id": "fx-1",
+    "title": "Desenvolvedor front-end júnior React",
+    "company": "Fixture A",
+    "description": "React, TypeScript, HTML e CSS. Vaga júnior remota."
+  },
+  {
+    "id": "fx-2",
+    "title": "Desenvolvedor front-end pleno",
+    "company": "Fixture B",
+    "description": "Next.js, React, Docker e CI/CD. Nível pleno."
+  },
+  {
+    "id": "fx-3",
+    "title": "Frontend mid-level",
+    "company": "Fixture C",
+    "description": "TypeScript, GraphQL, Docker, Jest e Playwright. Pleno / mid-level."
+  },
+  {
+    "id": "fx-4",
+    "title": "Dev júnior JavaScript",
+    "company": "Fixture D",
+    "description": "JavaScript, React, Node.js e Git. Vaga junior."
+  },
+  {
+    "id": "fx-5",
+    "title": "Engenheiro front-end pleno",
+    "company": "Fixture E",
+    "description": "React, Next.js, AWS, Docker e Kubernetes. Pleno."
+  },
+  {
+    "id": "fx-6",
+    "title": "Analista de marketing",
+    "company": "Fixture F",
+    "description": "Planilhas, vendas e CRM. Sem stack de desenvolvimento."
+  }
+]

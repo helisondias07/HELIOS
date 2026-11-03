@@ -1,11 +1,87 @@
 "use strict";
 
 const crypto = require("node:crypto");
+const fs = require("node:fs");
+const path = require("node:path");
 const { publicConv } = require("./store");
-const { redact, MAX_MESSAGE_CHARS } = require("./util");
+const { redact, MAX_MESSAGE_CHARS, nowIso, readJson, writeJson } = require("./util");
 
 const PROTOCOL = "2025-06-18";
 const BLOCKED = /cofre|senha|vault|segredo|token|password/i;
+
+/** Allowlist mínima do MCP remoto (presidente Grok Bot). Sem cofre/CPF/arquivos. */
+const REMOTE_ALLOWLIST = new Set([
+  "helios_quadro_postar",
+  "helios_quadro_ler",
+  "helios_quadro_status",
+  "helios_chefe_ordem",
+  "helios_chefe_status",
+  "helios_agente_status",
+]);
+
+const QUADRO_TOOLS = [
+  {
+    name: "helios_quadro_postar",
+    description: "Publica um item no quadro compartilhado (de, para, tipo achado|pedido|resultado|alerta, assunto, corpo, ref opcional).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        de: { type: "string" },
+        para: { type: "string" },
+        tipo: { type: "string" },
+        assunto: { type: "string" },
+        corpo: { type: "string" },
+        ref: { type: "string" },
+      },
+      required: ["para", "tipo", "assunto", "corpo"],
+    },
+  },
+  {
+    name: "helios_quadro_ler",
+    description: "Lê o quadro com filtros opcionais: para, de, status, tipo, limite.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        para: { type: "string" },
+        de: { type: "string" },
+        status: { type: "string" },
+        tipo: { type: "string" },
+        limite: { type: "number" },
+      },
+    },
+  },
+  {
+    name: "helios_quadro_status",
+    description: "Atualiza o status de um item do quadro (aberto|em_andamento|feito|cancelado).",
+    inputSchema: {
+      type: "object",
+      properties: { id: { type: "string" }, status: { type: "string" } },
+      required: ["id", "status"],
+    },
+  },
+  {
+    name: "helios_chefe_ordem",
+    description: "Envia uma ordem ao Chefe: cria item no quadro e dispara um ciclo de priorização/delegação.",
+    inputSchema: {
+      type: "object",
+      properties: { texto: { type: "string" }, ordem: { type: "string" } },
+      required: ["texto"],
+    },
+  },
+  {
+    name: "helios_chefe_status",
+    description: "Resumo do Chefe: agentes, itens abertos, últimos resultados, pendências de aprovação. Não inventa números.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "helios_agente_status",
+    description: "Status de um agente (vagas|pesquisa|oasis|portfolio|chefe) ou resumo se omitir.",
+    inputSchema: {
+      type: "object",
+      properties: { agente: { type: "string" }, id: { type: "string" } },
+    },
+  },
+];
 
 const TOOLS = [
   {
@@ -82,7 +158,10 @@ const TOOLS = [
       required: ["texto"],
     },
   },
+  ...QUADRO_TOOLS,
 ];
+
+const REMOTE_TOOLS = TOOLS.filter((t) => REMOTE_ALLOWLIST.has(t.name));
 
 function isLoopbackAddress(address) {
   const value = String(address || "").replace(/^::ffff:/, "");
@@ -117,13 +196,76 @@ function safeMessage(message) {
   return copy;
 }
 
-function createMcpServer({ tasks, routines, store, memory, memories, assistants, orchestration, bot, getToken }) {
+/**
+ * @param {object} deps
+ * @param {object} [deps.quadro]
+ * @param {object} [deps.chefe]
+ * @param {function} [deps.getRemoteToken] token remoto SEPARADO do local
+ * @param {function} [deps.isRemoteEnabled] desligado por padrão
+ * @param {string} [deps.dataDir] para log de acessos e config remota
+ */
+function createMcpServer({
+  tasks,
+  routines,
+  store,
+  memory,
+  memories,
+  assistants,
+  orchestration,
+  bot,
+  getToken,
+  quadro = null,
+  chefe = null,
+  getRemoteToken = () => "",
+  isRemoteEnabled = () => false,
+  dataDir = null,
+  /** número ou getter (() => number) — permite alterar o teto via API sem reiniciar */
+  remoteRatePerMin = 30,
+}) {
   let fallback = "";
   const token = () => {
     if (typeof getToken === "function") return String(getToken() || "");
     if (!fallback) fallback = crypto.randomBytes(32).toString("base64url");
     return fallback;
   };
+  const remoteToken = () => (typeof getRemoteToken === "function" ? String(getRemoteToken() || "") : "");
+
+  const accessLogFile = dataDir ? path.join(dataDir, "mcp-remote-access.json") : null;
+  const rateBuckets = new Map();
+
+  function logAccess({ mode, tool, ok, reason = "" }) {
+    if (!accessLogFile) return;
+    try {
+      const data = readJson(accessLogFile, { version: 1, items: [] });
+      const items = Array.isArray(data.items) ? data.items : [];
+      items.push({
+        at: nowIso(),
+        mode, // local | remoto
+        tool: String(tool || "").slice(0, 80),
+        ok: Boolean(ok),
+        reason: redact(String(reason || "")).slice(0, 120),
+        // nunca loga token, Authorization, corpo com segredo
+      });
+      writeJson(accessLogFile, { version: 1, items: items.slice(-500) });
+    } catch { /* log best-effort */ }
+  }
+
+  function rateLimit() {
+    const raw = typeof remoteRatePerMin === "function" ? remoteRatePerMin() : remoteRatePerMin;
+    return Math.max(1, Number(raw) || 30);
+  }
+
+  function rateOk(key) {
+    const now = Date.now();
+    const windowMs = 60_000;
+    let bucket = rateBuckets.get(key);
+    if (!bucket || now - bucket.start >= windowMs) {
+      bucket = { start: now, count: 0 };
+      rateBuckets.set(key, bucket);
+    }
+    bucket.count += 1;
+    return bucket.count <= rateLimit();
+  }
 
   function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
@@ -171,93 +313,157 @@ function createMcpServer({ tasks, routines, store, memory, memories, assistants,
     return (assistants && assistants.find(ref)) || false;
   }
 
-  async function callTool(name, args) {
+  async function callTool(name, args, { remote = false } = {}) {
     const input = args && typeof args === "object" ? args : {};
     if (BLOCKED.test(String(name || ""))) {
+      logAccess({ mode: remote ? "remoto" : "local", tool: name, ok: false, reason: "bloqueada" });
       return textResult("Esta ferramenta não existe. O MCP do HELIOS não lê o cofre.", true);
     }
-    if (name === "helios_criar_tarefa") {
-      const item = tasks.add({ title: input.titulo || input.title, detail: input.detalhe || input.detail });
-      return textResult({ tarefa: item });
+    if (remote && !REMOTE_ALLOWLIST.has(name)) {
+      logAccess({ mode: "remoto", tool: name, ok: false, reason: "fora da allowlist" });
+      return textResult("Ferramenta indisponível no MCP remoto.", true);
     }
-    if (name === "helios_listar_tarefas") return textResult({ tarefas: tasks.list() });
-    if (name === "helios_atualizar_tarefa") {
-      const item = tasks.update(String(input.id || ""), { status: input.status });
-      if (!item) return textResult("Tarefa não encontrada.", true);
-      return textResult({ tarefa: item });
-    }
-    if (name === "helios_listar_rotinas") return textResult({ rotinas: routines.list() });
-    if (name === "helios_rodar_rotina") {
-      const id = String(input.id || "");
-      const routine = routines.list().find((item) => item.id === id);
-      if (!routine) return textResult("Rotina não encontrada.", true);
-      routines.markRan(id);
-      return textResult(await runPrompt(`Rotina: ${routine.title}`, routine.prompt, input.esperarMs, "rapido", routine.assistantId || undefined, routine.readOnly === true));
-    }
-    if (name === "helios_sugerir_assistente") {
-      try {
-        return textResult(require("./gabinete").suggest(input.pedido || input.texto, assistants.list()));
-      } catch (err) {
-        return textResult(err.message, true);
+
+    try {
+      if (name === "helios_criar_tarefa") {
+        const item = tasks.add({ title: input.titulo || input.title, detail: input.detalhe || input.detail });
+        return textResult({ tarefa: item });
       }
-    }
-    if (name === "helios_listar_ajudantes") {
-      if (!orchestration) return textResult({ ajudantes: [], contadores: {} });
-      const stats = orchestration.stats();
-      return textResult({
-        ajudantes: orchestration.helpers().slice(0, 30).map((item) => ({
-          id: item.id,
-          tarefa: redact(item.task),
-          assistente: item.assistantName,
-          estado: item.state,
-          duracaoSeg: Math.round(item.durationMs / 1000),
-        })),
-        ativos: orchestration.activeCount(),
-        contadores: { ajudantesCriados: stats.total.ajudantesCriados, consultasEntreAssistentes: stats.total.consultas },
-      });
-    }
-    if (name === "helios_buscar_conversas") {
-      const query = fold(input.consulta || input.query || "");
-      const found = store.list().filter((conv) => {
-        if (conv.helper) return false;
-        if (!query) return true;
-        const blob = [conv.title, ...(conv.messages || []).map((message) => message.text || message.summary || "")].join("\n");
-        return fold(blob).includes(query);
-      }).slice(0, 20).map((conv) => ({
-        id: conv.id,
-        title: conv.title,
-        updatedAt: conv.updatedAt,
-        preview: redact(String(conv.messages?.find((message) => message.text)?.text || "").replace(/\s+/g, " ").slice(0, 90)),
-      }));
-      return textResult({ conversas: found });
-    }
-    if (name === "helios_ler_conversa") {
-      const conv = store.get(String(input.id || ""));
-      if (!conv) return textResult("Conversa não encontrada.", true);
-      const pub = publicConv(conv);
-      pub.messages = pub.messages.map(safeMessage);
-      return textResult({ conversa: pub });
-    }
-    if (name === "helios_consultar_memoria") {
-      const owner = pickAssistant(input.assistente);
-      if (owner === false) return textResult("Assistente não encontrado.", true);
-      const ctx = (memories ? memories.for(owner ? owner.id : "default") : memory).context({ text: String(input.consulta || input.query || ""), maxChars: 1200 });
-      return textResult({ texto: redact(ctx.text || ""), ids: ctx.ids });
-    }
-    if (name === "helios_enviar_mensagem") {
-      const texto = String(input.texto || input.text || "").trim();
-      if (texto.length < 1) return textResult("Escreva a mensagem.", true);
-      const owner = pickAssistant(input.assistente);
-      if (owner === false) return textResult("Assistente não encontrado.", true);
-      if (texto.length > MAX_MESSAGE_CHARS) {
-        return textResult(`A mensagem é grande demais (${texto.length} caracteres). O limite é ${MAX_MESSAGE_CHARS}. Divida em partes menores.`, true);
+      if (name === "helios_listar_tarefas") return textResult({ tarefas: tasks.list() });
+      if (name === "helios_atualizar_tarefa") {
+        const item = tasks.update(String(input.id || ""), { status: input.status });
+        if (!item) return textResult("Tarefa não encontrada.", true);
+        return textResult({ tarefa: item });
       }
-      return textResult(await runPrompt("Mensagem via MCP", texto, input.esperarMs, "auto", owner ? owner.id : undefined));
+      if (name === "helios_listar_rotinas") return textResult({ rotinas: routines.list() });
+      if (name === "helios_rodar_rotina") {
+        const id = String(input.id || "");
+        const routine = routines.list().find((item) => item.id === id);
+        if (!routine) return textResult("Rotina não encontrada.", true);
+        routines.markRan(id);
+        return textResult(await runPrompt(`Rotina: ${routine.title}`, routine.prompt, input.esperarMs, "rapido", routine.assistantId || undefined, routine.readOnly === true));
+      }
+      if (name === "helios_sugerir_assistente") {
+        try {
+          return textResult(require("./gabinete").suggest(input.pedido || input.texto, assistants.list()));
+        } catch (err) {
+          return textResult(err.message, true);
+        }
+      }
+      if (name === "helios_listar_ajudantes") {
+        if (!orchestration) return textResult({ ajudantes: [], contadores: {} });
+        const stats = orchestration.stats();
+        return textResult({
+          ajudantes: orchestration.helpers().slice(0, 30).map((item) => ({
+            id: item.id,
+            tarefa: redact(item.task),
+            assistente: item.assistantName,
+            estado: item.state,
+            duracaoSeg: Math.round(item.durationMs / 1000),
+          })),
+          ativos: orchestration.activeCount(),
+          contadores: { ajudantesCriados: stats.total.ajudantesCriados, consultasEntreAssistentes: stats.total.consultas },
+        });
+      }
+      if (name === "helios_buscar_conversas") {
+        const query = fold(input.consulta || input.query || "");
+        const found = store.list().filter((conv) => {
+          if (conv.helper) return false;
+          if (!query) return true;
+          const blob = [conv.title, ...(conv.messages || []).map((message) => message.text || message.summary || "")].join("\n");
+          return fold(blob).includes(query);
+        }).slice(0, 20).map((conv) => ({
+          id: conv.id,
+          title: conv.title,
+          updatedAt: conv.updatedAt,
+          preview: redact(String(conv.messages?.find((message) => message.text)?.text || "").replace(/\s+/g, " ").slice(0, 90)),
+        }));
+        return textResult({ conversas: found });
+      }
+      if (name === "helios_ler_conversa") {
+        const conv = store.get(String(input.id || ""));
+        if (!conv) return textResult("Conversa não encontrada.", true);
+        const pub = publicConv(conv);
+        pub.messages = pub.messages.map(safeMessage);
+        return textResult({ conversa: pub });
+      }
+      if (name === "helios_consultar_memoria") {
+        const owner = pickAssistant(input.assistente);
+        if (owner === false) return textResult("Assistente não encontrado.", true);
+        const ctx = (memories ? memories.for(owner ? owner.id : "default") : memory).context({ text: String(input.consulta || input.query || ""), maxChars: 1200 });
+        return textResult({ texto: redact(ctx.text || ""), ids: ctx.ids });
+      }
+      if (name === "helios_enviar_mensagem") {
+        const texto = String(input.texto || input.text || "").trim();
+        if (texto.length < 1) return textResult("Escreva a mensagem.", true);
+        const owner = pickAssistant(input.assistente);
+        if (owner === false) return textResult("Assistente não encontrado.", true);
+        if (texto.length > MAX_MESSAGE_CHARS) {
+          return textResult(`A mensagem é grande demais (${texto.length} caracteres). O limite é ${MAX_MESSAGE_CHARS}. Divida em partes menores.`, true);
+        }
+        return textResult(await runPrompt("Mensagem via MCP", texto, input.esperarMs, "auto", owner ? owner.id : undefined));
+      }
+
+      // ---- Quadro / Chefe (O1) ----
+      if (name === "helios_quadro_postar") {
+        if (!quadro) return textResult("Quadro indisponível.", true);
+        const item = quadro.postar({
+          de: input.de || (remote ? "presidente" : "mcp"),
+          para: input.para,
+          tipo: input.tipo,
+          assunto: input.assunto,
+          corpo: input.corpo,
+          ref: input.ref,
+        });
+        logAccess({ mode: remote ? "remoto" : "local", tool: name, ok: true });
+        return textResult({ item });
+      }
+      if (name === "helios_quadro_ler") {
+        if (!quadro) return textResult("Quadro indisponível.", true);
+        const itens = quadro.ler({
+          para: input.para,
+          de: input.de,
+          status: input.status,
+          tipo: input.tipo,
+          limite: input.limite,
+        });
+        logAccess({ mode: remote ? "remoto" : "local", tool: name, ok: true });
+        return textResult({ itens, total: itens.length });
+      }
+      if (name === "helios_quadro_status") {
+        if (!quadro) return textResult("Quadro indisponível.", true);
+        const item = quadro.atualizarStatus(input.id, input.status);
+        logAccess({ mode: remote ? "remoto" : "local", tool: name, ok: true });
+        return textResult({ item });
+      }
+      if (name === "helios_chefe_ordem") {
+        if (!chefe) return textResult("Chefe indisponível.", true);
+        const out = await chefe.ordem(input.texto || input.ordem);
+        logAccess({ mode: remote ? "remoto" : "local", tool: name, ok: true });
+        return textResult(out);
+      }
+      if (name === "helios_chefe_status") {
+        if (!chefe) return textResult("Chefe indisponível.", true);
+        logAccess({ mode: remote ? "remoto" : "local", tool: name, ok: true });
+        return textResult(chefe.status());
+      }
+      if (name === "helios_agente_status") {
+        if (!chefe) return textResult("Chefe indisponível.", true);
+        const ref = input.agente || input.id;
+        logAccess({ mode: remote ? "remoto" : "local", tool: name, ok: true });
+        if (!ref) return textResult({ agentes: chefe.status().agentes });
+        return textResult(chefe.agenteStatus(ref));
+      }
+
+      logAccess({ mode: remote ? "remoto" : "local", tool: name, ok: false, reason: "desconhecida" });
+      return textResult(`Ferramenta desconhecida: ${name}`, true);
+    } catch (err) {
+      logAccess({ mode: remote ? "remoto" : "local", tool: name, ok: false, reason: err.message || "erro" });
+      return textResult(redact(err.message || "erro"), true);
     }
-    return textResult(`Ferramenta desconhecida: ${name}`, true);
   }
 
-  async function rpc(message) {
+  async function rpc(message, { remote = false } = {}) {
     const id = Object.prototype.hasOwnProperty.call(message, "id") ? message.id : undefined;
     const method = message.method;
     if (!method) return { http: 400, body: { jsonrpc: "2.0", id: id ?? null, error: { code: -32600, message: "pedido inválido" } } };
@@ -274,14 +480,18 @@ function createMcpServer({ tasks, routines, store, memory, memories, assistants,
               protocolVersion: PROTOCOL,
               capabilities: { tools: { listChanged: false } },
               serverInfo: { name: "helios", version: "0.1.0" },
-              instructions: "Assistente local do Helison. Nenhuma ferramenta lê o cofre. Ação irreversível volta pendente.",
+              instructions: remote
+                ? "MCP remoto do HELIOS (allowlist mínima). Sem cofre/CPF/arquivos. Ação crítica volta pendente."
+                : "Assistente local do Helison. Nenhuma ferramenta lê o cofre. Ação irreversível volta pendente.",
             },
           },
         };
       }
-      if (method === "tools/list") return { http: 200, body: { jsonrpc: "2.0", id, result: { tools: TOOLS } } };
+      if (method === "tools/list") {
+        return { http: 200, body: { jsonrpc: "2.0", id, result: { tools: remote ? REMOTE_TOOLS : TOOLS } } };
+      }
       if (method === "tools/call") {
-        const result = await callTool(message.params?.name, message.params?.arguments);
+        const result = await callTool(message.params?.name, message.params?.arguments, { remote });
         return { http: 200, body: { jsonrpc: "2.0", id, result } };
       }
       return { http: 200, body: { jsonrpc: "2.0", id, error: { code: -32601, message: "método não encontrado" } } };
@@ -290,11 +500,32 @@ function createMcpServer({ tasks, routines, store, memory, memories, assistants,
     }
   }
 
+  /**
+   * Classifica o pedido: local (loopback + token local) ou remoto (token remoto + ligado).
+   * Token remoto NUNCA autentica no caminho local e vice-versa.
+   */
+  function authMode(req) {
+    const local = isLoopbackAddress(req.socket?.localAddress) && isLoopbackAddress(req.socket?.remoteAddress);
+    const auth = req.headers.authorization || req.headers.Authorization;
+    const localTok = token();
+    const remoteTok = remoteToken();
+    if (local && localTok && bearerOk(auth, localTok)) return { ok: true, remote: false };
+    if (remoteTok && bearerOk(auth, remoteTok)) {
+      if (!isRemoteEnabled()) return { ok: false, reason: "MCP remoto desligado" };
+      if (!rateOk("remote")) return { ok: false, reason: "rate limit" };
+      return { ok: true, remote: true };
+    }
+    return { ok: false, reason: "token inválido" };
+  }
+
   function respond(req, res, body) {
-    if (!bearerOk(req.headers.authorization || req.headers.Authorization, token())) {
-      const payload = JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32001, message: "token inválido" } });
-      res.writeHead(401, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", "content-length": Buffer.byteLength(payload) });
+    const mode = authMode(req);
+    if (!mode.ok) {
+      const code = mode.reason === "MCP remoto desligado" ? 403 : mode.reason === "rate limit" ? 429 : 401;
+      const payload = JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32001, message: mode.reason || "token inválido" } });
+      res.writeHead(code, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", "content-length": Buffer.byteLength(payload) });
       res.end(payload);
+      logAccess({ mode: "remoto", tool: "(auth)", ok: false, reason: mode.reason });
       return Promise.resolve();
     }
     if (req.method !== "POST") {
@@ -304,7 +535,7 @@ function createMcpServer({ tasks, routines, store, memory, memories, assistants,
       return Promise.resolve();
     }
     const session = String(req.headers["mcp-session-id"] || crypto.randomUUID());
-    return rpc(body || {}).then((out) => {
+    return rpc(body || {}, { remote: mode.remote }).then((out) => {
       if (out.http === 202) {
         res.writeHead(202, { "mcp-session-id": session, "cache-control": "no-store" });
         res.end();
@@ -321,10 +552,55 @@ function createMcpServer({ tasks, routines, store, memory, memories, assistants,
     });
   }
 
-  /** Confere o token antes de o corpo ser lido (quem não tem token não faz o servidor gastar memória com o corpo). */
-  const isAuthorized = (req) => bearerOk(req.headers.authorization || req.headers.Authorization, token());
+  const isAuthorized = (req) => authMode(req).ok;
 
-  return { respond, isAuthorized, tools: TOOLS };
+  return {
+    respond,
+    isAuthorized,
+    tools: TOOLS,
+    remoteTools: REMOTE_TOOLS,
+    remoteAllowlist: [...REMOTE_ALLOWLIST],
+    authMode,
+  };
 }
 
-module.exports = { createMcpServer, isLoopbackAddress, bearerOk, TOOLS };
+/** Estado persistido do MCP remoto (ligado/desligado). Token fica só no cofre. */
+function createMcpRemoteConfig(dataDir) {
+  const file = path.join(dataDir, "mcp-remote.json");
+  fs.mkdirSync(dataDir, { recursive: true });
+  const saved = readJson(file, {});
+  let enabled = saved.enabled === true; // desligado por padrão
+  let ratePerMin = Math.min(120, Math.max(1, Number(saved.ratePerMin) || 30));
+
+  function persist() {
+    writeJson(file, { version: 1, enabled, ratePerMin });
+  }
+
+  return {
+    isEnabled: () => enabled,
+    setEnabled(value) {
+      enabled = Boolean(value);
+      persist();
+      return { enabled };
+    },
+    ratePerMin: () => ratePerMin,
+    setRatePerMin(n) {
+      ratePerMin = Math.min(120, Math.max(1, Math.round(Number(n) || 30)));
+      persist();
+      return { ratePerMin };
+    },
+    view() {
+      return { enabled, ratePerMin, allowlist: [...REMOTE_ALLOWLIST] };
+    },
+  };
+}
+
+module.exports = {
+  createMcpServer,
+  createMcpRemoteConfig,
+  isLoopbackAddress,
+  bearerOk,
+  TOOLS,
+  REMOTE_TOOLS,
+  REMOTE_ALLOWLIST: [...REMOTE_ALLOWLIST],
+};

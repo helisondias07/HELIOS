@@ -270,10 +270,6 @@
     const apHtml = pend.map(approvalCard).join("") + oasisPend.map(oasisPendCard).join("") + inboxHtml;
     const estadoLabel = st.pausado ? "Chefe pausado" : "Chefe ativo";
     const estadoChip = `<span class="chip hx-chefe-st${st.pausado ? " hx-chefe-st-pausado" : ""}">${esc(estadoLabel)}</span>`;
-    const pauseBtn = st.pausado
-      ? `<button type="button" class="btn" data-chefe-pause data-pausar="0">Retomar</button>`
-      : `<button type="button" class="btn" data-chefe-pause data-pausar="1">Pausar</button>`;
-
     $("view").innerHTML = `<div class="hx-chefe hx-chefe-solo" id="hxChefe">
       <section class="hx-chefe-main">
         <header class="hx-chefe-top">
@@ -282,7 +278,6 @@
             <p class="hx-chefe-guide">Diga o resultado. O HELIOS coordena, executa e só pede sua decisão quando necessário.</p>
             <p class="hx-chefe-estado">${estadoChip}</p>
           </div>
-          <div class="row">${pauseBtn}</div>
         </header>
         <div class="hx-chefe-approvals stack">${apHtml || ""}</div>
         <div class="hx-chefe-feed stack" id="hxChefeFeed"></div>
@@ -301,12 +296,11 @@
           <div id="hxUsoBarChefe" class="hx-uso-bar" hidden></div>
         </div>
       </section>
-      <aside class="hx-chefe-rack" id="hxChefeRack" aria-label="Operação do HELIOS"></aside>
     </div>`;
     bind($("hxChefe"));
     paintFeed();
     paintSideAgents();
-    paintRack();
+    if ($("hxChefeRack")) paintRack();
     HeliosUsoBar?.mount?.($("hxUsoBarChefe"));
   }
 
@@ -315,11 +309,12 @@
     if (!box) return;
     try {
       const q = await call("GET", "/api/quadro?para=helison&limite=24");
-      const hints = configHints();
+      void configHints();
+      // Avisos de ClickUp e GitHub ficam em Ajustes, não no chat.
       // Itens cancelados continuam no quadro para auditoria, mas não podem
       // reaparecer como alerta ativo depois da migração para o modo automático.
       const ativos = (q.itens || []).filter((item) => item.status !== "cancelado");
-      const itens = dedupeFeed([...(hints || []), ...ativos]).slice(0, 8);
+      const itens = dedupeFeed(ativos).slice(0, 8);
       if (!itens.length) {
         box.innerHTML = `<div class="lf-hello"><span class="hx-glow lf-hello-logo"><span class="hx-mark hx-96" aria-hidden="true"></span></span><p class="lf-hello-q">Como posso ajudar?</p></div>`;
         return;

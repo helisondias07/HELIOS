@@ -314,3 +314,15 @@ O que o painel mostrou e o que o código passa a fazer:
 
 O que esta sessão não prova: uma `enviada` real no Windows. Iframe de outro domínio continua ilegível. A conta Gmail precisa do escopo de envio para o CV sair de verdade.
 
+## Rodada v12 — o botão sumia porque o menu entrava no retrato
+
+As 34 falhas com "Não achei o próximo botão do formulário com segurança" vinham do snapshot da página inteira. No Indeed os primeiros botões eram "Página inicial", "Avaliações de Empresas", "Cargos e salários" e "Mensagens". O `Candidatar-se` ficava de fora da decisão, e o laço parava em 1 a 10 segundos. No `/form/questions-module` o mesmo menu escondia as perguntas e o Continuar.
+
+- O menu, o cabeçalho e o rodapé são marcados e ignorados. O formulário, o modal e o botão Candidatar-se / Easy Apply entram primeiro. O laço espera o botão de candidatura aparecer, em vez de parar no primeiro link do site.
+- Perguntas conhecidas (nome, anos que estão no perfil, autorização de trabalho, remoto, carta, pretensão) são preenchidas. O que o perfil não tem não é inventado e, depois dos campos conhecidos, vira caso para o dono. Em seguida o HELIOS clica Continuar ou Enviar até a frase do site.
+- Glassdoor em "Security | Glassdoor" para como login, com a URL na nota. BairesDev no título, na descrição ou no link é empresa evitada mesmo com `company` vazio.
+- InfoJobs abre a busca por palavra-chave, não a página de ranking. ProgramaThor abre `/jobs/`. BossaBox abre o quadro público, não o `app.bossabox.com/vagas` que responde 404.
+- A nota de `falhou` leva motivo, URL e quantos botões de menu foram ignorados, e aparece no registro. A mesma vaga com falha de botão ganha no máximo uma nova tentativa depois desta correção.
+- Perfil padrão: Bom Jardim, RJ; pretensão R$ 3.500 júnior e R$ 8.000 pleno; LinkedIn com `https://`.
+- A barra da direita e o botão Pausar saem do Chefe. Avisos de ClickUp e GitHub não entram no chat.
+

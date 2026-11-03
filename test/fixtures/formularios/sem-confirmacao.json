@@ -1,0 +1,25 @@
+[
+  {
+    "url": "https://empresa.gupy.io/job/abc/apply?step=fim",
+    "text": "Revise os dados",
+    "modal": true,
+    "fields": [
+      { "sel": "[data-helios-field=nome]", "type": "text", "label": "Nome completo", "required": true, "inForm": true, "inModal": true, "value": "Pessoa Exemplo" }
+    ],
+    "buttons": [
+      { "sel": "[data-helios-btn=send]", "text": "Enviar candidatura", "tag": "button", "visible": true, "inForm": true, "inModal": true }
+    ]
+  },
+  {
+    "url": "https://empresa.gupy.io/job/abc/apply?step=fim",
+    "text": "Campo obrigatório",
+    "modal": true,
+    "errors": ["Campo obrigatório"],
+    "fields": [
+      { "sel": "[data-helios-field=nome]", "type": "text", "label": "Nome completo", "required": true, "inForm": true, "inModal": true, "value": "Pessoa Exemplo" }
+    ],
+    "buttons": [
+      { "sel": "[data-helios-btn=send]", "text": "Enviar candidatura", "tag": "button", "visible": true, "inForm": true, "inModal": true }
+    ]
+  }
+]

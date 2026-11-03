@@ -24,7 +24,7 @@ function evidence(kind, detail = "") {
 function pageResult({ url = "", text = "", formVisible = true, challenge = "" } = {}) {
   const body = String(text || "");
   if (challenge) return { state: STATES.NEEDS_USER, reason: String(challenge), evidence: [evidence("challenge", challenge)] };
-  if (/(candidatura (foi )?enviada|inscri[cç][aã]o (foi )?(realizada|enviada|conclu[ií]da)|application (was )?(sent|submitted)|you applied|voc[eê] se candidatou|candidatura realizada|obrigado por se candidatar)/i.test(body)) {
+  if (/(candidatura (foi )?enviada|inscri[cç][aã]o (foi )?(realizada|enviada|conclu[ií]da)|application (was )?(sent|submitted)|you applied|voc[eê] se candidatou|candidatura realizada|obrigado por se candidatar|thank you for applying|thanks for applying|we received your application|recebemos sua candidatura)/i.test(body)) {
     return { state: STATES.SUBMITTED, reason: "O site confirmou o envio.", evidence: [evidence("success-text", body.match(/.{0,80}(candidatura|application|inscri[cç][aã]o).{0,120}/i)?.[0] || "confirmação visível")] };
   }
   if (/success|thank[- ]you|confirmation|submitted/i.test(String(url || "")) && !formVisible) {

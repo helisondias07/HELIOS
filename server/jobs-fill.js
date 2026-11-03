@@ -49,6 +49,7 @@ const FIELD_RULES = [
   { re: /(linkedin)/, value: (p) => p.linkedin },
   { re: /(portfolio|website|site pessoal|github)/, value: (p) => p.portfolio },
   { re: /(cidade|city|localizacao|location|onde voce mora)/, value: (p) => p.cidade },
+  { re: /(^estado$|^uf$|estado \(uf\))/, value: (p) => p.estado || "" },
 ];
 
 const SALARY = /(pretensao|salari|salary|remuneracao|compensation|expected pay)/;
@@ -110,9 +111,9 @@ function planFill(fields, profile = {}, respostas = {}, page = {}, secrets = {})
       continue;
     }
     if (SALARY.test(label)) {
-      const answer = profile.pretensao || saved(f.label || f.name);
+      const answer = String(page.salaryAnswer || profile.pretensao || saved(f.label || f.name) || "").trim();
       if (!answer) { ask("Pretensão salarial sem valor no seu contexto"); continue; }
-      acoes.push({ sel: f.sel, kind: type === "select" ? "select" : "text", valor: String(answer) });
+      acoes.push({ sel: f.sel, kind: type === "select" || type === "combobox" ? (type === "combobox" ? "combobox" : "select") : "text", valor: String(answer) });
       continue;
     }
     if (RELOCATION.test(label)) {
@@ -129,12 +130,12 @@ function planFill(fields, profile = {}, respostas = {}, page = {}, secrets = {})
       if (f.required) ask("Pergunta que o perfil não responde");
       continue;
     }
-    if (type === "select" || type === "radio") {
+    if (type === "select" || type === "radio" || type === "combobox") {
       const options = (f.options || []).map((o) => ({ ...o, n: norm(o.text || o.value) }));
       const want = norm(value);
       const hit = options.find((o) => o.n === want) || options.find((o) => o.n && (o.n.includes(want) || want.includes(o.n)));
       if (!hit) { if (f.required) ask("Nenhuma opção bate com o perfil"); continue; }
-      acoes.push({ sel: f.sel, kind: type, valor: hit.value });
+      acoes.push({ sel: f.sel, kind: type === "combobox" ? "combobox" : type, valor: hit.value, texto: hit.text || hit.value });
       continue;
     }
     acoes.push({ sel: f.sel, kind: "text", valor: String(value) });
@@ -191,7 +192,7 @@ function applyScript(acoes) {
 const BUTTONS = {
   submit: /(enviar candidatura|enviar inscricao|finalizar candidatura|finalizar inscricao|concluir candidatura|submit application|submit application now|send application|finish application|submit)/,
   review: /(revisar candidatura|revisar inscricao|review application|review)/,
-  next: /(avancar|proximo|proxima etapa|ir para a proxima etapa|continuar candidatura|salvar e continuar|salvar e avancar|seguir|next|continue|save and continue)/,
+  next: /(avancar|proximo|proxima\b|proxima etapa|ir para a proxima etapa|continuar candidatura|salvar e continuar|salvar e avancar|\bcontinuar\b|seguir|next|continue|save and continue)/,
   apply: /(candidatar-se|candidatura simplificada|candidatar|aplicar|quero me candidatar|easy apply|apply now|apply|inscrever-se|candidate-se)/,
 };
 
@@ -226,6 +227,7 @@ function clickScript(kind) {
     const candidates = nodes
       .filter(visible).map((b) => {
         const t = textOf(b); let score = 0;
+        if (/(mensagem|inmail|\\bmessage\\b|recrutador|continuar com google|cancelar|voltar|fechar|follow|compartilh)/.test(t) && !/(enviar candidatura|submit application)/.test(t)) return { b, score: -1, t };
         if (!re.test(t) && !semantic(b)) return { b, score: -1, t };
         if (b.tagName === 'BUTTON' || b.getAttribute('role') === 'button' || b.type === 'submit') score += 4;
         if (/modal|dialog|apply|candidate|application|submit|continue|next/i.test(String(b.closest('[role="dialog"], form, [data-test-modal], .modal')?.className || ''))) score += 3;
@@ -251,7 +253,7 @@ function clickScript(kind) {
   })()`;
 }
 
-const SUCCESS = /(candidatura (foi )?enviada|inscricao (foi )?(realizada|enviada|concluida)|application (was )?(sent|submitted)|you applied|voce se candidatou|candidatura realizada|obrigado por se candidatar)/;
+const SUCCESS = /(candidatura (foi )?enviada|inscricao (foi )?(realizada|enviada|concluida)|application (was )?(sent|submitted)|you applied|voce se candidatou|candidatura realizada|obrigado por se candidatar|thank you for applying|thanks for applying|we received your application|recebemos sua candidatura)/;
 const isSuccess = (pageText) => SUCCESS.test(norm(pageText));
 
 module.exports = { profileFrom, planFill, INSPECT_SCRIPT, applyScript, clickScript, isSuccess, BUTTONS, norm };

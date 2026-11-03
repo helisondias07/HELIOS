@@ -279,3 +279,26 @@ Fixtures cobrem Gupy (Continuar do modal, select customizado, salário de pleno)
 - Entrar de novo onde a sessão cair (LinkedIn `li_at`, Gupy, e os sites novos). As URLs de busca de InfoJobs, Indeed, Glassdoor, Catho, Coodesh, GeekHunter, ProgramaThor, trampos.co, Nerdin, BossaBox e Remotar são ponto de partida; a página real pode ter mudado o campo.
 - O script de importação grava no diretório de dados passado na linha de comando. Sem essa pasta, ele só conta as linhas e não escreve nada. Não colocar senha, CPF ou token em código, fixture ou log.
 
+## Por que o HELIOS não age como um agente de navegador (rodada real v10)
+
+Um agente de navegador tira uma foto da tela, decide o próximo clique ou o que digitar, executa e fotografa de novo. Ele não precisa conhecer o site. O HELIOS, até a v10, fazia outra coisa: lia o HTML com regras fixas (`via: rules`, `modelo: null`) e desistia se o texto do botão não estivesse na lista. Isso explica a rodada de cerca de cinco minutos que terminou com `fetch failed` e candidaturas em cerca de dois segundos, sem evidência.
+
+A partir desta correção o envio real passa por `runApplication` (o mesmo ponto que `jobs-host` usa). As regras do DOM continuam primeiro. Se não houver botão seguro, a página (texto acessível e, no app, a foto) vai para a cadeia de modelos grátis já existente, no papel `visao` e depois `extracao`. O modelo devolve a próxima ação. Nome, e-mail, telefone e CPF não entram no prompt: só placeholders, trocados no código. A resposta do modelo não marca `enviada`. Só a frase do site marca.
+
+O que ainda não é um agente de tela cheia: iframe de outro domínio não é lido; a foto pode falhar se o modelo de visão recusar a imagem; o HELIOS não resolve CAPTCHA. Esses casos param para o dono ou viram falha técnica com URL, etapa e botões visíveis.
+
+### Cada falha da v10, a causa e o conserto
+
+| O que apareceu | Causa | Conserto | Teste |
+|---|---|---|---|
+| Relatório `ok: false`, `fetch failed`, sem checkpoint de fila, cerca de 5 min depois de `busca_completa` | O `POST /ciclo` segurava a busca visual inteira. O cliente HTTP desiste por volta de 5 min sem cabeçalho de resposta. O checkpoint era gravado antes da busca, não durante. | A busca completa volta na hora (`background: true`) e o app consulta `/api/agente/vagas/andamento`, com retry se a rede local piscar. | `levaV6 live: a busca completa devolve na hora` |
+| Toda candidatura em ~2 s: "Não achei o próximo botão", `via: rules`, evidência vazia | O navegador novo estava no caminho, mas lia a página uma vez, logo após o load, e saía sem anotar os botões. Página de anúncio, login ou React ainda vazio caía na mesma frase. | Espera a página assentar, grava URL e botões em toda parada e, sem botão conhecido, pede a ação ao modelo. | `levaV6 live: o mesmo runApplication` e `sem botão conhecido a visão clica` |
+| Indeed salvo como `https://br.indeed.com/pagead/clk` | O coletor guardava o link do anúncio, não a vaga. | `jk=` vira `viewjob`; rastreador sem `jk` é descartado. | `Nome * usa o perfil e o anúncio do Indeed` |
+| Glassdoor / ATS externo | A listagem pede login ou um "Candidatar-se" que abre outro site. Sem botão de candidatura visível, era a mesma falha de botão. | Login vira espera humana. Botão de candidatura segue o clique; o formulário seguinte usa o mesmo laço, com visão se o rótulo for estranho. | `captcha e login param para o dono` e o fluxo de visão |
+| Quality Digital e BairesDev continuavam `nova` | A regra só valia na hora de gravar a vaga nova. A fila antiga não era revista. | Cada ciclo e cada abertura da lista refiltra `nova` e tira da espera as críticas que são falha técnica. | `a fila antiga perde Quality Digital e BairesDev` |
+| "Esperando sua resposta: 24" | Todo `critico`, inclusive botão e rede, virava caso para o dono. | CAPTCHA, login e pergunta sem resposta continuam "precisa de você". Botão, rede e falta de confirmação viram `falhou`. | o mesmo teste da fila e o resumo |
+| Click Interativo: "Falta Nome *" | O rótulo vinha com asterisco e não casava com `nome`. | O asterisco sai antes de comparar. "Nome *" usa o nome do perfil. | `Nome * usa o perfil` |
+| Gupy `ERR_NAME_NOT_RESOLVED` ou `ERR_ABORTED` | A página não abriu (DNS ou navegação interrompida) e o erro entrava no mesmo saco do formulário. | Uma nova tentativa e, se persistir, falha técnica de rede, com o código no resultado. | `captcha e login param para o dono; rede é falha técnica` |
+
+Ainda falta uma rodada curta no Windows, na instância principal, para ver se a visão acerta os botões reais da Gupy, do Indeed e do Glassdoor. Sem a frase do site no resultado, não há candidatura enviada. Nesta correção: `npm test` 645 testes, 644 pass, 0 fail, 1 skip; `npm run lint` e `npm run check` verdes.
+

@@ -363,3 +363,13 @@ Executar uma rodada limitada em uma vaga Gupy/ATS conhecida por usar iframe e ve
 - O commit inclui o executor corrigido, os testes, `.gitattributes`, este handoff e `work\\force-vagas-report-20261104.json`.
 - Os relatórios antigos em `work\\` continuam fora do commit para não aumentar o repositório com artefatos históricos não relacionados.
 - Estado honesto para retomada: descoberta visual funcionando; preenchimento e validação reforçados; ainda sem candidatura confirmada. O próximo teste deve priorizar uma vaga Gupy/ATS ativa e registrar `frames`, `frameDiagnostico`, campos obrigatórios e confirmação textual final.
+
+## Leva V14 — histórico externo não bloqueia nova tentativa (03/11/2026)
+
+- Causa concreta identificada no diagnóstico da rodada: `server/jobs.js` aplicava `repetirDias` a qualquer linha de `candidaturas.json` com status `enviada`, inclusive linhas importadas do Grok/planilhas (`origem: externo`, `executor: importado`). Isso fazia a vaga/empresa La Moda aparecer como “candidatura recente” mesmo sem uma inscrição confirmada pelo HELIOS.
+- Correção aplicada: `recentlyApplied()` agora só bloqueia quando a linha foi registrada pelo próprio HELIOS (`origem: helios` ou `executor: helios`). O histórico externo continua preservado e visível no histórico bruto, mas não impede nova tentativa operacional.
+- Teste de regressão adicionado: histórico importado de Jungle Gaming permanece elegível; uma candidatura confirmada pelo HELIOS continua respeitando `repetirDias`.
+- Rotina “Vagas: operação contínua” de 30 minutos foi pausada em `C:\Users\HelisonDias\AppData\Roaming\HELIOS\routines.json` para impedir concorrência durante o teste isolado. A rotina diária “Verificação das vagas” permanece habilitada.
+- Validação desta leva: `npm test` = 658 testes, 656 aprovados, 0 falhas, 2 ignorados; `npm run lint` e `npm run check` verdes.
+- O teste visual isolado no Chrome não foi executado: o controle de navegador não conseguiu identificar com segurança a URL/estado atual da janela e foi encerrado sem clicar ou enviar nada. Portanto, não declarar T1.3 concluído nem afirmar inscrição real nesta leva.
+- Próximo passo seguro: abrir uma vaga Gupy ativa no navegador, confirmar que existe um único processo HELIOS e executar somente essa vaga, coletando `frames`, `frameDiagnostico`, campos obrigatórios e confirmação textual final. CAPTCHA continua sendo intervenção humana; não há bypass.

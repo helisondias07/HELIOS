@@ -214,7 +214,7 @@ test("levaV6: fila automática aplica a regra e não marca enviada sem confirma�
   assert.match(blocked.nota, /confirmação/);
 });
 
-test("levaV6: importação passada entra como enviada e segura repetirDias", () => {
+test("levaV6: histórico importado não bloqueia repetirDias, mas envio do HELIOS bloqueia", () => {
   const rows = require("./fixtures/candidaturas-importadas.json");
   assert.equal(rows.length, 16);
   const jobs = createJobs(tmp("import"), { mock: true, now: () => Date.parse("2026-11-03T12:00:00Z"), readProfile: () => "React front-end" });
@@ -232,9 +232,17 @@ test("levaV6: importação passada entra como enviada e segura repetirDias", () 
     { extId: "nova", title: "Dev Front Pleno", company: "Empresa Nova", location: "Remoto", url: "https://exemplo.invalid/nova", description: "React remoto" },
   ], { platform: "linkedin" });
   const queue = jobs.autoQueue();
-  assert.ok(queue.every((item) => item.company !== "Jungle Gaming"));
-  assert.ok(queue.every((item) => !String(item.url).includes("4481221345")));
+  assert.ok(queue.some((item) => item.company === "Jungle Gaming"), "histórico do Grok não pode bloquear nova tentativa");
   assert.ok(queue.some((item) => item.company === "Empresa Nova"));
+
+  jobs.ingestParsedJobs([
+    { extId: "helios-confirmada", title: "Dev Front Pleno", company: "Empresa Confirmada", location: "Remoto", url: "https://exemplo.invalid/confirmada", description: "React remoto" },
+  ], { platform: "linkedin" });
+  const confirmed = jobs.autoQueue().find((item) => item.company === "Empresa Confirmada" && item.extId === "helios-confirmada");
+  assert.ok(confirmed);
+  const started = jobs.autoStart(confirmed.id);
+  jobs.autoResult(started.id, { ok: true, confirmacao: "enviado" });
+  assert.ok(!jobs.autoQueue().some((item) => item.company === "Empresa Confirmada"), "envio confirmado pelo HELIOS deve respeitar repetirDias");
 });
 
 test("levaV6: Remotar 404 não derruba os outros adaptadores e a busca visual tem as plataformas", async () => {

@@ -449,10 +449,17 @@ function createJobs(dataDir, { fetchImpl = globalThis.fetch, now = () => Date.no
     const other = normCompany(vaga.company);
     return Boolean(company && other && company === other);
   }
+  // Histórico importado (Grok, planilha ou execução anterior) é apenas
+  // referência. Só uma candidatura registrada pelo próprio HELIOS pode
+  // bloquear uma nova tentativa durante repetirDias.
+  function isHeliosApplication(item) {
+    return item && (item.origem === "helios" || item.executor === "helios");
+  }
   /** Já se candidatou nesta vaga (mesma URL) ou nesta empresa nos últimos X dias? */
   function recentlyApplied(v, at = now()) {
     const windowMs = (Number(data.prefs.repetirDias) || 30) * 86400e3;
-    return log.some((item) => ["enviada", "enviada_auto", "aprovada"].includes(item.status)
+    return log.some((item) => isHeliosApplication(item)
+      && ["enviada", "enviada_auto", "aprovada"].includes(item.status)
       && at - Date.parse(item.at) < windowMs
       && sameApplication(item, v));
   }

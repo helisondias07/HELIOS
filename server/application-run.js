@@ -20,6 +20,8 @@ function summarize(snapshot = {}) {
     titulo: String(snapshot.title || "").slice(0, 120),
     botoes: (snapshot.buttons || []).slice(0, 15).map((button) => String(button.text || button.ariaLabel || button.testId || "").replace(/\s+/g, " ").trim().slice(0, 80)).filter(Boolean),
     campos: (snapshot.fields || []).slice(0, 15).map((field) => String(field.label || field.name || "").replace(/\s+/g, " ").trim().slice(0, 80)).filter(Boolean),
+    frames: Number(snapshot.frames) || 0,
+    frameDiagnostico: (snapshot.frameDiagnostics || []).slice(0, 8),
     erroScript: String(snapshot.erroScript || "").slice(0, 180),
   };
 }
@@ -71,6 +73,48 @@ function paginaSeguranca(snap = {}) {
   return /security\s*\|\s*glassdoor|glassdoor\.com\/security/i.test(`${snap.title || ""} ${snap.url || ""}`);
 }
 
+function paginaSmartApply(snap = {}) {
+  return /smartapply\.indeed\.com|indeedapply|indeedapply/i.test(`${snap.url || ""} ${snap.title || ""}`);
+}
+
+function avisoNaoBloqueante(snap = {}) {
+  return /(as respostas? nao poderao ser editad|respostas? nao poderao ser alterad|review before submit|confira suas respostas)/i.test(String(snap.text || ""));
+}
+
+function linkCandidaturaExterna(snap = {}) {
+  if (!/glassdoor\./i.test(String(snap.url || ""))) return null;
+  return (snap.buttons || []).find((button) => {
+    const text = `${button.text || ""} ${button.ariaLabel || ""} ${button.title || ""}`;
+    return button.href
+      && /candidat|candidate|apply|inscrev|company site/i.test(text)
+      && !/mensagem|message|conectar|connect|seguir|follow|conta gratuita|area da empresa|empresa\/cadastre|employer/i.test(`${text} ${button.href}`);
+  }) || null;
+}
+
+async function abrirAtsGlassdoor(io, snap, evidence) {
+  const link = linkCandidaturaExterna(snap);
+  if (!link || typeof io.load !== "function") return snap;
+  note(evidence, "glassdoor-external", `${link.text || link.ariaLabel || "candidatura externa"} -> ${link.href}`);
+  let href = link.href;
+  try { href = new URL(href, snap.url).href; } catch { /* mantém o href para o executor registrar a falha */ }
+  const loaded = await io.load(href);
+  if (!loaded || !loaded.ok) return snap;
+  return settle(io, evidence);
+}
+
+async function clickFresh(io, action, evidence, fallback = null) {
+  let fresh = await io.snapshot().catch(() => null);
+  let button = fresh && vision.buttonFor(fresh, action.alvo);
+  if (!button) button = fallback;
+  if (!button) return false;
+  const clicked = await io.click(button.sel, button.frameId);
+  if (clicked) return true;
+  note(evidence, "reacquire", `botão mudou; nova tentativa: ${action.alvo}`);
+  fresh = await io.snapshot().catch(() => null);
+  button = fresh && vision.buttonFor(fresh, action.alvo);
+  return Boolean(button && await io.click(button.sel, button.frameId));
+}
+
 function detalheFalha(motivo, snap = {}) {
   const url = String(snap.url || "").slice(0, 180);
   const form = (snap.buttons || []).filter((button) => !button.chrome).slice(0, 5).map((button) => button.text || button.ariaLabel).filter(Boolean);
@@ -80,16 +124,24 @@ function detalheFalha(motivo, snap = {}) {
 
 async function settle(io, evidence) {
   let snap = {};
-  for (let i = 0; i < 8; i += 1) {
+  let attempts = 8;
+  let delay = 500;
+  for (let i = 0; i < attempts; i += 1) {
     snap = (await io.snapshot().catch((error) => ({ erroScript: String(error && error.message || error), buttons: [], fields: [] }))) || {};
     note(evidence, "snapshot", JSON.stringify({ etapa: i + 1, ...summarize(snap) }));
     if (paginaSeguranca(snap) || prontoParaCandidatura(snap)) break;
-    if (typeof io.sleep === "function") await io.sleep(500);
+    if (paginaSmartApply(snap) && i === 0) { attempts = 30; delay = 900; }
+    if (typeof io.sleep === "function") await io.sleep(delay);
   }
   return snap;
 }
 
-async function runApplication({ vaga = {}, profile = {}, respostas = {}, secrets = {}, enviar = true, llm = null, io, maxTurns = 12 } = {}) {
+async function settleAfterAction(io, evidence) {
+  if (typeof io.sleep === "function") await io.sleep(700);
+  return settle(io, evidence);
+}
+
+async function runApplication({ vaga = {}, profile = {}, respostas = {}, secrets = {}, enviar = true, llm = null, io, maxTurns = 20 } = {}) {
   const evidence = [];
   if ((vaga.platform === "email" || vaga.aplicarPorEmail) && vaga.emailTo) {
     if (!io || typeof io.sendEmail !== "function") {
@@ -131,6 +183,7 @@ async function runApplication({ vaga = {}, profile = {}, respostas = {}, secrets
     if (early) return pack(evidence, early, early.estado || "needs_user");
   }
   let snap = await settle(io, evidence);
+  if (/glassdoor\./i.test(String(snap.url || ""))) snap = await abrirAtsGlassdoor(io, snap, evidence);
   if (paginaSeguranca(snap) && !prontoParaCandidatura(snap)) {
     if (typeof io.show === "function") io.show();
     return pack(evidence, { critico: detalheFalha("A página caiu na verificação de segurança do Glassdoor.", snap), codigo: "login", classe: "humano" }, "needs_user");
@@ -204,9 +257,9 @@ async function runApplication({ vaga = {}, profile = {}, respostas = {}, secrets
         if (button) {
           via = "visao";
           note(evidence, "visao", `clicar ${button.text || action.alvo}`);
-          const clicked = await io.click(button.sel);
+          const clicked = await clickFresh(io, action, evidence, button);
           if (!clicked) return pack(evidence, { critico: "O botão indicado pela visão sumiu antes do clique.", codigo: "botao", classe: "tecnico", via, model }, "failed");
-          if (typeof io.sleep === "function") await io.sleep(800);
+          await settleAfterAction(io, evidence);
           continue;
         }
       }
@@ -218,7 +271,7 @@ async function runApplication({ vaga = {}, profile = {}, respostas = {}, secrets
         } else if (field && valor) {
           via = "visao";
           note(evidence, "visao", `preencher ${field.label || action.alvo}`);
-          filledTotal += Number(await io.apply([{ sel: field.sel, kind: field.type === "file" ? "file" : "text", valor }])) || 0;
+          filledTotal += Number(await io.apply([{ sel: field.sel, frameId: field.frameId, kind: field.type === "file" ? "file" : "text", valor }])) || 0;
           memory.filled = { ...(memory.filled || {}), [field.sel]: true };
           continue;
         }
@@ -251,6 +304,11 @@ async function runApplication({ vaga = {}, profile = {}, respostas = {}, secrets
             model,
           }, "needs_user");
         }
+        if (avisoNaoBloqueante(snap) && !/teste|pagamento|captcha|login|senha/i.test(`${action.motivo} ${action.alvo}`)) {
+          note(evidence, "aviso-informativo", "aviso de respostas não editáveis ignorado; seguindo para revisão/envio");
+        } else if (action.motivo || action.alvo) {
+          return pack(evidence, { critico: action.motivo || "O modelo pediu para parar nesta página.", codigo: "visao", classe: "tecnico", via: "visao", model }, "failed");
+        }
       }
       if (action && action.acao === "clicar") {
         if (/mensagem|inmail|recrutador|conectar/i.test(action.alvo)) {
@@ -260,11 +318,11 @@ async function runApplication({ vaga = {}, profile = {}, respostas = {}, secrets
         if (button) {
           via = "visao";
           note(evidence, "visao", `clicar ${button.text || action.alvo}`);
-          const clicked = await io.click(button.sel);
+          const clicked = await clickFresh(io, action, evidence, button);
           if (!clicked) {
             return pack(evidence, { critico: "O botão indicado pela visão sumiu antes do clique.", codigo: "botao", classe: "tecnico", via, model }, "failed");
           }
-          if (typeof io.sleep === "function") await io.sleep(800);
+          await settleAfterAction(io, evidence);
           continue;
         }
       }
@@ -274,7 +332,7 @@ async function runApplication({ vaga = {}, profile = {}, respostas = {}, secrets
         if (field && valor) {
           via = "visao";
           note(evidence, "visao", `preencher ${field.label || action.alvo}`);
-          filledTotal += Number(await io.apply([{ sel: field.sel, kind: field.type === "file" ? "file" : "text", valor }])) || 0;
+          filledTotal += Number(await io.apply([{ sel: field.sel, frameId: field.frameId, kind: field.type === "file" ? "file" : "text", valor }])) || 0;
           memory.filled = { ...(memory.filled || {}), [field.sel]: true };
           continue;
         }
@@ -284,7 +342,7 @@ async function runApplication({ vaga = {}, profile = {}, respostas = {}, secrets
       filledTotal += Number(await io.apply(decision.fills)) || 0;
       for (const action of decision.fills.filter((item) => item.kind === "file")) {
         if (typeof io.setFile !== "function") continue;
-        try { await io.setFile(action.sel, action.valor); filledTotal += 1; } catch (error) {
+        try { await io.setFile(action.sel, action.valor, action.frameId); filledTotal += 1; } catch (error) {
           return pack(evidence, { critico: `Não consegui anexar o CV: ${error.message}`, codigo: "arquivo", classe: "tecnico", via, model }, "failed");
         }
       }
@@ -312,11 +370,17 @@ async function runApplication({ vaga = {}, profile = {}, respostas = {}, secrets
     }
     if (decision.click) {
       note(evidence, decision.click.intent || "click", decision.click.text || decision.click.sel);
-      const clicked = await io.click(decision.click.sel);
+      let clicked = await io.click(decision.click.sel, decision.click.frameId);
+      if (!clicked) {
+        const fresh = await io.snapshot().catch(() => null);
+        const choice = fresh && nav.chooseButton(fresh);
+        if (choice && choice.button) clicked = await io.click(choice.button.sel, choice.button.frameId);
+        note(evidence, "reacquire", "botão de regra reacquirido após mudança do DOM");
+      }
       if (!clicked) {
         return pack(evidence, { critico: "O botão sumiu antes do clique.", codigo: "botao", classe: "tecnico", via, model }, "failed");
       }
-      if (typeof io.sleep === "function") await io.sleep(800);
+      await settleAfterAction(io, evidence);
     }
   }
   note(evidence, "limite", JSON.stringify(summarize(snap)));

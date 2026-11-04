@@ -153,7 +153,7 @@ function nivelOk(job = {}) {
 
 function papelOk(job = {}) {
   const text = norm(`${job.title || ""} ${job.description || ""}`);
-  return /\b(front[- ]?end|frontend|full[- ]?stack|fullstack|node(?:\.js)?|react|next(?:\.js)?|typescript|\bts\b|\bia\b|\bai\b|machine learning|inteligencia artificial)\b/.test(text);
+  return /\b(front[- ]?end|frontend|full[- ]?stack|fullstack|back[- ]?end|backend|integr\w*|node(?:\.js)?|react|next(?:\.js)?|typescript|\bts\b|\bia\b|\bai\b|api|apis|rest|soap|webhook(?:s)?|machine learning|inteligencia artificial)\b/.test(text);
 }
 
 function stackBloqueada(job = {}) {

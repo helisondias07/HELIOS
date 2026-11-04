@@ -112,14 +112,14 @@ const SAVED_TAB_SCRIPT = `(() => {
   const url = location.href || "";
   const redirected = /jobs-tracker/i.test(url);
   const norm = (v) => String(v || "").normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").toLowerCase();
-  const tabs = [...document.querySelectorAll("button, a, [role='tab']")];
-  const tab = tabs.find((el) => /salvos|saved jobs|vagas salvas/.test(norm(el.innerText || el.getAttribute("aria-label") || "")));
+  const tabs = [...document.querySelectorAll("button, a, [role='tab'], [role='button']")];
+  const tab = tabs.find((el) => /vagas salvas|saved jobs|jobs saved|salvos/.test(norm(el.innerText || el.getAttribute("aria-label") || el.getAttribute("title") || "")));
   let clicked = "";
   if (redirected && tab && tab.getAttribute("aria-selected") !== "true") {
     tab.click();
     clicked = norm(tab.innerText || tab.getAttribute("aria-label") || "").slice(0, 40);
   }
-  return { redirected, clicked, url };
+  return { redirected, clicked, tabFound: Boolean(tab), tabSelected: Boolean(tab && tab.getAttribute("aria-selected") === "true"), url };
 })()`;
 
 const SAVED_JOBS_SCRIPT = `(() => {

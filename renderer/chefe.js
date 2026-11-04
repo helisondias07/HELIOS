@@ -311,7 +311,12 @@
       // Avisos de ClickUp e GitHub ficam em Ajustes, não no chat.
       // Itens cancelados continuam no quadro para auditoria, mas não podem
       // reaparecer como alerta ativo depois da migração para o modo automático.
-      const ativos = (q.itens || []).filter((item) => item.status !== "cancelado");
+      const agora = Date.now();
+      const ativos = (q.itens || []).filter((item) => {
+        if (item.status === "cancelado") return false;
+        const quando = Date.parse(item.at || item.createdAt || item.updatedAt || "");
+        return !Number.isFinite(quando) || agora - quando <= 72 * 60 * 60 * 1000;
+      });
       const itens = dedupeFeed(ativos).slice(0, 8);
       if (!itens.length) {
         box.innerHTML = `<div class="lf-hello"><span class="hx-glow lf-hello-logo"><span class="hx-mark hx-96" aria-hidden="true"></span></span><p class="lf-hello-q">Como posso ajudar?</p></div>`;

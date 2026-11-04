@@ -88,9 +88,17 @@ function buttonFor(snapshot, alvo) {
   const want = cleanLabel(alvo);
   if (!want) return null;
   const buttons = snapshot.buttons || [];
-  return buttons.find((button) => cleanLabel(button.text || button.ariaLabel || "") === want)
-    || buttons.find((button) => cleanLabel(`${button.text || ""} ${button.ariaLabel || ""} ${button.testId || ""}`).includes(want))
-    || null;
+  const label = (button) => cleanLabel(`${button.text || ""} ${button.ariaLabel || ""} ${button.title || ""} ${button.testId || ""}`);
+  const exact = buttons.find((button) => label(button) === want);
+  if (exact) return exact;
+  const included = buttons.find((button) => label(button).includes(want) || want.includes(label(button)));
+  if (included) return included;
+  const tokens = want.split(/\s+/).filter((token) => token.length >= 3);
+  if (!tokens.length) return null;
+  return buttons
+    .map((button) => ({ button, score: tokens.reduce((n, token) => n + (label(button).includes(token) ? 1 : 0), 0) }))
+    .filter((item) => item.score >= Math.max(1, Math.ceil(tokens.length * 0.5)))
+    .sort((a, b) => b.score - a.score)[0]?.button || null;
 }
 
 function fieldFor(snapshot, alvo) {

@@ -1325,7 +1325,8 @@ let agentChatId = "vagas";
 
 function inscricoesHtml(data) {
   const plat = Object.fromEntries((data.plataformas || []).map((item) => [item.id, item.label]));
-  const rows = (data.historico || []).filter((item) => item.status === "enviada" || item.status === "enviada_auto");
+  const origem = data.historicoHelios || (data.historico || []).filter((item) => item.origem === "helios" || item.executor === "helios");
+  const rows = origem.filter((item) => item.status === "enviada" || item.status === "enviada_auto");
   const body = rows.map((item) => `<tr><td>${esc(item.empresa || "")}</td><td>${esc(item.titulo || "")}</td><td>${esc(plat[item.plataforma] || item.plataforma || "")}</td><td>${esc(item.at ? new Date(item.at).toLocaleString("pt-BR") : "")}</td><td>${esc(VAGA_STATUS[item.status] || item.status || "")}</td></tr>`).join("");
   return `<table class="hx-insc" aria-label="Inscrições enviadas"><caption>Inscrições enviadas</caption><thead><tr><th>Empresa</th><th>Cargo</th><th>Plataforma</th><th>Data</th><th>Status</th></tr></thead><tbody>${body || `<tr><td colspan="5">Nenhuma inscrição enviada.</td></tr>`}</tbody></table>`;
 }
@@ -1337,7 +1338,10 @@ async function loadAgentChat(assistantId) {
     try { state.conversations = (await call("GET", "/api/conversations")).conversations || []; } catch { state.conversations = []; }
   }
   if (!state.current || state.current.assistantId !== assistantId) {
-    const found = state.conversations.find((item) => item.assistantId === assistantId);
+    // Rotinas são histórico operacional; não devem abrir como se fossem a conversa atual do agente.
+    const found = state.conversations.find((item) => item.assistantId === assistantId
+      && !/^Rotina:/i.test(String(item.title || ""))
+      && item.status !== "archived");
     if (found) {
       try { state.current = (await call("GET", `/api/conversations/${found.id}`)).conversation; } catch { state.current = null; }
     } else state.current = null;

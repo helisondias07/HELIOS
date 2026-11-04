@@ -85,7 +85,7 @@ async function jsonWhenReady(url) {
   throw new Error("o Chrome não abriu o depurador");
 }
 
-test("levaV12: candidatura real num formulário local só passa na confirmação", { timeout: 40000 }, async () => {
+test("levaV12: candidatura real num formulário local só passa na confirmação", { timeout: 40000, skip: process.platform === "win32" ? "fixture CDP usa google-chrome; coberto pela validação Electron no Windows" : false }, async () => {
   const served = await listen(HTML);
   const cvDir = fs.mkdtempSync(path.join(os.tmpdir(), "helios-cv-"));
   const cvPath = path.join(cvDir, "cv.pdf");

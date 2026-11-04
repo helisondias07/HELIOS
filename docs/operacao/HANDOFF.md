@@ -378,3 +378,68 @@ O agente de Vagas deve ser 100% autônomo, como o Grok Bot: enxerga a tela, se c
 - A rotação das contas do Cursor e o loop completo por visão ainda não foram confirmados em produção.
 - Os avisos de ClickUp/GitHub/Vercel são dos agentes Oasis e Portfólio.
 - Ver também `docs/operacao/REVISAO-GERAL.md`.
+
+## Leva V7 — percepção e execução dentro de iframes (03/11/2026)
+
+- Diagnóstico: o snapshot e o clique ainda assumiam o documento principal. ATS/Gupy e fluxos externos do LinkedIn podem colocar a candidatura em iframe de outra origem; o HELIOS via a página, mas executava no contexto errado.
+- `src/jobs-host.js` agora enumera `mainFrame.framesInSubtree`, captura o documento principal e frames de outra origem. Campos/botões recebem `frameId`.
+- `server/form-navigator.js` preserva `frameId` nas ações; `server/application-run.js` executa clique/preenchimento no mesmo frame capturado. A captura visual mostra a janela de forma não focada antes de `capturePage` para evitar screenshot vazio de janela oculta.
+- Evidências agora registram contagem e diagnóstico sanitizado dos frames. CAPTCHA continua handoff humano obrigatório.
+- Validação: 654 testes, 652 pass, 0 fail, 2 skip; lint e check verdes; instalador gerado/reinstalado em `C:\Program Files\HELIOS\HELIOS.exe` às 15:52 BRT.
+- Próximo passo: rodada limitada em vaga Gupy/ATS com iframe e conferência de `frames`/`frameDiagnostico` no relatório, antes de reprocessar a fila inteira.
+## Leva V8 — interface e rodada v14 (03/11/2026)
+
+- A tabela de inscrições foi separada por origem: a interface usa somente `historicoHelios`; importações antigas permanecem preservadas no histórico bruto, mas não aparecem como inscrições HELIOS.
+- Registros novos recebem `origem/executor: helios`; importações recebem `origem: externo`.
+- O Chefe não abre mais automaticamente conversas `Rotina:` antigas; o layout solo remove a coluna vazia à direita; o feed mostra somente itens não cancelados dos últimos 72h.
+- A rodada v14 terminou com 9 oportunidades, 0 inscrições confirmadas e 1 falha técnica em URL Indeed que retornou “Não encontrada”. Não houve evidência de envio real.
+- Após a Leva V8 é obrigatório gerar/aplicar novo instalador e validar a tela.
+
+### Validação final
+
+- `npm test`: 654 testes, 652 pass, 0 fail, 2 skip esperados no Windows.
+- `npm run lint`, `npm run check` e `npm run dist:win`: concluídos.
+- Instalador reaplicado; `C:\Program Files\HELIOS\HELIOS.exe` atualizado em 03/11/2026 às 16:04 BRT.
+
+## Leva V9 — correção de tela, reprocessamento técnico e rodada v20 (03/11/2026)
+
+- Corrigido o descompasso entre percepção e ação: `clickScript`/`applyScript` agora percorrem `shadowRoot`, mantendo o frame correto. Antes o diagnóstico via o controle, mas a ação usava somente `document.querySelector`.
+- Ampliados rótulos de candidatura e atributos semânticos; depois de cada ação o executor aguarda e recaptura a tela/DOM.
+- Criado `revisitar:true` para uma única nova tentativa de falhas técnicas antigas, excluindo CAPTCHA, login/2FA, candidaturas recentes e envios já confirmados.
+- Validação: 654 testes, 652 pass, 0 fail, 2 skips; lint/check verdes. Novo instalador gerado, mas não aplicado: o NSIS ficou pendente de elevação e `Program Files` recusou cópia direta. O executável instalado continua anterior à Leva V9.
+- v20 (`work\force-vagas-report-v20.json`): 16 encontradas; Gupy 4, Glassdoor 3, LinkedIn 2, Remotar 3, GeekHunter 2, Nerdin 1 e e-mail 1; 0 confirmadas; 3 falhas. A vaga salva de Integrações foi encontrada, mas o envio por e-mail parou em `Nenhuma conta Gmail conectada`; outro LinkedIn falhou porque o botão dinâmico sumiu.
+- Próximo passo: instalar com elevação, habilitar Gmail de envio e executar a rodada com reprocessamento técnico, exigindo confirmação positiva antes de contabilizar `enviada`.
+## Leva V10.2 — reinstalação, rodada v23–v25 e diagnóstico final (2026-11-03)
+
+- Implementado no fluxo de candidatura:
+  - aviso informativo da Gupy sobre respostas não editáveis não é mais tratado como bloqueio automático;
+  - snapshot de formulário passou a guardar `href` dos links e o Glassdoor tenta seguir somente links reais de candidatura para ATS externo;
+  - falso positivo `Conta gratuita de empresa`/`Área da empresa` foi excluído;
+  - cliques orientados por visão e por regras reacquirem o snapshot imediatamente antes do clique, com uma tentativa segura de recuperação se o DOM mudou;
+  - relatório da rodada passou a reler o estado final e contar vagas realmente processadas pelo ciclo, mesmo quando já estavam em `falhou` antes.
+- Validação: `npm test` = 654 testes, 652 aprovados, 0 falhas, 2 ignorados por dependerem de navegador real; `npm run lint` verde; `npm run check` = `HELIOS ok`.
+- Instalador reconstruído e reinstalado com sucesso (`ExitCode=0`); hash de `release/win-unpacked/resources/app.asar` igual ao instalado em `C:\Program Files\HELIOS\resources\app.asar`.
+- Rodadas reais no build instalado:
+  - v23: busca visual completa, 21 novas oportunidades, 0 confirmadas; revelou falso positivo do Glassdoor e relatório ainda subcontava tentativas.
+  - v24: após a correção do falso positivo, 9 novas oportunidades (Glassdoor 6, Remotar 2, Catho 1), 0 confirmadas; Glassdoor não seguiu links reais porque a página não expôs botão de candidatura.
+  - v25: após a correção do relatório, 26 oportunidades encontradas (Glassdoor 1, Remotar 25), 3 tentativas contabilizadas, 3 falhas de botão/formulário e 0 inscrições confirmadas. Relatório: `work/force-vagas-report-v25.json`.
+- Diagnóstico atual: a busca visual está operacional; o bloqueio de inscrição não é mais “fila vazia”. Glassdoor entrega páginas com navegação e campos de busca, mas não expõe o CTA da vaga; Indeed chega a abrir o SmartApply, mas em alguns casos muda para etapa sem campos/botões detectáveis; posts salvos do LinkedIn que pedem e-mail continuam bloqueados porque o runtime informa `Nenhuma conta Gmail conectada.`; `/my-items/saved-jobs/` continua expirando.
+- CAPTCHA continua sendo handoff humano por segurança; não há bypass implementado.
+
+## Leva V11 — estado operacional após a correção (03/11/2026)
+
+- Corrigida a incompatibilidade entre a fila de revisita e `autoStart`: falhas técnicas antigas agora podem ser tentadas novamente, sem remover auditoria e sem repetir candidaturas já confirmadas.
+- A fila prioriza plataformas com fluxo de candidatura antes do Glassdoor; reconhecimento de botões foi ampliado para rótulos de currículo/continuação, atributos acessíveis, fuzzy match, shadow DOM e iframes com recaptura antes do clique.
+- O resumo do Chefe tem timeout de 45s para não prender o relatório inteiro quando o modelo grátis não responde.
+- Testes: 654 total, 652 pass, 0 fail, 2 skip; lint/check verdes. Build NSIS concluído.
+- Reinstalação validada em `C:\Users\HelisonDias\AppData\Local\HELIOS` (`ExitCode=0`, hash do `app.asar` igual ao build). `C:\Program Files\HELIOS` não foi atualizado nesta tentativa por depender de elevação; o teste foi feito no executável da instalação de usuário.
+- Ciclo v29 percorreu LinkedIn e plataformas, tentou 19 registros persistidos e confirmou 0. Houve 17 falhas técnicas/validação e 2 descartes legítimos por presencial/híbrido. Gupy chegou ao formulário mas parou em `Campo obrigatório`; Indeed chegou ao SmartApply; Glassdoor não expôs CTA/ATS. Portanto ainda não há evidência de inscrição enviada.
+- Próximo foco obrigatório: modelar controles obrigatórios Gupy (radio/select/upload), aguardar pergunta dinâmica do SmartApply e conectar Gmail de envio. CAPTCHA/login permanecem handoff humano.
+
+## Leva V12 — formulário dinâmico (04/11/2026)
+
+- Snapshot agora captura controles customizados Gupy com `role=radio/checkbox`, estados ARIA e opções; teste unitário cobre rádio obrigatório.
+- SmartApply do Indeed recebe até 30 recapturas de 900 ms para perguntas que chegam depois do shell inicial.
+- Validação: 655 testes, 653 aprovados, 0 falhas, 2 skips; lint/check verdes.
+- `app.asar` atualizado na instalação de usuário `C:\Users\HelisonDias\AppData\Local\HELIOS`; hash do build e da instalação: `662280D73873455439C616ADDB2D1D16DD305A760E1FCDC9C9C4E42519A55458`. O NSIS ficou preso nesta tentativa, então não afirmar instalação formal concluída.
+- Rodada v30 percorreu LinkedIn/plataformas, mas não confirmou inscrição. Próximo teste deve usar uma vaga Gupy ativa em que o campo obrigatório customizado seja visível e verificar a evidência antes/depois do clique.

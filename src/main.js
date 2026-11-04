@@ -647,28 +647,37 @@ function bootstrap() {
             await new Promise((resolve) => setTimeout(resolve, 2000));
           }
           checkpoint("busca_concluida", { feitos: scan.feitos || [], erros: scan.erros || [] });
-          const started = await api("POST", "/api/vagas/auto/rodar", { origem: "ciclo-agora" });
+          const started = await api("POST", "/api/vagas/auto/rodar", { origem: "ciclo-agora", revisitar: true });
           checkpoint("fila_iniciada", { novas: started.novas || 0, fila: started.fila || 0, bloqueios: started.bloqueios || [] });
           let after = before;
-          const deadline = Date.now() + 5 * 60 * 1000;
+          const deadline = Date.now() + 20 * 60 * 1000;
           while (Date.now() < deadline) {
             after = await api("GET", "/api/vagas");
             checkpoint("monitoramento", { autoRodando: Boolean(after.autoRodando), fila: (after.vagas || []).filter((v) => v.status === "nova").length });
             if (!after.autoRodando) break;
             await new Promise((resolve) => setTimeout(resolve, 2000));
           }
-          const chefeCiclo = await api("POST", "/api/chefe/ciclo", { forcar: true });
+          const finalState = await api("GET", "/api/vagas");
+          after = finalState;
+          const chefeCiclo = await Promise.race([
+            api("POST", "/api/chefe/ciclo", { forcar: true }),
+            new Promise((resolve) => setTimeout(() => resolve({ ok: false, resumo: "Resumo do Chefe excedeu 45s; o relatório foi fechado com o estado operacional persistido." }), 45000)),
+          ]);
           const chefe = await api("GET", "/api/chefe");
           const added = (after.vagas || []).filter((v) => !beforeMap.has(v.id));
-          const changed = (after.vagas || []).filter((v) => beforeMap.has(v.id) && beforeMap.get(v.id) !== v.status);
+          const cycleStartMs = Date.parse(startedAt) || 0;
+          const attempted = (after.vagas || []).filter((v) => {
+            const at = Date.parse(v.autoAt || v.updatedAt || "");
+            return at >= cycleStartMs && (v.autoEstado || v.autoVia || v.autoEvidencia || v.nota);
+          });
           const byPlatform = (rows) => rows.reduce((out, v) => {
             const key = v.platform || "desconhecida";
             out[key] = (out[key] || 0) + 1;
             return out;
           }, {});
-          const sent = changed.filter((v) => v.status === "enviada");
-          const critical = changed.filter((v) => v.status === "critica");
-          const failed = changed.filter((v) => v.status === "falhou");
+          const sent = attempted.filter((v) => v.status === "enviada");
+          const critical = attempted.filter((v) => v.status === "critica");
+          const failed = attempted.filter((v) => v.status === "falhou");
           const report = {
             ok: true,
             iniciado: started,
@@ -678,7 +687,8 @@ function bootstrap() {
             inscricoesConfirmadasNestaRodada: sent.length,
             inscritasPorPlataforma: byPlatform(sent),
             casosCriticosNestaRodada: critical.map((v) => ({ plataforma: v.platform, empresa: v.company, titulo: v.title, motivo: v.critico?.motivo || "" })),
-            falhasNestaRodada: failed.map((v) => ({ plataforma: v.platform, empresa: v.company, titulo: v.title, nota: v.nota || "" })),
+            falhasNestaRodada: failed.map((v) => ({ plataforma: v.platform, empresa: v.company, titulo: v.title, codigo: v.autoResultado?.codigo || v.falhaCodigo || "", nota: v.nota || v.autoResultado?.critico || "" })),
+            tentadasNestaRodada: attempted.length,
             filaRestante: (after.vagas || []).filter((v) => v.status === "nova").length,
             bloqueiosDaFila: started.bloqueios || [],
             chefe: { resumo: chefe.ultimoResumo || "", ciclo: chefeCiclo.resumo || "", resultadosRecentes: chefe.ultimosResultados || [] },

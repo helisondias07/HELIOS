@@ -267,17 +267,19 @@ const FEED_SCRIPT = `(() => {
 const SAVED_SCRIPT = `(() => {
   const direct = [...document.querySelectorAll('a[href*="/jobs/view/"], a[href*="/feed/update/"], a[href*="/posts/"]')];
   const roots = direct.map((a) => a.closest('li, article, [data-view-name], [data-urn], div')).filter(Boolean);
-  const nodes = [...new Set([...document.querySelectorAll('li.saved-item, div.entity-result, article[data-id], li[class*="saved" i], [data-view-name*="saved" i]'), ...roots])];
+  const nodes = [...new Set([...document.querySelectorAll('main li, main article, [role="listitem"], li.saved-item, div.entity-result, article[data-id], li[class*="saved" i], [data-view-name*="saved" i]'), ...roots])];
   const items = nodes.slice(0, 30).map((el) => {
-    const link = el.querySelector('a[href*="/jobs/view/"], a[href*="/feed/update/"], a[href*="/posts/"], a[href*="linkedin.com"]');
+    const links = [...el.querySelectorAll('a[href]')].map((a) => a.href).filter((href) => String(href).startsWith('https://')).slice(0, 20);
+    const link = links.find((href) => String(href).includes('/jobs/view/')) || links.find((href) => String(href).includes('/feed/update/')) || links.find((href) => String(href).includes('/posts/')) || links.find((href) => String(href).includes('linkedin.com')) || '';
     return {
-      id: el.getAttribute('data-id') || el.getAttribute('data-urn') || link?.href || '',
+      id: el.getAttribute('data-id') || el.getAttribute('data-urn') || link || '',
       autor: (el.querySelector('.actor, .entity-result__title-text, h3, h4, [class*="actor"]') || {}).innerText || '',
       texto: (el.innerText || '').slice(0, 1200),
-      url: link?.href || '',
+      url: link || '',
+      links,
     };
   }).filter((x) => x.texto || x.url);
-  return { items, diagnostics: { selectorNodes: nodes.length, directLinks: direct.length, jobLinks: direct.filter((a) => /[/]jobs[/]view[/]/.test(a.href)).length, bodyChars: (document.body?.innerText || '').length, title: document.title, url: location.href } };
+  return { items, diagnostics: { selectorNodes: nodes.length, directLinks: direct.length, jobLinks: items.reduce((n, item) => n + item.links.filter((href) => String(href).includes('/jobs/view/')).length, 0), bodyChars: (document.body?.innerText || '').length, title: document.title, url: location.href } };
 })()`;
 
 /** LEVA O3: notificações — só leitura; o servidor filtra as de vaga. */
@@ -875,6 +877,64 @@ function registerJobs({ ipcMain, BrowserWindow, vault, serverUrl, getApiToken, m
     }
     const w = getWin(vaga.platform);
     const js = (code) => w.webContents.executeJavaScript(code, true);
+    const mainFrame = () => w.webContents.mainFrame || null;
+    const frames = () => {
+      const root = mainFrame();
+      if (!root) return [];
+      try { return Array.isArray(root.framesInSubtree) ? root.framesInSubtree : [root]; } catch { return [root]; }
+    };
+    const frameById = (frameId) => frames().find((frame) => String(frame.frameToken || "") === String(frameId || "")) || mainFrame();
+    const sameOrigin = (left, right) => {
+      try { return new URL(left).origin === new URL(right).origin; } catch { return true; }
+    };
+    const snapshotAllFrames = async () => {
+      const allFrames = frames();
+      const root = mainFrame();
+      const mainUrl = String(w.webContents.getURL() || "");
+      const parts = [];
+      for (const frame of allFrames) {
+        if (!frame || frame.isDestroyed?.()) continue;
+        const frameUrl = String(frame.url || "");
+        // O documento principal já percorre iframes same-origin. Os frames de
+        // outra origem precisam ser avaliados diretamente no próprio contexto;
+        // é onde muitos ATS hospedam o formulário de candidatura.
+        if (frame !== root && (!frameUrl || sameOrigin(frameUrl, mainUrl))) continue;
+        try {
+          const part = await frame.executeJavaScript(nav.SNAPSHOT_SCRIPT, true);
+          if (part && typeof part === "object") parts.push({ frame, part });
+        } catch { /* frame saiu/navegou durante o snapshot */ }
+      }
+      const base = parts.find((item) => item.frame === root)?.part || parts[0]?.part || {};
+      const fields = [];
+      const buttons = [];
+      const texts = [];
+      let captcha = false;
+      let modal = false;
+      for (const { frame, part } of parts) {
+        const frameId = String(frame.frameToken || "");
+        for (const field of part.fields || []) fields.push({ ...field, frameId });
+        for (const button of part.buttons || []) buttons.push({ ...button, frameId });
+        if (part.text) texts.push(String(part.text));
+        captcha = captcha || Boolean(part.captcha || part.captchaVisivel);
+        modal = modal || Boolean(part.modal);
+      }
+      return {
+        ...base,
+        text: texts.join(" ").replace(/\s+/g, " ").slice(0, 10000),
+        fields,
+        buttons,
+        captcha,
+        captchaVisivel: captcha,
+        modal,
+        frames: parts.length,
+        frameDiagnostics: parts.map(({ frame, part }) => ({ frameId: String(frame.frameToken || ""), url: String(frame.url || "").slice(0, 240), fields: (part.fields || []).length, buttons: (part.buttons || []).length })),
+      };
+    };
+    const executeFrame = async (frameId, code) => {
+      const frame = frameById(frameId);
+      if (!frame || frame.isDestroyed?.()) return "";
+      return frame.executeJavaScript(code, true);
+    };
     return runApplication({
       vaga,
       profile,
@@ -906,18 +966,36 @@ function registerJobs({ ipcMain, BrowserWindow, vault, serverUrl, getApiToken, m
           const sent = await codeReader.sendApplication(draft);
           if (!sent || !sent.ok) throw new Error((sent && sent.error) || "O e-mail não saiu.");
         },
-        snapshot: () => js(nav.SNAPSHOT_SCRIPT).catch((error) => ({ url: (() => { try { return w.webContents.getURL(); } catch { return vaga.url || ""; } })(), erroScript: String(error && error.message || error).slice(0, 180), buttons: [], fields: [], text: "" })),
+        snapshot: () => snapshotAllFrames().catch((error) => ({ url: (() => { try { return w.webContents.getURL(); } catch { return vaga.url || ""; } })(), erroScript: String(error && error.message || error).slice(0, 180), buttons: [], fields: [], text: "" })),
         screenshot: async () => {
+          let wasVisible = false;
           try {
+            wasVisible = w.isVisible();
+            if (!wasVisible) {
+              if (typeof w.showInactive === "function") w.showInactive();
+              else w.show();
+              await sleep(180);
+            }
             const image = await w.webContents.capturePage();
             const jpeg = image.toJPEG(35);
+            if (!wasVisible) w.hide();
             if (!jpeg || jpeg.length > 700000) return "";
             return `data:image/jpeg;base64,${jpeg.toString("base64")}`;
-          } catch { return ""; }
+          } catch { if (!wasVisible) try { w.hide(); } catch { /* janela fechada */ } return ""; }
         },
-        click: (sel) => js(nav.clickScript(sel)).catch(() => ""),
-        apply: (acoes) => js(nav.applyScript(acoes)).catch(() => 0),
-        setFile: (sel, file) => setFile(w, sel, file),
+        click: (sel, frameId) => executeFrame(frameId, nav.clickScript(sel)).catch(() => ""),
+        apply: async (acoes) => {
+          const groups = new Map();
+          for (const action of acoes || []) {
+            const key = String(action.frameId || "");
+            if (!groups.has(key)) groups.set(key, []);
+            groups.get(key).push(action);
+          }
+          let total = 0;
+          for (const [frameId, group] of groups) total += Number(await executeFrame(frameId, nav.applyScript(group)).catch(() => 0)) || 0;
+          return total;
+        },
+        setFile: (sel, file, frameId) => setFile(w, sel, file, frameId),
         show: () => { try { w.show(); w.focus(); } catch { /* janela opcional */ } },
         sleep,
       },
@@ -957,13 +1035,14 @@ function registerJobs({ ipcMain, BrowserWindow, vault, serverUrl, getApiToken, m
   }
 
   /** Roda a fila do automático. O servidor decide quem entra (modo, limite, repetição, empresas evitadas). */
-  async function runAuto({ origem = "app" } = {}) {
+  async function runAuto({ origem = "app", revisitar = false } = {}) {
     if (autoRunning) return { ok: false, error: "O automático já está rodando." };
     autoRunning = true;
     stopRequested = false;
     const out = { enviadas: 0, criticas: 0, falhas: 0, origem };
     try {
-      const { fila, prefs } = await api("GET", "/api/vagas/auto/fila");
+      const suffix = revisitar ? "?revisitar=1" : "";
+      const { fila, prefs } = await api("GET", `/api/vagas/auto/fila${suffix}`);
       if (prefs.modo !== "automatico") return { ok: false, error: "O modo automático está desligado." };
       const profile = fill.profileFrom(readProfile(), prefs.perfil);
       const loggedIn = new Set();

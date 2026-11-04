@@ -82,7 +82,7 @@ const DEFAULT_PREFS = {
   incluir: [],
   excluir: [],
   notaMinima: 40,
-  porHora: 3,
+  porHora: 50,
   // LEVA M: sem teto diário (porDia removido do ritmo). Campo legado ignorado se ainda existir no JSON.
   plataformas: ["linkedin", "gupy"],
   // Vagas só roda no automático. Não há cartão de aprovação.
@@ -246,6 +246,9 @@ function createJobs(dataDir, { fetchImpl = globalThis.fetch, now = () => Date.no
         : [],
     },
   };
+  // Migração do teto artificial antigo: o usuário pediu operação contínua;
+  // candidaturas falhas não contam como enviadas e continuam elegíveis para revisão.
+  if (Number(data.prefs.porHora) === 3) data.prefs.porHora = DEFAULT_PREFS.porHora;
   const perfilSalvo = data.prefs.perfil;
   if (/nova friburgo/i.test(perfilSalvo.cidade || "")) perfilSalvo.cidade = "Bom Jardim, RJ";
   if (perfilSalvo.linkedin && !/^https?:\/\//i.test(perfilSalvo.linkedin)) perfilSalvo.linkedin = `https://${String(perfilSalvo.linkedin).replace(/^\/\//, "")}`;
@@ -264,7 +267,7 @@ function createJobs(dataDir, { fetchImpl = globalThis.fetch, now = () => Date.no
   const iso = () => new Date(now()).toISOString();
 
   function record(vaga, status, nota = "") {
-    log.push({ id: newId("cand"), vagaId: vaga.id, plataforma: vaga.platform, titulo: vaga.title, empresa: vaga.company, url: vaga.url, status, nota: String(nota || "").slice(0, 500), at: iso() });
+    log.push({ id: newId("cand"), vagaId: vaga.id, plataforma: vaga.platform, titulo: vaga.title, empresa: vaga.company, url: vaga.url, status, nota: String(nota || "").slice(0, 500), at: iso(), origem: "helios", executor: "helios" });
     if (log.length > 2000) log = log.slice(-2000);
     saveLog();
   }
@@ -278,7 +281,7 @@ function createJobs(dataDir, { fetchImpl = globalThis.fetch, now = () => Date.no
     if (patch.excluir !== undefined) next.excluir = splitList(patch.excluir);
     if (patch.local !== undefined) next.local = String(patch.local || "").trim().slice(0, 80);
     if (patch.notaMinima !== undefined) next.notaMinima = Math.max(0, Math.min(100, Number(patch.notaMinima) || 0));
-    if (patch.porHora !== undefined) next.porHora = Math.max(1, Math.min(20, Number(patch.porHora) || 1));
+    if (patch.porHora !== undefined) next.porHora = Math.max(1, Math.min(50, Number(patch.porHora) || 1));
     // LEVA M: porDia removido — ritmo suave só por hora.
     if (patch.porDia !== undefined) delete next.porDia;
     if (patch.modo !== undefined) next.modo = "automatico";
@@ -470,12 +473,21 @@ function createJobs(dataDir, { fetchImpl = globalThis.fetch, now = () => Date.no
   function podeRetentar(v) {
     return v.status === "falhou" && v.falhaCodigo === "botao" && (v.tentativas || 0) < 2 && v.retentativaDe !== CORRECAO_BOTAO;
   }
-  function autoQueue(at = now()) {
+  function podeRevisitar(v) {
+    if (v.status !== "falhou" || (v.tentativas || 0) >= 2 || recentlyApplied(v)) return false;
+    if (/captcha|login|senha|2fa|verifica[cç][aã]o/i.test(`${v.falhaCodigo || ""} ${v.nota || ""}`)) return false;
+    return /bot[aã]o|formul[aá]rio|iframe|shadow|ERR_|rede|carreg|timeout|n[aã]o abriu|sumiu/i.test(`${v.falhaCodigo || ""} ${v.nota || ""}`);
+  }
+  function autoQueue(at = now(), { revisitar = false } = {}) {
     const left = rateLeft(at);
     if (!left) return [];
     const novas = data.vagas.filter((v) => v.status === "nova" && v.score >= data.prefs.notaMinima && eligible(v) && !recentlyApplied(v, at));
     const retentativas = data.vagas.filter((v) => podeRetentar(v) && v.score >= data.prefs.notaMinima && eligible(v) && !recentlyApplied(v, at));
-    return [...novas, ...retentativas].sort((a, b) => b.score - a.score).slice(0, left);
+    const antigas = revisitar ? data.vagas.filter((v) => podeRevisitar(v) && v.score >= data.prefs.notaMinima && eligible(v)) : [];
+    const prioridade = { email: 0, linkedin: 1, gupy: 2, indeed: 3, remotar: 4, catho: 5, coodesh: 6, geekhunter: 6, programathor: 6, trampos: 6, nerdin: 6, bossabox: 6, glassdoor: 9 };
+    return [...novas, ...retentativas, ...antigas]
+      .sort((a, b) => (prioridade[a.platform] ?? 7) - (prioridade[b.platform] ?? 7) || b.score - a.score)
+      .slice(0, left);
   }
   /** Explica por que cada vaga nova não entrou na fila automática. Nunca inclui dados sensíveis. */
   function autoQueueDiagnostics(at = now()) {
@@ -498,7 +510,7 @@ function createJobs(dataDir, { fetchImpl = globalThis.fetch, now = () => Date.no
   function autoStart(id) {
     if (data.prefs.modo !== "automatico") throw err("O modo automático está desligado.", 409);
     const v = must(id);
-    const retentar = podeRetentar(v);
+    const retentar = podeRetentar(v) || podeRevisitar(v);
     if (v.status !== "nova" && !retentar) throw err("Essa vaga não está na fila do automático.", 409);
     if (!eligible(v)) throw err("A vaga foge das regras do dono ou está na lista de evitar.", 409);
     if (recentlyApplied(v)) throw err(`Já houve candidatura nessa vaga ou empresa nos últimos ${data.prefs.repetirDias} dias.`, 409);
@@ -688,6 +700,8 @@ function createJobs(dataDir, { fetchImpl = globalThis.fetch, now = () => Date.no
         at,
         importado: true,
         fonte: String(row.fonte || "importado").slice(0, 40),
+        origem: "externo",
+        executor: String(row.fonte || "importado").slice(0, 40),
       });
       n += 1;
     }
@@ -882,7 +896,27 @@ function createJobs(dataDir, { fetchImpl = globalThis.fetch, now = () => Date.no
     for (const job of (Array.isArray(list) ? list : []).slice(0, 40)) {
       const extId = String(job.extId || "").slice(0, 80);
       if (!extId) continue;
-      if (data.vagas.some((v) => v.platform === platform && v.extId === extId)) continue;
+      const existente = data.vagas.find((v) => v.platform === platform && v.extId === extId);
+      if (existente) {
+        // Reabre um descarte antigo quando uma nova leitura confiável (por exemplo,
+        // post salvo com e-mail) comprova que a vaga deve voltar à fila automática.
+        if (!(job.confiar && existente.status === "descartada")) continue;
+        existente.title = String(job.title || existente.title || "").slice(0, 200);
+        existente.company = String(job.company || existente.company || "").slice(0, 120);
+        existente.description = String(job.description || existente.description || "").slice(0, 1500);
+        existente.url = String(job.url || existente.url || "").slice(0, 500);
+        existente.emailTo = job.emailTo ? String(job.emailTo).slice(0, 120) : existente.emailTo || "";
+        existente.aplicarPorEmail = Boolean(job.aplicarPorEmail || existente.aplicarPorEmail);
+        existente.score = Number(job.score) || existente.score || 0;
+        existente.motivos = Array.isArray(job.motivos) ? job.motivos : existente.motivos || [];
+        existente.status = "nova";
+        existente.auto = false;
+        existente.foundAt = new Date(at).toISOString();
+        existente.nota = "Reaberta por nova leitura confiável do HELIOS.";
+        novas += 1;
+        aceitas.push(existente);
+        continue;
+      }
       const stored = {
         title: String(job.title || "").slice(0, 200),
         company: String(job.company || "").slice(0, 120),
@@ -948,7 +982,18 @@ function createJobs(dataDir, { fetchImpl = globalThis.fetch, now = () => Date.no
       const url = /^https:\/\//.test(String(p.url || "")) ? String(p.url) : "";
       const key = String(p.id || url || `saved:${texto.slice(0, 80)}`);
       if (!texto && !url) continue;
-      if (data.feed.some((x) => x.key === key || (url && x.url === url))) continue;
+      const existente = data.feed.find((x) => x.key === key || (url && x.url === url));
+      // Um post salvo pode ter sido capturado antes de o parser reconhecer o e-mail.
+      // Reprocessa-o sem duplicar o feed; ingestParsedJobs continua protegendo a fila por URL/e-mail.
+      if (existente) {
+        if (existente.fonte !== "saved") continue;
+        const reprocessado = promoverPost(p, at);
+        existente.score = reprocessado.score;
+        existente.motivos = reprocessado.motivos;
+        existente.reprocessadoEm = new Date(at).toISOString();
+        vagasNovas += reprocessado.vagasNovas;
+        continue;
+      }
       const hay = `${texto} ${url}`;
       if (!/(vaga|contratando|hiring|oportunidade|estamos buscando|procuramos|#vagas|job opening|desenvolvedor|developer)/i.test(hay)) continue;
       const promovido = promoverPost(p, at);
@@ -991,13 +1036,14 @@ function createJobs(dataDir, { fetchImpl = globalThis.fetch, now = () => Date.no
 
   const pending = () => data.vagas.filter((v) => v.status === "aguardando_aprovacao").length;
   const history = (limit = 50) => log.slice(-limit).reverse();
+  const heliosHistory = (limit = 50) => log.filter((item) => item.origem === "helios" || item.executor === "helios").slice(-limit).reverse();
   const platformList = () => Object.values(platforms).map(({ id, label, domains, loginUrl }) => ({ id, label, domains, loginUrl }));
 
   return {
     ingestEmails, markRejected, finishTest, pendingTests, rejections, rejectionPatterns, ingestFeed, ingestSavedPosts, ingestParsedJobs, ingestBrowserSearch, feed, digest,
     autoQueue, autoQueueDiagnostics, autoStart, autoResult, criticals, revisarFila, answerCritical, skipCritical, dailySummary, rateLeft, recentlyApplied,
     importHistory, importRecruiters, setTemplates, setAgentRules, recruiters, templates, agentRules,
-    prefs, setPrefs, setTriagem, search, list, get, discard, prepare, approve, deny, markResult, pending, history, counts, platforms: platformList, file, logFile,
+    prefs, setPrefs, setTriagem, search, list, get, discard, prepare, approve, deny, markResult, pending, history, heliosHistory, counts, platforms: platformList, file, logFile, podeRevisitar,
   };
 }
 

@@ -262,7 +262,7 @@ body.lf-right-off .lf-top, body:not(.lf-right-drawer) .lf-top.lf-top-narrow { pa
 
 /* LEVA P3 — Chefe solo (sem painel de cartões) + barra de uso */
 .hx-chefe { display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 320px); gap: 16px; height: 100%; min-height: 0; padding: 8px 8px 16px; box-sizing: border-box; }
-.hx-chefe-solo { grid-template-columns: minmax(0, 1fr) minmax(260px, 320px); }
+.hx-chefe-solo { grid-template-columns: minmax(0, 1fr); }
 .hx-chefe-main { display: flex; flex-direction: column; gap: 12px; min-height: 0; min-width: 0; }
 .hx-chefe-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .hx-chefe-title { margin: 0; font-size: 22px; font-weight: 600; color: var(--lf-fg); font-family: var(--helios-fonte-ui); }

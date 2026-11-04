@@ -43,6 +43,17 @@ test("levaV6: Gupy preenche, avança no Continuar do modal e só confirma com o 
   assert.equal(run.final.kind === "submitted" && run.trace.some((item) => item.kind === "act" && item.intent === "submit"), true);
 });
 
+test("levaV6: ação de campo preserva o frame do formulário", () => {
+  const decision = step({
+    url: "https://ats.example/vaga",
+    text: "Formulário",
+    fields: [{ sel: "[data-helios-field=nome]", frameId: "frame-externo", type: "text", label: "Nome completo", required: true, value: "" }],
+    buttons: [],
+  }, CTX);
+  assert.equal(decision.kind, "act");
+  assert.equal(decision.fills[0].frameId, "frame-externo");
+});
+
 test("levaV6: LinkedIn Easy Apply percorre o modal e não manda mensagem", () => {
   const run = simulate(load("linkedin-easy-apply.json"), CTX);
   assert.equal(run.final.kind, "submitted");
@@ -97,8 +108,24 @@ test("levaV6: botão Gupy sem rótulo entra pelo data-testid e o snapshot lê sh
   assert.equal(decision.click.intent, "next");
   assert.match(SNAPSHOT_SCRIPT, /shadowRoot/);
   assert.match(SNAPSHOT_SCRIPT, /contentDocument/);
+  assert.match(require("../server/form-navigator").applyScript([{ sel: "[data-helios-field=hf1]", kind: "text", valor: "Helison" }]), /const roots = \[\];/);
+  assert.match(require("../server/form-navigator").applyScript([{ sel: "[data-helios-field=hf1]", kind: "text", valor: "Helison" }]), /root\.querySelector/);
+  assert.match(require("../server/form-navigator").clickScript("[data-helios-btn=hb1]"), /root\.querySelector/);
   assert.equal(regras.pretensao({ title: "Dev Front Jr" }, PROFILE), "R$ 3.500");
   assert.equal(regras.pretensao({ title: "Full Stack Pleno" }, PROFILE), "R$ 8.000");
+});
+
+test("levaV11: controles Gupy customizados entram no snapshot e o rádio obrigatório pode ser preenchido", () => {
+  const decision = step({
+    url: "https://empresa.gupy.io/candidates/applications/1/steps/2",
+    fields: [{ sel: "[data-helios-field=hf-radio]", type: "radio", role: "radio", label: "Você está autorizado a trabalhar no Brasil?", required: true, options: [{ value: "sim", text: "Sim" }], value: "" }],
+    buttons: [{ sel: "[data-helios-btn=save]", text: "Salvar e continuar", tag: "button", visible: true, inForm: true }],
+  }, CTX);
+  assert.equal(decision.kind, "act");
+  assert.equal(decision.fills[0].kind, "radio");
+  assert.equal(decision.fills[0].valor, "sim");
+  assert.match(SNAPSHOT_SCRIPT, /\[role='radio'\]/);
+  assert.match(SNAPSHOT_SCRIPT, /aria-checked/);
 });
 
 test("levaV6: regras do dono descartam o que não é a vaga e reconhecem empresa parecida", () => {

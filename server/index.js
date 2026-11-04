@@ -187,13 +187,13 @@ async function startServer(opts = {}) {
   let agentPortfolio = null;
   let agentOasis = null;
   /** Busca e roda o automático (janela de vagas no processo principal). Recusa se o modo estiver desligado. */
-  async function runVagasAuto(origem = "app", { onDone = null } = {}) {
+  async function runVagasAuto(origem = "app", { onDone = null, revisitar = false } = {}) {
     if (jobs.prefs().modo !== "automatico") throw Object.assign(new Error("O modo automático está desligado na aba Vagas."), { status: 409 });
     if (autoRunning) return { iniciado: false, motivo: "O automático já está rodando." };
     if (typeof opts.runVagasAuto !== "function") return { iniciado: false, motivo: "O navegador das vagas não está disponível." };
     const busca = await jobs.search();
     const bloqueios = typeof jobs.autoQueueDiagnostics === "function" ? jobs.autoQueueDiagnostics() : [];
-    autoRunning = Promise.resolve(opts.runVagasAuto({ origem }))
+    autoRunning = Promise.resolve(opts.runVagasAuto({ origem, revisitar }))
       .then((out) => {
         if (out && out.ok) telegram?.send(`Vagas (${origem}): ${out.enviadas} enviada(s), ${out.criticas} caso(s) crítico(s), ${out.falhas} falha(s).`);
         if (onDone) try { onDone(out); } catch { /* resumo é extra */ }
@@ -201,7 +201,7 @@ async function startServer(opts = {}) {
       })
       .catch((err) => telegramLog(`[vagas-auto] ${err.message}`))
       .finally(() => { autoRunning = null; });
-    return { iniciado: true, novas: busca.novas, fila: jobs.autoQueue().length, bloqueios };
+    return { iniciado: true, novas: busca.novas, fila: jobs.autoQueue(Date.now(), { revisitar }).length, bloqueios, revisitar };
   }
 
   // ---- Leva Q: login em lote (só login; progresso via GET) ----
@@ -1557,9 +1557,10 @@ async function startServer(opts = {}) {
     // Leva E: vagas automático.
     if (req.method === "GET" && pathName === "/api/vagas/auto/fila") {
       if (typeof jobs.revisarFila === "function") jobs.revisarFila();
-      return send(res, 200, { fila: jobs.autoQueue(), bloqueios: jobs.autoQueueDiagnostics?.() || [], prefs: jobs.prefs() });
+      const revisitar = /^(1|true|sim)$/i.test(String(url.searchParams.get("revisitar") || ""));
+      return send(res, 200, { fila: jobs.autoQueue(Date.now(), { revisitar }), bloqueios: jobs.autoQueueDiagnostics?.() || [], prefs: jobs.prefs(), revisitar });
     }
-    if (req.method === "POST" && pathName === "/api/vagas/auto/rodar") return send(res, 200, await runVagasAuto(body.origem === "rotina" ? "rotina" : "app"));
+    if (req.method === "POST" && pathName === "/api/vagas/auto/rodar") return send(res, 200, await runVagasAuto(body.origem === "rotina" ? "rotina" : "app", { revisitar: body.revisitar === true }));
     // Leva Q: login em lote (silencioso). POST inicia; GET lê progresso/resultado.
     if (req.method === "GET" && pathName === "/api/vagas/login-todas") return send(res, 200, loginTodasView());
     if (req.method === "POST" && pathName === "/api/vagas/abrir-login") {
@@ -1707,6 +1708,7 @@ async function startServer(opts = {}) {
         vagas: jobs.list(),
         pendentes: jobs.pending(),
         historico: jobs.history(),
+        historicoHelios: typeof jobs.heliosHistory === "function" ? jobs.heliosHistory() : [],
         ritmo: jobs.counts(),
         plataformas: jobs.platforms(),
         adaptadores: vagasAdapters.status(),

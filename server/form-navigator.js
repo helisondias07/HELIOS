@@ -21,7 +21,15 @@ const PHRASES = [
   ["apply", "quero me candidatar"],
   ["apply", "candidatar-se"],
   ["apply", "inscrever-se"],
+  ["apply", "inscrever-me"],
+  ["apply", "inscrever nesta vaga"],
+  ["apply", "inscrever nessa vaga"],
   ["apply", "candidate-se"],
+  ["apply", "candidatar nesta vaga"],
+  ["apply", "candidatar nessa vaga"],
+  ["apply", "candidatar-me"],
+  ["apply", "aplicar para esta vaga"],
+  ["apply", "aplicar agora"],
   ["apply", "apply now"],
   ["submit", "enviar candidatura"],
   ["submit", "enviar inscricao"],
@@ -32,6 +40,8 @@ const PHRASES = [
   ["submit", "concluir candidatura"],
   ["review", "revisar candidatura"],
   ["review", "revisar inscricao"],
+  ["review", "revisar meu curriculo"],
+  ["review", "review my resume"],
   ["review", "review application"],
   ["review", "revisar"],
   ["next", "salvar e continuar"],
@@ -46,6 +56,12 @@ const PHRASES = [
   ["next", "continue"],
   ["next", "next"],
   ["next", "seguir"],
+  ["next", "continuar inscrição"],
+  ["next", "continuar inscricao"],
+  ["next", "continuar preenchimento"],
+  ["next", "continuar para candidatura"],
+  ["next", "usar este curriculo"],
+  ["next", "usar meu curriculo"],
   ["submit", "enviar"],
   ["submit", "submit"],
 ].sort((a, b) => b[1].length - a[1].length);
@@ -87,7 +103,7 @@ function matchTestId(testId) {
   if (/submit|enviar|finalizar/.test(value)) return { intent: "submit", phrase: value, exact: false, fromId: true };
   if (/review|revisar/.test(value)) return { intent: "review", phrase: value, exact: false, fromId: true };
   if (/continue|next|proximo|avancar|salvar/.test(value)) return { intent: "next", phrase: value, exact: false, fromId: true };
-  if (/easy-apply|easyapply|candidat|apply/.test(value)) return { intent: "apply", phrase: value, exact: false, fromId: true };
+  if (/easy-apply|easyapply|candidat|candidate|inscri|apply|application/.test(value)) return { intent: "apply", phrase: value, exact: false, fromId: true };
   return null;
 }
 
@@ -97,8 +113,8 @@ function chooseButton(snapshot = {}) {
   const scored = [];
   for (const button of snapshot.buttons || []) {
     if (button.visible === false || button.disabled) continue;
-    const text = norm([button.text, button.ariaLabel, button.title, button.name].filter(Boolean).join(" "));
-    if (button.chrome && !/candidat|apply|inscrev|easy apply/.test(text)) continue;
+    const text = norm([button.text, button.ariaLabel, button.title, button.name, button.testId, button.action].filter(Boolean).join(" "));
+    if (button.chrome && !/candidat|apply|inscrev|easy apply|revisar|curriculo|resume|continuar/.test(text)) continue;
     const hit = matchPhrase(text) || matchTestId(button.testId);
     if (!hit) continue;
     if ((hit.phrase === "enviar" || hit.phrase === "submit") && !(button.inForm || button.inModal)) continue;
@@ -182,7 +198,9 @@ function step(snapshot = {}, ctx = {}) {
       estrategia,
     }, memory);
   }
-  const fills = (plan.acoes || []).filter((action) => !memory.filled || !memory.filled[action.sel]);
+  const fieldFrames = new Map((snapshot.fields || []).map((field) => [field.sel, field.frameId || ""]));
+  const planned = (plan.acoes || []).map((action) => ({ ...action, frameId: action.frameId || fieldFrames.get(action.sel) || "" }));
+  const fills = planned.filter((action) => !memory.filled || !memory.filled[action.sel]);
   if (fills.length) {
     memory.filled = { ...(memory.filled || {}) };
     for (const action of fills) memory.filled[action.sel] = true;
@@ -306,25 +324,28 @@ const SNAPSHOT_SCRIPT = `(() => {
   const fields = [];
   const seenRadio = new Set();
   for (const root of roots) {
-    const nodes = root.querySelectorAll ? root.querySelectorAll("input, select, textarea, [role='combobox']") : [];
+    const nodes = root.querySelectorAll ? root.querySelectorAll("input, select, textarea, [role='combobox'], [role='radio'], [role='checkbox']") : [];
     for (const el of nodes) {
       if (!visible(el) || el.disabled) continue;
       const tag = (el.tagName || "").toLowerCase();
       if (tag === "input" && /^(hidden|submit|button)$/i.test(el.type || "")) continue;
-      if ((el.getAttribute("role") || "") !== "combobox" && tag !== "input" && tag !== "select" && tag !== "textarea") continue;
-      const type = (el.getAttribute("role") === "combobox" ? "combobox" : tag === "select" ? "select" : tag === "textarea" ? "textarea" : (el.type || "text")).toLowerCase();
-      if (type === "radio") {
+      const ariaRole = (el.getAttribute("role") || "").toLowerCase();
+      if (!["combobox", "radio", "checkbox"].includes(ariaRole) && tag !== "input" && tag !== "select" && tag !== "textarea") continue;
+      const type = (ariaRole === "combobox" ? "combobox" : ariaRole === "radio" ? "radio" : ariaRole === "checkbox" ? "checkbox" : tag === "select" ? "select" : tag === "textarea" ? "textarea" : (el.type || "text")).toLowerCase();
+      if (type === "radio" && tag === "input" && el.name) {
         if (seenRadio.has(el.name)) continue;
         seenRadio.add(el.name);
       }
       const id = "hf" + (n++);
       el.setAttribute("data-helios-field", id);
+      if (type === "radio" || type === "checkbox") el.setAttribute("data-helios", id);
       const inModal = Boolean(el.closest && el.closest("[role='dialog'], .jobs-easy-apply-modal, [data-test-modal], .modal"));
       const inForm = Boolean(el.closest && el.closest("form, [role='dialog'], .jobs-easy-apply-modal"));
       const inApply = Boolean(el.closest && el.closest("#ia-container, .ia-BasePage, [class*='ia-Questions' i], [id*='questions-module' i], [data-testid*='apply' i]"));
       const chrome = Boolean(el.closest && el.closest("header, nav, footer, [role='navigation'], [role='banner'], [role='contentinfo']"));
       let options = [];
       if (type === "select") options = [...el.options].map((option) => ({ value: option.value, text: option.text }));
+      if (type === "radio" || type === "checkbox") options = [{ value: id, text: labelOf(el).slice(0, 200) }];
       if (type === "combobox") {
         const listId = el.getAttribute("aria-controls");
         const list = listId ? (el.ownerDocument || document).getElementById(listId) : null;
@@ -341,7 +362,7 @@ const SNAPSHOT_SCRIPT = `(() => {
         autocomplete: el.getAttribute("autocomplete") || "",
         placeholder: el.getAttribute("placeholder") || "",
         required: Boolean(el.required) || el.getAttribute("aria-required") === "true",
-        checked: Boolean(el.checked),
+        checked: Boolean(el.checked) || el.getAttribute("aria-checked") === "true",
         value: type === "file" ? "" : (el.value || ""),
         options, inModal, inForm, inApply, chrome,
       });
@@ -368,6 +389,7 @@ const SNAPSHOT_SCRIPT = `(() => {
         type: el.getAttribute("type") || "",
         role: el.getAttribute("role") || "",
         tag: (el.tagName || "").toLowerCase(),
+        href: (el.getAttribute("href") || "").slice(0, 500),
         disabled: false,
         visible: true,
         inModal: Boolean(el.closest && el.closest("[role='dialog'], .jobs-easy-apply-modal, [data-test-modal], .modal")),
@@ -398,6 +420,18 @@ const SNAPSHOT_SCRIPT = `(() => {
 function applyScript(acoes) {
   return `(() => {
     const acoes = ${JSON.stringify((acoes || []).filter((action) => action.kind !== "file"))};
+    const roots = [];
+    const collect = (root) => {
+      if (!root || roots.indexOf(root) >= 0) return;
+      roots.push(root);
+      const nodes = root.querySelectorAll ? root.querySelectorAll("*") : [];
+      for (const node of nodes) if (node.shadowRoot) collect(node.shadowRoot);
+    };
+    collect(document);
+    const find = (selector) => {
+      for (const root of roots) { try { const hit = root.querySelector(selector); if (hit) return hit; } catch (e) {} }
+      return null;
+    };
     const setVal = (el, value) => {
       const proto = el.tagName === "TEXTAREA" ? HTMLTextAreaElement.prototype : el.tagName === "SELECT" ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
       const desc = Object.getOwnPropertyDescriptor(proto, "value");
@@ -410,11 +444,11 @@ function applyScript(acoes) {
     let done = 0;
     for (const action of acoes) {
       if (action.kind === "radio") {
-        const radio = document.querySelector('[data-helios="' + action.valor + '"]') || document.querySelector(action.sel);
+        const radio = find('[data-helios="' + action.valor + '"]') || find(action.sel);
         if (radio) { radio.click(); done += 1; }
         continue;
       }
-      const el = document.querySelector(action.sel);
+      const el = find(action.sel);
       if (!el) continue;
       if (action.kind === "combobox") {
         el.click();
@@ -436,7 +470,16 @@ function applyScript(acoes) {
 function clickScript(sel) {
   const selector = String(sel || "");
   return `(() => {
-    const el = document.querySelector(${JSON.stringify(selector)});
+    const roots = [];
+    const collect = (root) => {
+      if (!root || roots.indexOf(root) >= 0) return;
+      roots.push(root);
+      const nodes = root.querySelectorAll ? root.querySelectorAll("*") : [];
+      for (const node of nodes) if (node.shadowRoot) collect(node.shadowRoot);
+    };
+    collect(document);
+    let el = null;
+    for (const root of roots) { try { el = root.querySelector(${JSON.stringify(selector)}); } catch (e) {} if (el) break; }
     if (!el || el.disabled || el.getAttribute("aria-disabled") === "true") return "";
     el.scrollIntoView({ block: "center", inline: "nearest" });
     el.click();

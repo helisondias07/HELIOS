@@ -14,6 +14,18 @@ const { desafioVisivel } = require("./captcha-visivel");
 const { cartaDeApresentacao } = require("./jobs-fill");
 const { sendEmailApply } = require("./vagas-email-apply");
 
+const VISION_TIMEOUT_MS = 25000;
+
+function withTimeout(promise, ms = VISION_TIMEOUT_MS, label = "operação") {
+  let timer;
+  return Promise.race([
+    Promise.resolve(promise),
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`Tempo esgotado aguardando ${label}.`)), ms);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+
 function summarize(snapshot = {}) {
   return {
     url: String(snapshot.url || "").slice(0, 300),
@@ -75,6 +87,10 @@ function paginaSeguranca(snap = {}) {
 
 function paginaSmartApply(snap = {}) {
   return /smartapply\.indeed\.com|indeedapply|indeedapply/i.test(`${snap.url || ""} ${snap.title || ""}`);
+}
+
+function askVision(llm, page, secretValues) {
+  return withTimeout(vision.askNextAction(llm, page, secretValues), VISION_TIMEOUT_MS, "a visão do formulário");
 }
 
 function avisoNaoBloqueante(snap = {}) {
@@ -214,7 +230,11 @@ async function runApplication({ vaga = {}, profile = {}, respostas = {}, secrets
         return pack(evidence, { critico: "O site mostrou um captcha visível. Resolva na janela; o HELIOS não contorna captcha.", codigo: "captcha", classe: "humano", via, model }, "needs_user");
       }
       const screenshot = typeof io.screenshot === "function" ? await io.screenshot().catch(() => "") : "";
-      visaoPronta = await vision.askNextAction(llm, { ...snap, screenshot }, secretValues);
+      try {
+        visaoPronta = await askVision(llm, { ...snap, screenshot }, secretValues);
+      } catch (error) {
+        return pack(evidence, { critico: error.message, codigo: "llm_timeout", classe: "tecnico", via: "visao", model }, "failed");
+      }
       model = (visaoPronta && visaoPronta.model) || model;
       const action = visaoPronta && visaoPronta.action;
       if (!visaoNegaCaptcha(action)) {
@@ -229,7 +249,14 @@ async function runApplication({ vaga = {}, profile = {}, respostas = {}, secrets
     }
     if (llm) {
       const screenshot = visaoPronta ? "" : (typeof io.screenshot === "function" ? await io.screenshot().catch(() => "") : "");
-      const asked = visaoPronta || await vision.askNextAction(llm, { ...snap, screenshot }, secretValues);
+      let asked = visaoPronta;
+      if (!asked) {
+        try {
+          asked = await askVision(llm, { ...snap, screenshot }, secretValues);
+        } catch (error) {
+          return pack(evidence, { critico: error.message, codigo: "llm_timeout", classe: "tecnico", via: "visao", model }, "failed");
+        }
+      }
       model = (asked && asked.model) || model;
       const action = asked && asked.action;
       if (action && action.acao === "pausar" && /captcha/i.test(`${action.motivo} ${action.alvo}`) && captchaBloqueia(snap)) {
@@ -291,7 +318,12 @@ async function runApplication({ vaga = {}, profile = {}, respostas = {}, secrets
     if (decision.via && decision.via !== "rules") via = decision.via;
     if (decision.kind === "failed" && decision.codigo === "botao" && llm) {
       const screenshot = typeof io.screenshot === "function" ? await io.screenshot().catch(() => "") : "";
-      const asked = await vision.askNextAction(llm, { ...snap, screenshot }, secretValues);
+      let asked;
+      try {
+        asked = await askVision(llm, { ...snap, screenshot }, secretValues);
+      } catch (error) {
+        return pack(evidence, { critico: error.message, codigo: "llm_timeout", classe: "tecnico", via: "visao", model }, "failed");
+      }
       model = (asked && asked.model) || model;
       const action = asked && asked.action;
       if (action && action.acao === "pausar") {

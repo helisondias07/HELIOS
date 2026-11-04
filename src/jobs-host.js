@@ -19,6 +19,16 @@ const application = require("../server/jobs-application");
 const { CAPTCHA_PAGE_SCRIPT } = require("../server/captcha-visivel");
 const { runApplication } = require("../server/application-run");
 
+const FILL_PLAN_TIMEOUT_MS = 25000;
+
+function withTimeout(promise, ms = FILL_PLAN_TIMEOUT_MS) {
+  let timer;
+  return Promise.race([
+    Promise.resolve(promise),
+    new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("Tempo esgotado aguardando o plano de preenchimento.")), ms); }),
+  ]).finally(() => clearTimeout(timer));
+}
+
 const CHALLENGE_URL = /checkpoint|challenge|captcha|two-?step|2fa|mfa|verification|verify|otp|security-check/i;
 
 /** Pura, para teste: a página pede algo que só o Helison pode fazer? */
@@ -833,7 +843,7 @@ function registerJobs({ ipcMain, BrowserWindow, vault, serverUrl, getApiToken, m
   async function resolvePlan(vaga, fields, profile, respostas, page, secrets) {
     if (freeLlm && typeof freeLlm.chat === "function") {
       try {
-        const llmPlan = await privacy.planFillLlm(freeLlm, vaga, fields, secrets);
+        const llmPlan = await withTimeout(privacy.planFillLlm(freeLlm, vaga, fields, secrets));
         const criticos = (llmPlan.faltando || []).map((f) => `Falta ${f}`);
         if (llmPlan.acoes && llmPlan.acoes.length) {
           return { acoes: llmPlan.acoes, criticos, via: "llm", model: llmPlan.model };

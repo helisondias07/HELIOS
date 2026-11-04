@@ -373,3 +373,11 @@ Executar uma rodada limitada em uma vaga Gupy/ATS conhecida por usar iframe e ve
 - Validação desta leva: `npm test` = 658 testes, 656 aprovados, 0 falhas, 2 ignorados; `npm run lint` e `npm run check` verdes.
 - O teste visual isolado no Chrome não foi executado: o controle de navegador não conseguiu identificar com segurança a URL/estado atual da janela e foi encerrado sem clicar ou enviar nada. Portanto, não declarar T1.3 concluído nem afirmar inscrição real nesta leva.
 - Próximo passo seguro: abrir uma vaga Gupy ativa no navegador, confirmar que existe um único processo HELIOS e executar somente essa vaga, coletando `frames`, `frameDiagnostico`, campos obrigatórios e confirmação textual final. CAPTCHA continua sendo intervenção humana; não há bypass.
+
+## Leva V15 — executor não pode ficar preso aguardando modelo (03/11/2026)
+
+- A rodada isolada confirmou que o navegador interno lê a tela: LinkedIn feed, publicações salvas, salvos-vagas, notificações, busca e plataformas foram processados com diagnósticos de título, URL, elementos e links.
+- O primeiro teste revelou um novo defeito operacional: a fila encontrou quatro vagas e uma Gupy (`Stefanini Group`) ficou em `auto_enviando` sem encerrar. As chamadas do modelo gratuito usadas pela visão/plano de formulário não tinham timeout.
+- Correção aplicada: chamadas de visão e plano de preenchimento agora têm limite de 25 segundos. Em caso de demora, a vaga termina como falha técnica `llm_timeout`, com evidência, e a fila segue para a próxima; nunca fica eternamente em `auto_enviando`.
+- Build Windows reconstruído em `release\\win-unpacked` e instalador atualizado em `release\\HELIOS-Setup-0.1.0.exe`. A segunda rodada foi iniciada no build novo com relatório `work\\force-vagas-isolado-v15.json`; no último checkpoint ainda estava na busca real de plataformas, sem conclusão disponível.
+- Validação antes da rodada: `npm test` = 658 testes, 656 aprovados, 0 falhas, 2 ignorados; `npm run lint` e `npm run check` verdes.

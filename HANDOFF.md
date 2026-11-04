@@ -355,3 +355,11 @@ Executar uma rodada limitada em uma vaga Gupy/ATS conhecida por usar iframe e ve
 - Fila restante: 1 vaga. O bloqueio registrado foi candidatura recente na vaga/empresa La Moda; não é erro de descoberta.
 - O Chefe fechou o ciclo com 0 aprovações e 1 bloqueio.
 - Conclusão do plano: T0.0/T0.1/T0.2/T0.3/T0.4/T0.6 e a reinstalação estão concluídos e cobertos por testes. T1.3 ainda não está concluído, pois nenhuma candidatura real recebeu confirmação textual do site. Permanecem pendentes a correção específica do CTA/ATS do Glassdoor, o timeout de `salvos-vagas` e uma candidatura Gupy/ATS confirmada.
+
+### Estado publicado após a rodada
+
+- A rodada final foi registrada no commit `eaf2163` (`corrige executor de formularios e registra rodada de vagas`).
+- Push concluído para `origin/helios-levas-v-v5`.
+- O commit inclui o executor corrigido, os testes, `.gitattributes`, este handoff e `work\\force-vagas-report-20261104.json`.
+- Os relatórios antigos em `work\\` continuam fora do commit para não aumentar o repositório com artefatos históricos não relacionados.
+- Estado honesto para retomada: descoberta visual funcionando; preenchimento e validação reforçados; ainda sem candidatura confirmada. O próximo teste deve priorizar uma vaga Gupy/ATS ativa e registrar `frames`, `frameDiagnostico`, campos obrigatórios e confirmação textual final.

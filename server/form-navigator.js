@@ -160,6 +160,41 @@ function finish(kind, extra, memory) {
   };
 }
 
+function fieldBase(field = {}) {
+  return [
+    field.frameId || "",
+    field.type || field.tag || "",
+    norm(field.label || field.ariaLabel || ""),
+    norm(field.name || ""),
+    norm(field.id || ""),
+  ].join("|");
+}
+
+/** Identidade semântica do campo; o seletor do DOM é apenas transitório. */
+function fieldKey(field = {}, snapshot = {}) {
+  const fields = Array.isArray(snapshot.fields) ? snapshot.fields : [];
+  const base = fieldBase(field);
+  const index = Math.max(0, fields.indexOf(field));
+  const occurrence = fields.slice(0, index < 0 ? fields.length : index)
+    .filter((item) => fieldBase(item) === base).length;
+  return `${base}|${occurrence}`;
+}
+
+function fieldFilled(field = {}) {
+  const type = norm(field.type || field.tag || "");
+  if (type === "radio" || type === "checkbox") {
+    return Boolean(field.checked) || (Array.isArray(field.options) && field.options.some((option) => option.checked));
+  }
+  if (type === "file") return Boolean(field.hasFile) || Boolean(String(field.value || "").trim());
+  const value = String(field.value || "").trim();
+  if (!value) return false;
+  if (type === "select" || type === "combobox") {
+    const selected = (field.options || []).find((option) => String(option.value) === value || String(option.text) === value);
+    return !selected || !/^(selecione|select|escolha|choose|opcional)$/i.test(String(selected.text || "").trim());
+  }
+  return true;
+}
+
 function step(snapshot = {}, ctx = {}) {
   const memory = { ...(ctx.memory || {}) };
   const estrategia = strategyOf(snapshot);
@@ -173,11 +208,13 @@ function step(snapshot = {}, ctx = {}) {
   }
   const confirmacao = confirmationOf(snapshot);
   if (confirmacao) return finish("submitted", { confirmacao, estrategia }, memory);
-  if (memory.pendingClick && Array.isArray(snapshot.errors) && snapshot.errors.length) {
+  if (memory.pendingClick && ((Array.isArray(snapshot.errors) && snapshot.errors.length) || (Array.isArray(snapshot.invalidos) && snapshot.invalidos.length))) {
     memory.pendingClick = false;
+    const invalid = (snapshot.invalidos || []).map((item) => item.rotulo || item.mensagem).filter(Boolean).slice(0, 6);
+    const detail = invalid.length ? `Campo obrigatório: ${invalid.map((item) => `"${String(item).slice(0, 120)}"`).join(" | ")}` : String((snapshot.errors || [])[0] || "O site recusou a etapa.").slice(0, 180);
     return finish("pause", {
       codigo: "validacao",
-      motivo: String(snapshot.errors[0]).slice(0, 180),
+      motivo: detail,
       pergunta: "O site recusou a etapa. Confira o campo e responda se quiser tentar de novo.",
       estrategia,
     }, memory);
@@ -198,14 +235,39 @@ function step(snapshot = {}, ctx = {}) {
       estrategia,
     }, memory);
   }
+  const fieldForAction = (action) => (snapshot.fields || []).find((field) => field.sel === action.sel && String(field.frameId || "") === String(action.frameId || ""))
+    || (snapshot.fields || []).find((field) => field.sel === action.sel);
   const fieldFrames = new Map((snapshot.fields || []).map((field) => [field.sel, field.frameId || ""]));
   const planned = (plan.acoes || []).map((action) => ({ ...action, frameId: action.frameId || fieldFrames.get(action.sel) || "" }));
-  const fills = planned.filter((action) => !memory.filled || !memory.filled[action.sel]);
+  memory.attempts = { ...(memory.attempts || {}) };
+  const fills = planned.filter((action) => {
+    const field = fieldForAction(action);
+    if (!field) return true;
+    const key = fieldKey(field, snapshot);
+    return !fieldFilled(field) && Number(memory.attempts[key] || 0) < 2;
+  });
   if (fills.length) {
-    memory.filled = { ...(memory.filled || {}) };
-    for (const action of fills) memory.filled[action.sel] = true;
+    for (const action of fills) {
+      const field = fieldForAction(action);
+      if (field) memory.attempts[fieldKey(field, snapshot)] = Number(memory.attempts[fieldKey(field, snapshot)] || 0) + 1;
+    }
     memory.pendingClick = false;
     return finish("act", { fills, estrategia }, memory);
+  }
+  const requiredEmpty = (snapshot.fields || []).filter((field) => {
+    const inForm = field.inForm || field.inModal || field.inApply;
+    const key = fieldKey(field, snapshot);
+    const hasAttempt = Number(memory.attempts?.[key] || 0) > 0;
+    return inForm && !field.chrome && (field.required || field.requiredHint) && !fieldFilled(field) && !hasAttempt;
+  });
+  if (requiredEmpty.length) {
+    const labels = requiredEmpty.map((field) => field.label || field.ariaLabel || field.name || "campo sem nome").slice(0, 8);
+    return finish("pause", {
+      codigo: "obrigatorio",
+      motivo: `Campo obrigatório sem resposta: ${labels.map((label) => `"${String(label).slice(0, 120)}"`).join(" | ")}`,
+      pergunta: "Preencha ou responda os campos obrigatórios indicados.",
+      estrategia,
+    }, memory);
   }
   if (plan.criticos.length) {
     return finish("pause", {
@@ -332,6 +394,18 @@ const SNAPSHOT_SCRIPT = `(() => {
       const ariaRole = (el.getAttribute("role") || "").toLowerCase();
       if (!["combobox", "radio", "checkbox"].includes(ariaRole) && tag !== "input" && tag !== "select" && tag !== "textarea") continue;
       const type = (ariaRole === "combobox" ? "combobox" : ariaRole === "radio" ? "radio" : ariaRole === "checkbox" ? "checkbox" : tag === "select" ? "select" : tag === "textarea" ? "textarea" : (el.type || "text")).toLowerCase();
+      let radioGroup = [];
+      let radioPrompt = "";
+      if (type === "radio") {
+        if (tag === "input" && el.name) radioGroup = [...root.querySelectorAll('input[type="radio"][name="' + CSS.escape(el.name) + '"]')];
+        else {
+          const group = el.closest ? el.closest("[role='radiogroup'], fieldset") : null;
+          radioGroup = group ? [...group.querySelectorAll("[role='radio'], input[type='radio']")] : [el];
+        }
+        if (radioGroup[0] !== el) continue;
+        const group = el.closest ? el.closest("[role='radiogroup'], fieldset") : null;
+        radioPrompt = text(group && (group.querySelector("legend") || group.querySelector("[aria-labelledby]"))) || (group && group.getAttribute("aria-label")) || "";
+      }
       if (type === "radio" && tag === "input" && el.name) {
         if (seenRadio.has(el.name)) continue;
         seenRadio.add(el.name);
@@ -344,8 +418,14 @@ const SNAPSHOT_SCRIPT = `(() => {
       const inApply = Boolean(el.closest && el.closest("#ia-container, .ia-BasePage, [class*='ia-Questions' i], [id*='questions-module' i], [data-testid*='apply' i]"));
       const chrome = Boolean(el.closest && el.closest("header, nav, footer, [role='navigation'], [role='banner'], [role='contentinfo']"));
       let options = [];
+      let fieldLabel = radioPrompt || labelOf(el);
       if (type === "select") options = [...el.options].map((option) => ({ value: option.value, text: option.text }));
-      if (type === "radio" || type === "checkbox") options = [{ value: id, text: labelOf(el).slice(0, 200) }];
+      if (type === "radio") options = radioGroup.map((radio) => {
+        const optionId = "ho" + (n++);
+        radio.setAttribute("data-helios-opt", optionId);
+        return { value: optionId, text: labelOf(radio).slice(0, 200), checked: Boolean(radio.checked) || radio.getAttribute("aria-checked") === "true" };
+      });
+      if (type === "checkbox") options = [{ value: id, text: labelOf(el).slice(0, 200), checked: Boolean(el.checked) || el.getAttribute("aria-checked") === "true" }];
       if (type === "combobox") {
         const listId = el.getAttribute("aria-controls");
         const list = listId ? (el.ownerDocument || document).getElementById(listId) : null;
@@ -355,14 +435,16 @@ const SNAPSHOT_SCRIPT = `(() => {
       fields.push({
         sel: '[data-helios-field="' + id + '"]',
         tag, type, role: el.getAttribute("role") || "",
-        label: labelOf(el).slice(0, 200),
+        label: fieldLabel.slice(0, 200),
         ariaLabel: (el.getAttribute("aria-label") || "").slice(0, 160),
         name: el.name || "",
         id: el.id || "",
         autocomplete: el.getAttribute("autocomplete") || "",
         placeholder: el.getAttribute("placeholder") || "",
-        required: Boolean(el.required) || el.getAttribute("aria-required") === "true",
-        checked: Boolean(el.checked) || el.getAttribute("aria-checked") === "true",
+        required: Boolean(el.required) || el.getAttribute("aria-required") === "true" || radioGroup.some((radio) => radio.required || radio.getAttribute("aria-required") === "true"),
+        requiredHint: /[*]$|\b(obrigat[oó]ri[oa]|required)\b/i.test(fieldLabel),
+        checked: type === "radio" ? options.some((option) => option.checked) : Boolean(el.checked) || el.getAttribute("aria-checked") === "true",
+        hasFile: type === "file" ? Boolean(el.files && el.files.length) : false,
         value: type === "file" ? "" : (el.value || ""),
         options, inModal, inForm, inApply, chrome,
       });
@@ -411,10 +493,19 @@ const SNAPSHOT_SCRIPT = `(() => {
       if (message) alerts.push(message);
     }
   }
+  const invalidos = [];
+  for (const root of roots) {
+    const nodes = root.querySelectorAll ? root.querySelectorAll("[aria-invalid='true']") : [];
+    for (const el of nodes) {
+      const described = (el.getAttribute("aria-describedby") || "").split(/\\s+/).map((id) => (el.ownerDocument || document).getElementById(id)).filter(Boolean).map(text);
+      const parentError = el.closest ? el.closest("[class*='error' i], [id*='error' i]") : null;
+      invalidos.push({ rotulo: labelOf(el).slice(0, 200), sel: '[data-helios-field="' + (el.getAttribute("data-helios-field") || "") + '"]', mensagem: (described.join(" ") || text(parentError)).slice(0, 180) });
+    }
+  }
   const bodyText = (document.body && document.body.innerText || "").slice(0, 6000);
   const captchaInfo = ${CAPTCHA_PAGE_SCRIPT};
   const modal = Boolean(document.querySelector(".jobs-easy-apply-modal, [role='dialog'], [data-test-modal]"));
-  return { url: location.href, title: document.title, text: bodyText, captcha: !!(captchaInfo && captchaInfo.visible), captchaVisivel: !!(captchaInfo && captchaInfo.visible), captchaWidgets: (captchaInfo && captchaInfo.widgets) || [], modal, fields, buttons, errors: alerts.slice(0, 8), frames: frames.length };
+  return { url: location.href, title: document.title, text: bodyText, captcha: !!(captchaInfo && captchaInfo.visible), captchaVisivel: !!(captchaInfo && captchaInfo.visible), captchaWidgets: (captchaInfo && captchaInfo.widgets) || [], modal, fields, buttons, errors: alerts.slice(0, 8), invalidos: invalidos.slice(0, 8), frames: frames.length };
 })()`;
 
 function applyScript(acoes) {
@@ -444,7 +535,7 @@ function applyScript(acoes) {
     let done = 0;
     for (const action of acoes) {
       if (action.kind === "radio") {
-        const radio = find('[data-helios="' + action.valor + '"]') || find(action.sel);
+        const radio = find('[data-helios-opt="' + action.valor + '"]');
         if (radio) { radio.click(); done += 1; }
         continue;
       }
@@ -459,7 +550,12 @@ function applyScript(acoes) {
         if (hit) { hit.click(); done += 1; }
         continue;
       }
-      if (action.kind === "check") { if (!el.checked) el.click(); done += 1; continue; }
+      if (action.kind === "check") {
+        const checked = Boolean(el.checked) || el.getAttribute("aria-checked") === "true";
+        if (!checked) el.click();
+        done += 1;
+        continue;
+      }
       setVal(el, action.valor);
       done += 1;
     }
@@ -496,5 +592,7 @@ module.exports = {
   SNAPSHOT_SCRIPT,
   applyScript,
   clickScript,
+  fieldKey,
+  fieldFilled,
   nuncaMensagemRecrutador: regras.nuncaMensagemRecrutador,
 };

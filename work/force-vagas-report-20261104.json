@@ -1,0 +1,1695 @@
+{
+  "ok": true,
+  "iniciado": {
+    "iniciado": true,
+    "novas": 0,
+    "fila": 2,
+    "bloqueios": [
+      {
+        "id": "vaga_dac741ff05",
+        "plataforma": "gupy",
+        "empresa": "La Moda",
+        "titulo": "DESENVOLVEDOR FULL STACK | NODE.JS | REACT",
+        "motivos": [
+          "candidatura_recente_na_vaga_ou_empresa"
+        ]
+      }
+    ],
+    "revisitar": true
+  },
+  "scans": [
+    {
+      "ok": true,
+      "feitos": [
+        {
+          "slot": "manual-2026-11-04-linkedin",
+          "fonte": "feed",
+          "ok": true,
+          "novos": 0,
+          "vagasNovas": 0,
+          "total": 17,
+          "diagnostico": {
+            "selectorNodes": 45,
+            "bodyChars": 10557,
+            "title": "Feed | LinkedIn",
+            "url": "https://www.linkedin.com/feed/foryou/"
+          }
+        },
+        {
+          "slot": "manual-2026-11-04-linkedin",
+          "fonte": "salvos",
+          "ok": true,
+          "novos": 0,
+          "vagasNovas": 0,
+          "total": 17,
+          "diagnostico": {
+            "selectorNodes": 19,
+            "directLinks": 7,
+            "jobLinks": 0,
+            "bodyChars": 16557,
+            "title": "Publicações salvas | LinkedIn",
+            "url": "https://www.linkedin.com/my-items/saved-posts/"
+          }
+        },
+        {
+          "slot": "manual-2026-11-04-linkedin",
+          "fonte": "salvos-vagas",
+          "ok": false,
+          "error": "Tempo esgotado carregando https://www.linkedin.com/my-items/saved-jobs/",
+          "motivo": "timeout"
+        },
+        {
+          "slot": "manual-2026-11-04-linkedin",
+          "fonte": "notificacoes",
+          "ok": true,
+          "novos": 0,
+          "vagasNovas": 0,
+          "total": 17,
+          "diagnostico": {
+            "selectorNodes": 4,
+            "jobLinks": 0,
+            "bodyChars": 8250,
+            "title": "Notificações | LinkedIn",
+            "url": "https://www.linkedin.com/notifications/"
+          }
+        },
+        {
+          "slot": "manual-2026-11-04-linkedin",
+          "fonte": "busca",
+          "ok": true,
+          "tipo": "busca",
+          "lidos": 10,
+          "novos": 0,
+          "quadroId": null,
+          "diagnostico": {
+            "title": "",
+            "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?keywords=desenvolvedor%20front-end&location=Brasil&start=0",
+            "bodyChars": 1330,
+            "jobLinks": 10
+          }
+        },
+        {
+          "slot": "manual-2026-11-04-plataformas",
+          "fonte": "plataformas",
+          "ok": true,
+          "resultados": [
+            {
+              "plataforma": "linkedin",
+              "termo": "desenvolvedor front-end",
+              "ok": true,
+              "busca": {
+                "ok": true,
+                "method": "button",
+                "diagnostics": {
+                  "inputs": 1,
+                  "title": "Vagas | LinkedIn",
+                  "url": "https://www.linkedin.com/jobs/",
+                  "bodyChars": 1008
+                }
+              },
+              "fallbackUrl": false,
+              "novas": 0,
+              "total": 1,
+              "aceitas": [],
+              "lidos": 3,
+              "fonte": "navegador",
+              "diagnostico": {
+                "anchors": 10,
+                "itemCount": 3,
+                "title": "Desenvolvedor de Software Full Stack Júnior | Yandeh | LinkedIn",
+                "url": "https://www.linkedin.com/jobs/search-results/?currentJobId=4480493892&keywords=desenvolvedor%20full%20stack&origin=SEMANTIC_SEARCH_HISTORY&geoId=106057199&distance=0.0",
+                "bodyChars": 8684
+              }
+            },
+            {
+              "plataforma": "linkedin",
+              "termo": "desenvolvedor full stack",
+              "ok": true,
+              "busca": {
+                "ok": true,
+                "method": "button",
+                "diagnostics": {
+                  "inputs": 1,
+                  "title": "Vagas | LinkedIn",
+                  "url": "https://www.linkedin.com/jobs/",
+                  "bodyChars": 1008
+                }
+              },
+              "fallbackUrl": false,
+              "novas": 0,
+              "total": 1,
+              "aceitas": [],
+              "lidos": 3,
+              "fonte": "navegador",
+              "diagnostico": {
+                "anchors": 10,
+                "itemCount": 3,
+                "title": "Desenvolvedor de Software Full Stack Júnior | Yandeh | LinkedIn",
+                "url": "https://www.linkedin.com/jobs/search-results/?currentJobId=4480493892&keywords=desenvolvedor%20full%20stack&origin=SEMANTIC_SEARCH_HISTORY&geoId=106057199&distance=0.0",
+                "bodyChars": 8684
+              }
+            },
+            {
+              "plataforma": "linkedin",
+              "termo": "desenvolvedor react",
+              "ok": true,
+              "busca": {
+                "ok": true,
+                "method": "button",
+                "diagnostics": {
+                  "inputs": 1,
+                  "title": "Vagas | LinkedIn",
+                  "url": "https://www.linkedin.com/jobs/",
+                  "bodyChars": 1008
+                }
+              },
+              "fallbackUrl": false,
+              "novas": 0,
+              "total": 1,
+              "aceitas": [],
+              "lidos": 3,
+              "fonte": "navegador",
+              "diagnostico": {
+                "anchors": 10,
+                "itemCount": 3,
+                "title": "Desenvolvedor de Software Full Stack Júnior | Yandeh | LinkedIn",
+                "url": "https://www.linkedin.com/jobs/search-results/?currentJobId=4480493892&keywords=desenvolvedor%20full%20stack&origin=SEMANTIC_SEARCH_HISTORY&geoId=106057199&distance=0.0",
+                "bodyChars": 8684
+              }
+            },
+            {
+              "plataforma": "gupy",
+              "termo": "desenvolvedor front-end",
+              "ok": true,
+              "busca": {
+                "ok": true,
+                "method": "button",
+                "diagnostics": {
+                  "inputs": 1,
+                  "title": "Portal Gupy | Encontre Vagas de Emprego que Impulsionam sua Carreira",
+                  "url": "https://portal.gupy.io/",
+                  "bodyChars": 2846
+                }
+              },
+              "fallbackUrl": false,
+              "novas": 0,
+              "total": 1,
+              "aceitas": [],
+              "lidos": 40,
+              "fonte": "navegador",
+              "diagnostico": {
+                "anchors": 62,
+                "itemCount": 40,
+                "title": "Vagas de desenvolvedor front-end | Encontre oportunidades",
+                "url": "https://portal.gupy.io/job-search/term=desenvolvedor%20front-end",
+                "bodyChars": 2582
+              }
+            },
+            {
+              "plataforma": "gupy",
+              "termo": "desenvolvedor full stack",
+              "ok": true,
+              "busca": {
+                "ok": true,
+                "method": "button",
+                "diagnostics": {
+                  "inputs": 1,
+                  "title": "Portal Gupy | Encontre Vagas de Emprego que Impulsionam sua Carreira",
+                  "url": "https://portal.gupy.io/",
+                  "bodyChars": 2846
+                }
+              },
+              "fallbackUrl": false,
+              "novas": 0,
+              "total": 1,
+              "aceitas": [],
+              "lidos": 52,
+              "fonte": "navegador",
+              "diagnostico": {
+                "anchors": 65,
+                "itemCount": 40,
+                "title": "Vagas de desenvolvedor full stack | Encontre oportunidades",
+                "url": "https://portal.gupy.io/job-search/term=desenvolvedor%20full%20stack",
+                "bodyChars": 2955
+              }
+            },
+            {
+              "plataforma": "gupy",
+              "termo": "desenvolvedor react",
+              "ok": true,
+              "busca": {
+                "ok": true,
+                "method": "button",
+                "diagnostics": {
+                  "inputs": 1,
+                  "title": "Portal Gupy | Encontre Vagas de Emprego que Impulsionam sua Carreira",
+                  "url": "https://portal.gupy.io/",
+                  "bodyChars": 2851
+                }
+              },
+              "fallbackUrl": false,
+              "novas": 0,
+              "total": 1,
+              "aceitas": [],
+              "lidos": 40,
+              "fonte": "navegador",
+              "diagnostico": {
+                "anchors": 64,
+                "itemCount": 40,
+                "title": "Vagas de desenvolvedor react | Encontre oportunidades",
+                "url": "https://portal.gupy.io/job-search/term=desenvolvedor%20react",
+                "bodyChars": 3072
+              }
+            },
+            {
+              "plataforma": "infojobs",
+              "termo": "desenvolvedor front-end",
+              "ok": true,
+              "busca": {
+                "ok": true,
+                "reason": "url_direta"
+              },
+              "fallbackUrl": true,
+              "novas": 0,
+              "total": 1,
+              "aceitas": [],
+              "lidos": 21,
+              "fonte": "navegador",
+              "diagnostico": {
+                "anchors": 33,
+                "itemCount": 21,
+                "title": "Vagas de Emprego Grátis | Infojobs",
+                "url": "https://www.infojobs.com.br/error/404",
+                "bodyChars": 257
+              }
+            },
+            {
+              "plataforma": "indeed",
+              "termo": "desenvolvedor front-end",
+              "ok": true,
+              "busca": {
+                "ok": true,
+                "method": "button",
+                "diagnostics": {
+                  "inputs": 1,
+                  "title": "Busca grátis de vagas de emprego | Indeed",
+                  "url": "https://br.indeed.com/",
+                  "bodyChars": 7444
+                }
+              },
+              "fallbackUrl": false,
+              "novas": 0,
+              "total": 1,
+              "aceitas": [],
+              "lidos": 40,
+              "fonte": "navegador",
+              "diagnostico": {
+                "anchors": 55,
+                "itemCount": 40,
+                "title": "Busca grátis de vagas de emprego | Indeed",
+                "url": "https://br.indeed.com/",
+                "bodyChars": 8590
+              }
+            },
+            {
+              "plataforma": "glassdoor",
+              "termo": "desenvolvedor front-end",
+              "ok": true,
+              "busca": {
+                "ok": true,
+                "method": "button",
+                "diagnostics": {
+                  "inputs": 2,
+                  "title": "Vagas recomendadas para você | Pesquisa de vagas do Glassdoor",
+                  "url": "https://www.glassdoor.com.br/Vaga/index.htm",
+                  "bodyChars": 6750
+                }
+              },
+              "fallbackUrl": false,
+              "novas": 2,
+              "total": 3,
+              "aceitas": [
+                {
+                  "id": "vaga_b836cd57ea",
+                  "platform": "glassdoor",
+                  "extId": "https://www.glassdoor.com.br/job-listing/ai-builder-ai-native-engineer-claude-co",
+                  "title": "AI Builder / AI-Native Engineer (Claude Code, n8n, Automation)",
+                  "company": "",
+                  "location": "",
+                  "description": "Techfektor Media Group AI Builder / AI-Native Engineer (Claude Code, n8n, Automation) Trabalho remoto R$ 13.500 - R$ 16.500 (fornecido pela empresa) Candidatura rápida 2 dia(s)",
+                  "url": "https://www.glassdoor.com.br/job-listing/ai-builder-ai-native-engineer-claude-code-n8n-automation-techfektor-media-group-JV_KO0,56_KE57,79.htm",
+                  "emailTo": "",
+                  "aplicarPorEmail": false,
+                  "origem": "",
+                  "postedAt": null,
+                  "score": 90,
+                  "motivos": [
+                    "título bate com \"ai engineer\"",
+                    "perfil: claude, code, trabalho, remoto",
+                    "tem remoto, ia, n8n"
+                  ],
+                  "status": "nova",
+                  "auto": false,
+                  "foundAt": "2026-11-04T01:08:55.904Z",
+                  "fonte": "sessao-helios"
+                },
+                {
+                  "id": "vaga_a35b4c2574",
+                  "platform": "glassdoor",
+                  "extId": "https://www.glassdoor.com.br/job-listing/desenvolvedor-full-stack-pleno-v-tal-o-",
+                  "title": "Desenvolvedor Full Stack - Pleno",
+                  "company": "",
+                  "location": "",
+                  "description": "V.tal | o futuro passa por aqui Desenvolvedor Full Stack - Pleno Trabalho remoto 6 dia(s)",
+                  "url": "https://www.glassdoor.com.br/job-listing/desenvolvedor-full-stack-pleno-v-tal-o-futuro-passa-por-aqui-JV_KO0,30_KE31,60.htm",
+                  "emailTo": "",
+                  "aplicarPorEmail": false,
+                  "origem": "",
+                  "postedAt": null,
+                  "score": 90,
+                  "motivos": [
+                    "título bate com \"desenvolvedor full stack\"",
+                    "perfil: desenvolvedor, stack, trabalho, remoto",
+                    "tem remoto, pleno, ia"
+                  ],
+                  "status": "nova",
+                  "auto": false,
+                  "foundAt": "2026-11-04T01:08:55.904Z",
+                  "fonte": "sessao-helios"
+                }
+              ],
+              "lidos": 40,
+              "fonte": "navegador",
+              "diagnostico": {
+                "anchors": 110,
+                "itemCount": 40,
+                "title": "Vagas recomendadas para você | Pesquisa de vagas do Glassdoor",
+                "url": "https://www.glassdoor.com.br/Vaga/index.htm",
+                "bodyChars": 8599
+              }
+            },
+            {
+              "plataforma": "catho",
+              "termo": "desenvolvedor front-end",
+              "ok": true,
+              "busca": {
+                "ok": true,
+                "method": "button",
+                "diagnostics": {
+                  "inputs": 1,
+                  "title": "Vagas de emprego em todo Brasil | Catho",
+                  "url": "https://www.catho.com.br/vagas/",
+                  "bodyChars": 5565
+                }
+              },
+              "fallbackUrl": false,
+              "novas": 0,
+              "total": 3,
+              "aceitas": [],
+              "lidos": 40,
+              "fonte": "navegador",
+              "diagnostico": {
+                "anchors": 108,
+                "itemCount": 40,
+                "title": "Vagas de emprego em todo Brasil | Catho",
+                "url": "https://www.catho.com.br/vagas/",
+                "bodyChars": 6155
+              }
+            },
+            {
+              "plataforma": "coodesh",
+              "termo": "desenvolvedor front-end",
+              "ok": true,
+              "busca": {
+                "ok": true,
+                "method": "enter",
+                "diagnostics": {
+                  "inputs": 2,
+                  "title": "Coodesh: Testes, Recrutamento e Desenvolvimento de Talentos | Coodesh",
+                  "url": "https://coodesh.com/jobs",
+                  "bodyChars": 1282
+                }
+              },
+              "fallbackUrl": false,
+              "novas": 0,
+              "total": 3,
+              "aceitas": [],
+              "lidos": 11,
+              "fonte": "navegador",
+              "diagnostico": {
+                "anchors": 24,
+                "itemCount": 11,
+                "title": "Vagas de Emprego e Oportunidades de Trabalho",
+                "url": "https://coodesh.com/jobs?search=desenvolvedor+front-end",
+                "bodyChars": 1514
+              }
+            },
+            {
+              "plataforma": "geekhunter",
+              "termo": "desenvolvedor front-end",
+              "ok": true,
+              "busca": {
+                "ok": true,
+                "method": "button",
+                "diagnostics": {
+                  "inputs": 1,
+                  "title": "Vagas de Tecnologia no Brasil | GeekHunter",
+                  "url": "https://www.geekhunter.com/pt/vagas",
+                  "bodyChars": 13069
+                }
+              },
+              "fallbackUrl": false,
+              "novas": 0,
+              "total": 3,
+              "aceitas": [],
+              "lidos": 40,
+              "fonte": "navegador",
+              "diagnostico": {
+                "anchors": 65,
+                "itemCount": 40,
+                "title": "Vagas de Tecnologia no Brasil | GeekHunter",
+                "url": "https://www.geekhunter.com/pt/vagas",
+                "bodyChars": 13069
+              }
+            },
+            {
+              "plataforma": "programathor",
+              "termo": "desenvolvedor front-end",
+              "ok": true,
+              "busca": {
+                "ok": true,
+                "reason": "url_direta"
+              },
+              "fallbackUrl": true,
+              "novas": 0,
+              "total": 3,
+              "aceitas": [],
+              "lidos": 40,
+              "fonte": "navegador",
+              "diagnostico": {
+                "anchors": 862,
+                "itemCount": 40,
+                "title": "Vagas para Programador(a) e Desenvolvedor(a) 🚀",
+                "url": "https://programathor.com.br/jobs/",
+                "bodyChars": 9823
+              }
+            },
+            {
+              "plataforma": "trampos",
+              "termo": "desenvolvedor front-end",
+              "ok": true,
+              "busca": {
+                "ok": true,
+                "method": "enter",
+                "diagnostics": {
+                  "inputs": 1,
+                  "title": "trampos.co | Oportunidades de emprego nas áreas de Comunicação e Tecnologia da Informação",
+                  "url": "https://trampos.co/oportunidades/",
+                  "bodyChars": 664
+                }
+              },
+              "fallbackUrl": false,
+              "novas": 0,
+              "total": 3,
+              "aceitas": [],
+              "lidos": 21,
+              "fonte": "navegador",
+              "diagnostico": {
+                "anchors": 27,
+                "itemCount": 21,
+                "title": "trampos.co | Oportunidades de emprego nas áreas de Comunicação e Tecnologia da Informação",
+                "url": "https://trampos.co/oportunidades/?tr=desenvolvedor%20front-end",
+                "bodyChars": 662
+              }
+            },
+            {
+              "plataforma": "nerdin",
+              "termo": "desenvolvedor front-end",
+              "ok": true,
+              "busca": {
+                "ok": true,
+                "method": "button",
+                "diagnostics": {
+                  "inputs": 3,
+                  "title": "Encontre sua próxima vaga em Tecnologia - Nerdin Vagas de TI",
+                  "url": "https://www.nerdin.com.br/vagas",
+                  "bodyChars": 3049
+                }
+              },
+              "fallbackUrl": false,
+              "novas": 0,
+              "total": 3,
+              "aceitas": [],
+              "lidos": 40,
+              "fonte": "navegador",
+              "diagnostico": {
+                "anchors": 167,
+                "itemCount": 40,
+                "title": "Encontre sua próxima vaga em Tecnologia - Nerdin Vagas de TI",
+                "url": "https://www.nerdin.com.br/vagas.php?busca_vaga=desenvolvedor+front-end",
+                "bodyChars": 4179
+              }
+            },
+            {
+              "plataforma": "bossabox",
+              "termo": "desenvolvedor front-end",
+              "ok": true,
+              "busca": {
+                "ok": true,
+                "reason": "url_direta"
+              },
+              "fallbackUrl": true,
+              "novas": 0,
+              "total": 3,
+              "aceitas": [],
+              "lidos": 6,
+              "fonte": "navegador",
+              "diagnostico": {
+                "anchors": 12,
+                "itemCount": 6,
+                "title": "Carreiras na BossaBox",
+                "url": "https://jobs.digai.ai/en/careers/bossabox",
+                "bodyChars": 1109
+              }
+            },
+            {
+              "plataforma": "remotar",
+              "termo": "desenvolvedor front-end",
+              "ok": true,
+              "busca": {
+                "ok": true,
+                "method": "enter",
+                "diagnostics": {
+                  "inputs": 4,
+                  "title": "Encontre vagas de trabalho 100% remoto com a Remotar",
+                  "url": "https://remotar.com.br/",
+                  "bodyChars": 6353
+                }
+              },
+              "fallbackUrl": false,
+              "novas": 0,
+              "total": 3,
+              "aceitas": [],
+              "lidos": 40,
+              "fonte": "navegador",
+              "diagnostico": {
+                "anchors": 575,
+                "itemCount": 40,
+                "title": "Encontre vagas de trabalho 100% remoto com a Remotar",
+                "url": "https://remotar.com.br/",
+                "bodyChars": 12567
+              }
+            }
+          ],
+          "novas": 2,
+          "erros": []
+        }
+      ],
+      "erros": []
+    }
+  ],
+  "encontrouNestaRodada": 184,
+  "encontradasPorPlataforma": {
+    "glassdoor": 8,
+    "linkedin": 15,
+    "remotar": 17,
+    "nerdin": 24,
+    "trampos": 21,
+    "programathor": 33,
+    "geekhunter": 33,
+    "coodesh": 6,
+    "catho": 14,
+    "indeed": 3,
+    "gupy": 10
+  },
+  "inscricoesConfirmadasNestaRodada": 0,
+  "inscritasPorPlataforma": {},
+  "casosCriticosNestaRodada": [],
+  "falhasNestaRodada": [
+    {
+      "plataforma": "glassdoor",
+      "empresa": "",
+      "titulo": "AI Builder / AI-Native Engineer (Claude Code, n8n, Automation)",
+      "codigo": "botao",
+      "nota": "Não achei o próximo botão do formulário com segurança. URL: https://www.glassdoor.com.br/job-listing/ai-builder-ai-native-engineer-claude-code-n8n-automation-techfektor-media-group-JV_KO0,56_KE57,79.htm. Formulário: Skip to main content, Ir para o conteúdo, Ir para a pasta, Menu de navegação, Buscar. Menu ignorado: 8."
+    },
+    {
+      "plataforma": "glassdoor",
+      "empresa": "",
+      "titulo": "Desenvolvedor Full Stack - Pleno",
+      "codigo": "botao",
+      "nota": "Não achei o próximo botão do formulário com segurança. URL: https://www.glassdoor.com.br/job-listing/desenvolvedor-full-stack-pleno-v-tal-o-futuro-passa-por-aqui-JV_KO0,30_KE31,60.htm. Formulário: Skip to main content, Ir para o conteúdo, Ir para a pasta, Menu de navegação, Buscar. Menu ignorado: 8."
+    }
+  ],
+  "tentadasNestaRodada": 2,
+  "filaRestante": 1,
+  "bloqueiosDaFila": [
+    {
+      "id": "vaga_dac741ff05",
+      "plataforma": "gupy",
+      "empresa": "La Moda",
+      "titulo": "DESENVOLVEDOR FULL STACK | NODE.JS | REACT",
+      "motivos": [
+        "candidatura_recente_na_vaga_ou_empresa"
+      ]
+    }
+  ],
+  "chefe": {
+    "resumo": "Ciclo 32: 0 delegado(s), 0 aprovação(ões), 1 bloqueado(s). Itens lidos: 0.",
+    "ciclo": "Ciclo 32: 0 delegado(s), 0 aprovação(ões), 1 bloqueado(s). Itens lidos: 0.",
+    "resultadosRecentes": [
+      {
+        "id": "qd_f347c90ed1",
+        "de": "vagas",
+        "assunto": "Resultado Vagas (ciclo)",
+        "em": "2026-11-04T01:12:09.996Z"
+      },
+      {
+        "id": "qd_93d9990791",
+        "de": "vagas",
+        "assunto": "Resultado Vagas (ciclo)",
+        "em": "2026-11-04T00:08:44.546Z"
+      },
+      {
+        "id": "qd_ff2d997ffd",
+        "de": "vagas",
+        "assunto": "Resultado Vagas (ciclo)",
+        "em": "2026-11-03T23:53:31.873Z"
+      },
+      {
+        "id": "qd_8ea699fbbe",
+        "de": "vagas",
+        "assunto": "Resultado Vagas (ciclo)",
+        "em": "2026-11-03T23:43:06.273Z"
+      },
+      {
+        "id": "qd_2fd493c740",
+        "de": "vagas",
+        "assunto": "Resultado Vagas (ciclo)",
+        "em": "2026-11-03T23:43:06.284Z"
+      }
+    ]
+  },
+  "iniciadoEm": "2026-11-04T01:05:32.836Z",
+  "concluidoEm": "2026-11-04T01:12:10.003Z",
+  "eventos": [
+    {
+      "at": "2026-11-04T01:05:32.836Z",
+      "evento": "inicio",
+      "pid": 15460
+    },
+    {
+      "at": "2026-11-04T01:05:32.837Z",
+      "evento": "leitura_inicial"
+    },
+    {
+      "at": "2026-11-04T01:05:32.865Z",
+      "evento": "busca_iniciada"
+    },
+    {
+      "at": "2026-11-04T01:05:32.869Z",
+      "evento": "busca",
+      "ultimo": {
+        "slots": 2
+      },
+      "erro": ""
+    },
+    {
+      "at": "2026-11-04T01:05:34.884Z",
+      "evento": "linkedin",
+      "ultimo": {
+        "fonte": "feed"
+      },
+      "erro": ""
+    },
+    {
+      "at": "2026-11-04T01:05:42.915Z",
+      "evento": "linkedin",
+      "ultimo": {
+        "fonte": "feed",
+        "passo": 1,
+        "passos": 1
+      },
+      "erro": ""
+    },
+    {
+      "at": "2026-11-04T01:05:50.954Z",
+      "evento": "linkedin",
+      "ultimo": {
+        "fonte": "salvos"
+      },
+      "erro": ""
+    },
+    {
+      "at": "2026-11-04T01:05:56.973Z",
+      "evento": "linkedin",
+      "ultimo": {
+        "fonte": "salvos",
+        "passo": 1,
+        "passos": 1
+      },
+      "erro": ""
+    },
+    {
+      "at": "2026-11-04T01:05:58.987Z",
+      "evento": "linkedin",
+      "ultimo": {
+        "fonte": "salvos-vagas"
+      },
+      "erro": ""
+    },
+    {
+      "at": "2026-11-04T01:06:31.149Z",
+      "evento": "linkedin",
+      "ultimo": {
+        "fonte": "notificacoes"
+      },
+      "erro": ""
+    },
+    {
+      "at": "2026-11-04T01:06:37.188Z",
+      "evento": "linkedin",
+      "ultimo": {
+        "fonte": "busca"
+      },
+      "erro": ""
+    },
+    {
+      "at": "2026-11-04T01:06:43.209Z",
+      "evento": "plataformas",
+      "ultimo": {
+        "slot": "manual-2026-11-04-plataformas"
+      },
+      "erro": ""
+    },
+    {
+      "at": "2026-11-04T01:07:01.295Z",
+      "evento": "plataforma",
+      "ultimo": {
+        "plataforma": "linkedin",
+        "termo": "desenvolvedor front-end"
+      },
+      "erro": ""
+    },
+    {
+      "at": "2026-11-04T01:08:21.669Z",
+      "evento": "plataforma",
+      "ultimo": {
+        "fonte": "infojobs",
+        "termo": "desenvolvedor front-end"
+      },
+      "erro": ""
+    },
+    {
+      "at": "2026-11-04T01:08:39.767Z",
+      "evento": "plataforma",
+      "ultimo": {
+        "plataforma": "indeed",
+        "termo": "desenvolvedor front-end"
+      },
+      "erro": ""
+    },
+    {
+      "at": "2026-11-04T01:09:50.124Z",
+      "evento": "plataforma",
+      "ultimo": {
+        "fonte": "programathor",
+        "termo": "desenvolvedor front-end"
+      },
+      "erro": ""
+    },
+    {
+      "at": "2026-11-04T01:10:08.190Z",
+      "evento": "plataforma",
+      "ultimo": {
+        "plataforma": "trampos",
+        "termo": "desenvolvedor front-end"
+      },
+      "erro": ""
+    },
+    {
+      "at": "2026-11-04T01:10:28.310Z",
+      "evento": "plataforma",
+      "ultimo": {
+        "fonte": "bossabox",
+        "termo": "desenvolvedor front-end"
+      },
+      "erro": ""
+    },
+    {
+      "at": "2026-11-04T01:10:46.412Z",
+      "evento": "concluido",
+      "ultimo": {
+        "feitos": 6
+      },
+      "erro": ""
+    },
+    {
+      "at": "2026-11-04T01:10:46.412Z",
+      "evento": "busca_concluida",
+      "feitos": [
+        {
+          "slot": "manual-2026-11-04-linkedin",
+          "fonte": "feed",
+          "ok": true,
+          "novos": 0,
+          "vagasNovas": 0,
+          "total": 17,
+          "diagnostico": {
+            "selectorNodes": 45,
+            "bodyChars": 10557,
+            "title": "Feed | LinkedIn",
+            "url": "https://www.linkedin.com/feed/foryou/"
+          }
+        },
+        {
+          "slot": "manual-2026-11-04-linkedin",
+          "fonte": "salvos",
+          "ok": true,
+          "novos": 0,
+          "vagasNovas": 0,
+          "total": 17,
+          "diagnostico": {
+            "selectorNodes": 19,
+            "directLinks": 7,
+            "jobLinks": 0,
+            "bodyChars": 16557,
+            "title": "Publicações salvas | LinkedIn",
+            "url": "https://www.linkedin.com/my-items/saved-posts/"
+          }
+        },
+        {
+          "slot": "manual-2026-11-04-linkedin",
+          "fonte": "salvos-vagas",
+          "ok": false,
+          "error": "Tempo esgotado carregando https://www.linkedin.com/my-items/saved-jobs/",
+          "motivo": "timeout"
+        },
+        {
+          "slot": "manual-2026-11-04-linkedin",
+          "fonte": "notificacoes",
+          "ok": true,
+          "novos": 0,
+          "vagasNovas": 0,
+          "total": 17,
+          "diagnostico": {
+            "selectorNodes": 4,
+            "jobLinks": 0,
+            "bodyChars": 8250,
+            "title": "Notificações | LinkedIn",
+            "url": "https://www.linkedin.com/notifications/"
+          }
+        },
+        {
+          "slot": "manual-2026-11-04-linkedin",
+          "fonte": "busca",
+          "ok": true,
+          "tipo": "busca",
+          "lidos": 10,
+          "novos": 0,
+          "quadroId": null,
+          "diagnostico": {
+            "title": "",
+            "url": "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?keywords=desenvolvedor%20front-end&location=Brasil&start=0",
+            "bodyChars": 1330,
+            "jobLinks": 10
+          }
+        },
+        {
+          "slot": "manual-2026-11-04-plataformas",
+          "fonte": "plataformas",
+          "ok": true,
+          "resultados": [
+            {
+              "plataforma": "linkedin",
+              "termo": "desenvolvedor front-end",
+              "ok": true,
+              "busca": {
+                "ok": true,
+                "method": "button",
+                "diagnostics": {
+                  "inputs": 1,
+                  "title": "Vagas | LinkedIn",
+                  "url": "https://www.linkedin.com/jobs/",
+                  "bodyChars": 1008
+                }
+              },
+              "fallbackUrl": false,
+              "novas": 0,
+              "total": 1,
+              "aceitas": [],
+              "lidos": 3,
+              "fonte": "navegador",
+              "diagnostico": {
+                "anchors": 10,
+                "itemCount": 3,
+                "title": "Desenvolvedor de Software Full Stack Júnior | Yandeh | LinkedIn",
+                "url": "https://www.linkedin.com/jobs/search-results/?currentJobId=4480493892&keywords=desenvolvedor%20full%20stack&origin=SEMANTIC_SEARCH_HISTORY&geoId=106057199&distance=0.0",
+                "bodyChars": 8684
+              }
+            },
+            {
+              "plataforma": "linkedin",
+              "termo": "desenvolvedor full stack",
+              "ok": true,
+              "busca": {
+                "ok": true,
+                "method": "button",
+                "diagnostics": {
+                  "inputs": 1,
+                  "title": "Vagas | LinkedIn",
+                  "url": "https://www.linkedin.com/jobs/",
+                  "bodyChars": 1008
+                }
+              },
+              "fallbackUrl": false,
+              "novas": 0,
+              "total": 1,
+              "aceitas": [],
+              "lidos": 3,
+              "fonte": "navegador",
+              "diagnostico": {
+                "anchors": 10,
+                "itemCount": 3,
+                "title": "Desenvolvedor de Software Full Stack Júnior | Yandeh | LinkedIn",
+                "url": "https://www.linkedin.com/jobs/search-results/?currentJobId=4480493892&keywords=desenvolvedor%20full%20stack&origin=SEMANTIC_SEARCH_HISTORY&geoId=106057199&distance=0.0",
+                "bodyChars": 8684
+              }
+            },
+            {
+              "plataforma": "linkedin",
+              "termo": "desenvolvedor react",
+              "ok": true,
+              "busca": {
+                "ok": true,
+                "method": "button",
+                "diagnostics": {
+                  "inputs": 1,
+                  "title": "Vagas | LinkedIn",
+                  "url": "https://www.linkedin.com/jobs/",
+                  "bodyChars": 1008
+                }
+              },
+              "fallbackUrl": false,
+              "novas": 0,
+              "total": 1,
+              "aceitas": [],
+              "lidos": 3,
+              "fonte": "navegador",
+              "diagnostico": {
+                "anchors": 10,
+                "itemCount": 3,
+                "title": "Desenvolvedor de Software Full Stack Júnior | Yandeh | LinkedIn",
+                "url": "https://www.linkedin.com/jobs/search-results/?currentJobId=4480493892&keywords=desenvolvedor%20full%20stack&origin=SEMANTIC_SEARCH_HISTORY&geoId=106057199&distance=0.0",
+                "bodyChars": 8684
+              }
+            },
+            {
+              "plataforma": "gupy",
+              "termo": "desenvolvedor front-end",
+              "ok": true,
+              "busca": {
+                "ok": true,
+                "method": "button",
+                "diagnostics": {
+                  "inputs": 1,
+                  "title": "Portal Gupy | Encontre Vagas de Emprego que Impulsionam sua Carreira",
+                  "url": "https://portal.gupy.io/",
+                  "bodyChars": 2846
+                }
+              },
+              "fallbackUrl": false,
+              "novas": 0,
+              "total": 1,
+              "aceitas": [],
+              "lidos": 40,
+              "fonte": "navegador",
+              "diagnostico": {
+                "anchors": 62,
+                "itemCount": 40,
+                "title": "Vagas de desenvolvedor front-end | Encontre oportunidades",
+                "url": "https://portal.gupy.io/job-search/term=desenvolvedor%20front-end",
+                "bodyChars": 2582
+              }
+            },
+            {
+              "plataforma": "gupy",
+              "termo": "desenvolvedor full stack",
+              "ok": true,
+              "busca": {
+                "ok": true,
+                "method": "button",
+                "diagnostics": {
+                  "inputs": 1,
+                  "title": "Portal Gupy | Encontre Vagas de Emprego que Impulsionam sua Carreira",
+                  "url": "https://portal.gupy.io/",
+                  "bodyChars": 2846
+                }
+              },
+              "fallbackUrl": false,
+              "novas": 0,
+              "total": 1,
+              "aceitas": [],
+              "lidos": 52,
+              "fonte": "navegador",
+              "diagnostico": {
+                "anchors": 65,
+                "itemCount": 40,
+                "title": "Vagas de desenvolvedor full stack | Encontre oportunidades",
+                "url": "https://portal.gupy.io/job-search/term=desenvolvedor%20full%20stack",
+                "bodyChars": 2955
+              }
+            },
+            {
+              "plataforma": "gupy",
+              "termo": "desenvolvedor react",
+              "ok": true,
+              "busca": {
+                "ok": true,
+                "method": "button",
+                "diagnostics": {
+                  "inputs": 1,
+                  "title": "Portal Gupy | Encontre Vagas de Emprego que Impulsionam sua Carreira",
+                  "url": "https://portal.gupy.io/",
+                  "bodyChars": 2851
+                }
+              },
+              "fallbackUrl": false,
+              "novas": 0,
+              "total": 1,
+              "aceitas": [],
+              "lidos": 40,
+              "fonte": "navegador",
+              "diagnostico": {
+                "anchors": 64,
+                "itemCount": 40,
+                "title": "Vagas de desenvolvedor react | Encontre oportunidades",
+                "url": "https://portal.gupy.io/job-search/term=desenvolvedor%20react",
+                "bodyChars": 3072
+              }
+            },
+            {
+              "plataforma": "infojobs",
+              "termo": "desenvolvedor front-end",
+              "ok": true,
+              "busca": {
+                "ok": true,
+                "reason": "url_direta"
+              },
+              "fallbackUrl": true,
+              "novas": 0,
+              "total": 1,
+              "aceitas": [],
+              "lidos": 21,
+              "fonte": "navegador",
+              "diagnostico": {
+                "anchors": 33,
+                "itemCount": 21,
+                "title": "Vagas de Emprego Grátis | Infojobs",
+                "url": "https://www.infojobs.com.br/error/404",
+                "bodyChars": 257
+              }
+            },
+            {
+              "plataforma": "indeed",
+              "termo": "desenvolvedor front-end",
+              "ok": true,
+              "busca": {
+                "ok": true,
+                "method": "button",
+                "diagnostics": {
+                  "inputs": 1,
+                  "title": "Busca grátis de vagas de emprego | Indeed",
+                  "url": "https://br.indeed.com/",
+                  "bodyChars": 7444
+                }
+              },
+              "fallbackUrl": false,
+              "novas": 0,
+              "total": 1,
+              "aceitas": [],
+              "lidos": 40,
+              "fonte": "navegador",
+              "diagnostico": {
+                "anchors": 55,
+                "itemCount": 40,
+                "title": "Busca grátis de vagas de emprego | Indeed",
+                "url": "https://br.indeed.com/",
+                "bodyChars": 8590
+              }
+            },
+            {
+              "plataforma": "glassdoor",
+              "termo": "desenvolvedor front-end",
+              "ok": true,
+              "busca": {
+                "ok": true,
+                "method": "button",
+                "diagnostics": {
+                  "inputs": 2,
+                  "title": "Vagas recomendadas para você | Pesquisa de vagas do Glassdoor",
+                  "url": "https://www.glassdoor.com.br/Vaga/index.htm",
+                  "bodyChars": 6750
+                }
+              },
+              "fallbackUrl": false,
+              "novas": 2,
+              "total": 3,
+              "aceitas": [
+                {
+                  "id": "vaga_b836cd57ea",
+                  "platform": "glassdoor",
+                  "extId": "https://www.glassdoor.com.br/job-listing/ai-builder-ai-native-engineer-claude-co",
+                  "title": "AI Builder / AI-Native Engineer (Claude Code, n8n, Automation)",
+                  "company": "",
+                  "location": "",
+                  "description": "Techfektor Media Group AI Builder / AI-Native Engineer (Claude Code, n8n, Automation) Trabalho remoto R$ 13.500 - R$ 16.500 (fornecido pela empresa) Candidatura rápida 2 dia(s)",
+                  "url": "https://www.glassdoor.com.br/job-listing/ai-builder-ai-native-engineer-claude-code-n8n-automation-techfektor-media-group-JV_KO0,56_KE57,79.htm",
+                  "emailTo": "",
+                  "aplicarPorEmail": false,
+                  "origem": "",
+                  "postedAt": null,
+                  "score": 90,
+                  "motivos": [
+                    "título bate com \"ai engineer\"",
+                    "perfil: claude, code, trabalho, remoto",
+                    "tem remoto, ia, n8n"
+                  ],
+                  "status": "nova",
+                  "auto": false,
+                  "foundAt": "2026-11-04T01:08:55.904Z",
+                  "fonte": "sessao-helios"
+                },
+                {
+                  "id": "vaga_a35b4c2574",
+                  "platform": "glassdoor",
+                  "extId": "https://www.glassdoor.com.br/job-listing/desenvolvedor-full-stack-pleno-v-tal-o-",
+                  "title": "Desenvolvedor Full Stack - Pleno",
+                  "company": "",
+                  "location": "",
+                  "description": "V.tal | o futuro passa por aqui Desenvolvedor Full Stack - Pleno Trabalho remoto 6 dia(s)",
+                  "url": "https://www.glassdoor.com.br/job-listing/desenvolvedor-full-stack-pleno-v-tal-o-futuro-passa-por-aqui-JV_KO0,30_KE31,60.htm",
+                  "emailTo": "",
+                  "aplicarPorEmail": false,
+                  "origem": "",
+                  "postedAt": null,
+                  "score": 90,
+                  "motivos": [
+                    "título bate com \"desenvolvedor full stack\"",
+                    "perfil: desenvolvedor, stack, trabalho, remoto",
+                    "tem remoto, pleno, ia"
+                  ],
+                  "status": "nova",
+                  "auto": false,
+                  "foundAt": "2026-11-04T01:08:55.904Z",
+                  "fonte": "sessao-helios"
+                }
+              ],
+              "lidos": 40,
+              "fonte": "navegador",
+              "diagnostico": {
+                "anchors": 110,
+                "itemCount": 40,
+                "title": "Vagas recomendadas para você | Pesquisa de vagas do Glassdoor",
+                "url": "https://www.glassdoor.com.br/Vaga/index.htm",
+                "bodyChars": 8599
+              }
+            },
+            {
+              "plataforma": "catho",
+              "termo": "desenvolvedor front-end",
+              "ok": true,
+              "busca": {
+                "ok": true,
+                "method": "button",
+                "diagnostics": {
+                  "inputs": 1,
+                  "title": "Vagas de emprego em todo Brasil | Catho",
+                  "url": "https://www.catho.com.br/vagas/",
+                  "bodyChars": 5565
+                }
+              },
+              "fallbackUrl": false,
+              "novas": 0,
+              "total": 3,
+              "aceitas": [],
+              "lidos": 40,
+              "fonte": "navegador",
+              "diagnostico": {
+                "anchors": 108,
+                "itemCount": 40,
+                "title": "Vagas de emprego em todo Brasil | Catho",
+                "url": "https://www.catho.com.br/vagas/",
+                "bodyChars": 6155
+              }
+            },
+            {
+              "plataforma": "coodesh",
+              "termo": "desenvolvedor front-end",
+              "ok": true,
+              "busca": {
+                "ok": true,
+                "method": "enter",
+                "diagnostics": {
+                  "inputs": 2,
+                  "title": "Coodesh: Testes, Recrutamento e Desenvolvimento de Talentos | Coodesh",
+                  "url": "https://coodesh.com/jobs",
+                  "bodyChars": 1282
+                }
+              },
+              "fallbackUrl": false,
+              "novas": 0,
+              "total": 3,
+              "aceitas": [],
+              "lidos": 11,
+              "fonte": "navegador",
+              "diagnostico": {
+                "anchors": 24,
+                "itemCount": 11,
+                "title": "Vagas de Emprego e Oportunidades de Trabalho",
+                "url": "https://coodesh.com/jobs?search=desenvolvedor+front-end",
+                "bodyChars": 1514
+              }
+            },
+            {
+              "plataforma": "geekhunter",
+              "termo": "desenvolvedor front-end",
+              "ok": true,
+              "busca": {
+                "ok": true,
+                "method": "button",
+                "diagnostics": {
+                  "inputs": 1,
+                  "title": "Vagas de Tecnologia no Brasil | GeekHunter",
+                  "url": "https://www.geekhunter.com/pt/vagas",
+                  "bodyChars": 13069
+                }
+              },
+              "fallbackUrl": false,
+              "novas": 0,
+              "total": 3,
+              "aceitas": [],
+              "lidos": 40,
+              "fonte": "navegador",
+              "diagnostico": {
+                "anchors": 65,
+                "itemCount": 40,
+                "title": "Vagas de Tecnologia no Brasil | GeekHunter",
+                "url": "https://www.geekhunter.com/pt/vagas",
+                "bodyChars": 13069
+              }
+            },
+            {
+              "plataforma": "programathor",
+              "termo": "desenvolvedor front-end",
+              "ok": true,
+              "busca": {
+                "ok": true,
+                "reason": "url_direta"
+              },
+              "fallbackUrl": true,
+              "novas": 0,
+              "total": 3,
+              "aceitas": [],
+              "lidos": 40,
+              "fonte": "navegador",
+              "diagnostico": {
+                "anchors": 862,
+                "itemCount": 40,
+                "title": "Vagas para Programador(a) e Desenvolvedor(a) 🚀",
+                "url": "https://programathor.com.br/jobs/",
+                "bodyChars": 9823
+              }
+            },
+            {
+              "plataforma": "trampos",
+              "termo": "desenvolvedor front-end",
+              "ok": true,
+              "busca": {
+                "ok": true,
+                "method": "enter",
+                "diagnostics": {
+                  "inputs": 1,
+                  "title": "trampos.co | Oportunidades de emprego nas áreas de Comunicação e Tecnologia da Informação",
+                  "url": "https://trampos.co/oportunidades/",
+                  "bodyChars": 664
+                }
+              },
+              "fallbackUrl": false,
+              "novas": 0,
+              "total": 3,
+              "aceitas": [],
+              "lidos": 21,
+              "fonte": "navegador",
+              "diagnostico": {
+                "anchors": 27,
+                "itemCount": 21,
+                "title": "trampos.co | Oportunidades de emprego nas áreas de Comunicação e Tecnologia da Informação",
+                "url": "https://trampos.co/oportunidades/?tr=desenvolvedor%20front-end",
+                "bodyChars": 662
+              }
+            },
+            {
+              "plataforma": "nerdin",
+              "termo": "desenvolvedor front-end",
+              "ok": true,
+              "busca": {
+                "ok": true,
+                "method": "button",
+                "diagnostics": {
+                  "inputs": 3,
+                  "title": "Encontre sua próxima vaga em Tecnologia - Nerdin Vagas de TI",
+                  "url": "https://www.nerdin.com.br/vagas",
+                  "bodyChars": 3049
+                }
+              },
+              "fallbackUrl": false,
+              "novas": 0,
+              "total": 3,
+              "aceitas": [],
+              "lidos": 40,
+              "fonte": "navegador",
+              "diagnostico": {
+                "anchors": 167,
+                "itemCount": 40,
+                "title": "Encontre sua próxima vaga em Tecnologia - Nerdin Vagas de TI",
+                "url": "https://www.nerdin.com.br/vagas.php?busca_vaga=desenvolvedor+front-end",
+                "bodyChars": 4179
+              }
+            },
+            {
+              "plataforma": "bossabox",
+              "termo": "desenvolvedor front-end",
+              "ok": true,
+              "busca": {
+                "ok": true,
+                "reason": "url_direta"
+              },
+              "fallbackUrl": true,
+              "novas": 0,
+              "total": 3,
+              "aceitas": [],
+              "lidos": 6,
+              "fonte": "navegador",
+              "diagnostico": {
+                "anchors": 12,
+                "itemCount": 6,
+                "title": "Carreiras na BossaBox",
+                "url": "https://jobs.digai.ai/en/careers/bossabox",
+                "bodyChars": 1109
+              }
+            },
+            {
+              "plataforma": "remotar",
+              "termo": "desenvolvedor front-end",
+              "ok": true,
+              "busca": {
+                "ok": true,
+                "method": "enter",
+                "diagnostics": {
+                  "inputs": 4,
+                  "title": "Encontre vagas de trabalho 100% remoto com a Remotar",
+                  "url": "https://remotar.com.br/",
+                  "bodyChars": 6353
+                }
+              },
+              "fallbackUrl": false,
+              "novas": 0,
+              "total": 3,
+              "aceitas": [],
+              "lidos": 40,
+              "fonte": "navegador",
+              "diagnostico": {
+                "anchors": 575,
+                "itemCount": 40,
+                "title": "Encontre vagas de trabalho 100% remoto com a Remotar",
+                "url": "https://remotar.com.br/",
+                "bodyChars": 12567
+              }
+            }
+          ],
+          "novas": 2,
+          "erros": []
+        }
+      ],
+      "erros": []
+    },
+    {
+      "at": "2026-11-04T01:10:51.104Z",
+      "evento": "fila_iniciada",
+      "novas": 0,
+      "fila": 2,
+      "bloqueios": [
+        {
+          "id": "vaga_dac741ff05",
+          "plataforma": "gupy",
+          "empresa": "La Moda",
+          "titulo": "DESENVOLVEDOR FULL STACK | NODE.JS | REACT",
+          "motivos": [
+            "candidatura_recente_na_vaga_ou_empresa"
+          ]
+        }
+      ]
+    },
+    {
+      "at": "2026-11-04T01:10:51.138Z",
+      "evento": "monitoramento",
+      "autoRodando": true,
+      "fila": 3
+    },
+    {
+      "at": "2026-11-04T01:10:53.162Z",
+      "evento": "monitoramento",
+      "autoRodando": true,
+      "fila": 3
+    },
+    {
+      "at": "2026-11-04T01:10:55.181Z",
+      "evento": "monitoramento",
+      "autoRodando": true,
+      "fila": 2
+    },
+    {
+      "at": "2026-11-04T01:10:57.209Z",
+      "evento": "monitoramento",
+      "autoRodando": true,
+      "fila": 2
+    },
+    {
+      "at": "2026-11-04T01:10:59.236Z",
+      "evento": "monitoramento",
+      "autoRodando": true,
+      "fila": 2
+    },
+    {
+      "at": "2026-11-04T01:11:01.261Z",
+      "evento": "monitoramento",
+      "autoRodando": true,
+      "fila": 2
+    },
+    {
+      "at": "2026-11-04T01:11:03.290Z",
+      "evento": "monitoramento",
+      "autoRodando": true,
+      "fila": 2
+    },
+    {
+      "at": "2026-11-04T01:11:05.306Z",
+      "evento": "monitoramento",
+      "autoRodando": true,
+      "fila": 2
+    },
+    {
+      "at": "2026-11-04T01:11:07.333Z",
+      "evento": "monitoramento",
+      "autoRodando": true,
+      "fila": 2
+    },
+    {
+      "at": "2026-11-04T01:11:09.361Z",
+      "evento": "monitoramento",
+      "autoRodando": true,
+      "fila": 2
+    },
+    {
+      "at": "2026-11-04T01:11:11.389Z",
+      "evento": "monitoramento",
+      "autoRodando": true,
+      "fila": 2
+    },
+    {
+      "at": "2026-11-04T01:11:13.404Z",
+      "evento": "monitoramento",
+      "autoRodando": true,
+      "fila": 2
+    },
+    {
+      "at": "2026-11-04T01:11:15.423Z",
+      "evento": "monitoramento",
+      "autoRodando": true,
+      "fila": 2
+    },
+    {
+      "at": "2026-11-04T01:11:17.436Z",
+      "evento": "monitoramento",
+      "autoRodando": true,
+      "fila": 2
+    },
+    {
+      "at": "2026-11-04T01:11:19.465Z",
+      "evento": "monitoramento",
+      "autoRodando": true,
+      "fila": 2
+    },
+    {
+      "at": "2026-11-04T01:11:21.492Z",
+      "evento": "monitoramento",
+      "autoRodando": true,
+      "fila": 2
+    },
+    {
+      "at": "2026-11-04T01:11:23.524Z",
+      "evento": "monitoramento",
+      "autoRodando": true,
+      "fila": 2
+    },
+    {
+      "at": "2026-11-04T01:11:25.545Z",
+      "evento": "monitoramento",
+      "autoRodando": true,
+      "fila": 2
+    },
+    {
+      "at": "2026-11-04T01:11:27.561Z",
+      "evento": "monitoramento",
+      "autoRodando": true,
+      "fila": 2
+    },
+    {
+      "at": "2026-11-04T01:11:29.573Z",
+      "evento": "monitoramento",
+      "autoRodando": true,
+      "fila": 2
+    },
+    {
+      "at": "2026-11-04T01:11:31.589Z",
+      "evento": "monitoramento",
+      "autoRodando": true,
+      "fila": 2
+    },
+    {
+      "at": "2026-11-04T01:11:33.604Z",
+      "evento": "monitoramento",
+      "autoRodando": true,
+      "fila": 2
+    },
+    {
+      "at": "2026-11-04T01:11:35.631Z",
+      "evento": "monitoramento",
+      "autoRodando": true,
+      "fila": 2
+    },
+    {
+      "at": "2026-11-04T01:11:37.659Z",
+      "evento": "monitoramento",
+      "autoRodando": true,
+      "fila": 2
+    },
+    {
+      "at": "2026-11-04T01:11:39.674Z",
+      "evento": "monitoramento",
+      "autoRodando": true,
+      "fila": 2
+    },
+    {
+      "at": "2026-11-04T01:11:41.698Z",
+      "evento": "monitoramento",
+      "autoRodando": true,
+      "fila": 2
+    },
+    {
+      "at": "2026-11-04T01:11:43.712Z",
+      "evento": "monitoramento",
+      "autoRodando": true,
+      "fila": 2
+    },
+    {
+      "at": "2026-11-04T01:11:45.727Z",
+      "evento": "monitoramento",
+      "autoRodando": true,
+      "fila": 2
+    },
+    {
+      "at": "2026-11-04T01:11:47.755Z",
+      "evento": "monitoramento",
+      "autoRodando": true,
+      "fila": 2
+    },
+    {
+      "at": "2026-11-04T01:11:49.769Z",
+      "evento": "monitoramento",
+      "autoRodando": true,
+      "fila": 2
+    },
+    {
+      "at": "2026-11-04T01:11:51.786Z",
+      "evento": "monitoramento",
+      "autoRodando": true,
+      "fila": 2
+    },
+    {
+      "at": "2026-11-04T01:11:53.812Z",
+      "evento": "monitoramento",
+      "autoRodando": true,
+      "fila": 2
+    },
+    {
+      "at": "2026-11-04T01:11:55.839Z",
+      "evento": "monitoramento",
+      "autoRodando": true,
+      "fila": 2
+    },
+    {
+      "at": "2026-11-04T01:11:57.862Z",
+      "evento": "monitoramento",
+      "autoRodando": true,
+      "fila": 1
+    },
+    {
+      "at": "2026-11-04T01:11:59.880Z",
+      "evento": "monitoramento",
+      "autoRodando": true,
+      "fila": 1
+    },
+    {
+      "at": "2026-11-04T01:12:01.893Z",
+      "evento": "monitoramento",
+      "autoRodando": true,
+      "fila": 1
+    },
+    {
+      "at": "2026-11-04T01:12:03.922Z",
+      "evento": "monitoramento",
+      "autoRodando": true,
+      "fila": 1
+    },
+    {
+      "at": "2026-11-04T01:12:05.941Z",
+      "evento": "monitoramento",
+      "autoRodando": true,
+      "fila": 1
+    },
+    {
+      "at": "2026-11-04T01:12:07.957Z",
+      "evento": "monitoramento",
+      "autoRodando": true,
+      "fila": 1
+    },
+    {
+      "at": "2026-11-04T01:12:09.982Z",
+      "evento": "monitoramento",
+      "autoRodando": false,
+      "fila": 1
+    }
+  ]
+}

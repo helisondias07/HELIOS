@@ -5,7 +5,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { simulate, step, SNAPSHOT_SCRIPT, nuncaMensagemRecrutador } = require("../server/form-navigator");
+const { simulate, step, SNAPSHOT_SCRIPT, applyScript, nuncaMensagemRecrutador } = require("../server/form-navigator");
 const regras = require("../server/vagas-regras");
 const visual = require("../server/vagas-visual");
 const { createJobs } = require("../server/jobs");
@@ -126,6 +126,47 @@ test("levaV11: controles Gupy customizados entram no snapshot e o rádio obrigat
   assert.equal(decision.fills[0].valor, "sim");
   assert.match(SNAPSHOT_SCRIPT, /\[role='radio'\]/);
   assert.match(SNAPSHOT_SCRIPT, /aria-checked/);
+});
+
+test("levaV12: campos com seletores repetidos entre etapas usam identidade semântica", () => {
+  const field = (sel, label, frameId = "") => ({ sel, frameId, type: "text", tag: "input", label, required: true, value: "", inForm: true });
+  const first = { url: "https://empresa.gupy.io/apply", fields: [field("[data-helios-field=hf0]", "Telefone"), field("[data-helios-field=hf1]", "Cidade")], buttons: [{ sel: "[data-helios-btn=next]", text: "Salvar e continuar", inForm: true, visible: true }] };
+  let memory = step(first, { ...CTX, memory: {} }).memory;
+  const second = { ...first, fields: [field("[data-helios-field=hf0]", "LinkedIn"), field("[data-helios-field=hf1]", "Nome completo")] };
+  const decision = step(second, { ...CTX, profile: { ...PROFILE, linkedin: "https://linkedin.com/in/helison" }, memory });
+  assert.equal(decision.kind, "act");
+  assert.equal(decision.fills.length, 2);
+  assert.equal(decision.click, null);
+  const frames = { fields: [field("[data-helios-field=hf0]", "Nome", "frame-a"), field("[data-helios-field=hf0]", "Nome", "frame-b")] };
+  assert.notEqual(require("../server/form-navigator").fieldKey(frames.fields[0], frames), require("../server/form-navigator").fieldKey(frames.fields[1], frames));
+});
+
+test("levaV13: rádio agrupado usa a opção marcada, sem cair no seletor do grupo", () => {
+  const decision = step({
+    url: "https://empresa.gupy.io/candidates/applications/1/steps/2",
+    fields: [{
+      sel: '[data-helios-field="hf-radio"]', type: "radio", role: "radio",
+      label: "Você aceita trabalhar remotamente?", required: true, value: "",
+      options: [{ value: "ho1", text: "Não" }, { value: "ho2", text: "Sim" }],
+    }],
+    buttons: [{ sel: "[data-helios-btn=save]", text: "Salvar e continuar", tag: "button", visible: true, inForm: true }],
+  }, CTX);
+  assert.equal(decision.kind, "act");
+  assert.equal(decision.fills[0].kind, "radio");
+  assert.equal(decision.fills[0].valor, "ho2");
+  assert.match(applyScript(decision.fills), /data-helios-opt/);
+});
+
+test("levaV14: etapa não avança enquanto campo obrigatório continua vazio", () => {
+  const decision = step({
+    url: "https://empresa.gupy.io/candidates/applications/1/steps/3",
+    fields: [{ sel: "[data-helios-field=hf-required]", type: "text", label: "Pergunta nova", required: true, value: "", inForm: true }],
+    buttons: [{ sel: "[data-helios-btn=next]", text: "Salvar e continuar", tag: "button", visible: true, inForm: true }],
+  }, CTX);
+  assert.equal(decision.kind, "pause");
+  assert.equal(decision.codigo, "obrigatorio");
+  assert.match(decision.motivo, /Pergunta nova/);
+  assert.equal(decision.click, null);
 });
 
 test("levaV6: regras do dono descartam o que não é a vaga e reconhecem empresa parecida", () => {

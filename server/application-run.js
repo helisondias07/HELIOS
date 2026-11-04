@@ -266,13 +266,15 @@ async function runApplication({ vaga = {}, profile = {}, respostas = {}, secrets
       if (action && action.acao === "preencher") {
         const field = vision.fieldFor(snap, action.alvo);
         const valor = vision.resolveValor(action.valor, profile, vaga);
-        if (field && memory.filled && memory.filled[field.sel]) {
+        const key = field ? nav.fieldKey(field, snap) : "";
+        if (field && (nav.fieldFilled(field) || Number(memory.attempts?.[key] || 0) >= 2)) {
           note(evidence, "visao", `já preenchido ${field.label || action.alvo}`);
         } else if (field && valor) {
           via = "visao";
           note(evidence, "visao", `preencher ${field.label || action.alvo}`);
-          filledTotal += Number(await io.apply([{ sel: field.sel, frameId: field.frameId, kind: field.type === "file" ? "file" : "text", valor }])) || 0;
-          memory.filled = { ...(memory.filled || {}), [field.sel]: true };
+          const kind = ["file", "radio", "checkbox", "select", "combobox"].includes(field.type) ? field.type : "text";
+          filledTotal += Number(await io.apply([{ sel: field.sel, frameId: field.frameId, kind, valor }])) || 0;
+          memory.attempts = { ...(memory.attempts || {}), [key]: Number(memory.attempts?.[key] || 0) + 1 };
           continue;
         }
       }
@@ -332,8 +334,10 @@ async function runApplication({ vaga = {}, profile = {}, respostas = {}, secrets
         if (field && valor) {
           via = "visao";
           note(evidence, "visao", `preencher ${field.label || action.alvo}`);
-          filledTotal += Number(await io.apply([{ sel: field.sel, frameId: field.frameId, kind: field.type === "file" ? "file" : "text", valor }])) || 0;
-          memory.filled = { ...(memory.filled || {}), [field.sel]: true };
+          const key = nav.fieldKey(field, snap);
+          const kind = ["file", "radio", "checkbox", "select", "combobox"].includes(field.type) ? field.type : "text";
+          filledTotal += Number(await io.apply([{ sel: field.sel, frameId: field.frameId, kind, valor }])) || 0;
+          memory.attempts = { ...(memory.attempts || {}), [key]: Number(memory.attempts?.[key] || 0) + 1 };
           continue;
         }
       }

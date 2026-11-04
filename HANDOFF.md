@@ -327,3 +327,31 @@ Executar uma rodada limitada em uma vaga Gupy/ATS conhecida por usar iframe e ve
   - v25: após a correção do relatório, 26 oportunidades encontradas (Glassdoor 1, Remotar 25), 3 tentativas contabilizadas, 3 falhas de botão/formulário e 0 inscrições confirmadas. Relatório: `work/force-vagas-report-v25.json`.
 - Diagnóstico atual: a busca visual está operacional; o bloqueio de inscrição não é mais “fila vazia”. Glassdoor entrega páginas com navegação e campos de busca, mas não expõe o CTA da vaga; Indeed chega a abrir o SmartApply, mas em alguns casos muda para etapa sem campos/botões detectáveis; posts salvos do LinkedIn que pedem e-mail continuam bloqueados porque o runtime informa `Nenhuma conta Gmail conectada.`; `/my-items/saved-jobs/` continua expirando.
 - CAPTCHA continua sendo handoff humano por segurança; não há bypass implementado.
+
+## Leva V13 — identidade de campos, radios agrupados e teste interrompido (04/11/2026)
+
+- Seguindo a ordem recomendada por Claude (`T4.1 → T0.0 → T0.1 → T0.2 → T0.3 → T0.4 → T0.6 → T1.1 → T1.3`), foi aplicada a primeira parte do plano no executor:
+  - `.gitattributes` normaliza texto para LF e preserva scripts Windows em CRLF;
+  - `fieldKey()` usa frame, tipo, rótulo, nome/id e ocorrência apenas como desempate; o seletor DOM não é identidade persistente;
+  - tentativas de preenchimento são limitadas por identidade semântica e o snapshot atual é consultado antes de repetir;
+  - rádios nativos são agrupados por `name` e rádios ARIA por `radiogroup/fieldset`, com prompt do grupo e opções `data-helios-opt` independentes;
+  - o executor de rádio não cai mais para o seletor do grupo; checkbox ARIA considera `aria-checked`;
+  - o snapshot agora expõe `requiredHint`, `hasFile` e `invalidos` com rótulo/mensagem;
+  - o fluxo pausa quando há campo obrigatório sem resposta possível e não avança silenciosamente;
+  - a regra de remoto reconhece variações como “aceita trabalhar remotamente”, sem confundir experiência remota passada.
+- Foram adicionados testes para identidade entre etapas, grupo de rádio, opção “Sim”, obrigatórios sem resposta e aplicação por opção. A suíte completa passou: `npm test` = 658 testes, 656 aprovados, 0 falhas, 2 ignorados; `npm run lint`, `npm run check` e `git diff --check` verdes.
+- Reinstalação concluída com `release\\HELIOS-Setup-0.1.0.exe`, `ExitCode=0`, no diretório de teste único `C:\\Users\\HelisonDias\\AppData\\Local\\HELIOS`. O binário foi aberto e respondeu; a tela Vagas passou a mostrar apenas `Nenhuma inscrição enviada`, sem as linhas antigas importadas.
+- Rodada operacional iniciada no build reinstalado pelo relatório `work\\force-vagas-report-20261103.json`. A navegação visual confirmou LinkedIn `feed`, `salvos`, `salvos-vagas`, `notificacoes` e `busca`; depois entrou nas plataformas e registrou LinkedIn, InfoJobs, Indeed e Programathor/Trampos.
+- A rodada foi encerrada a pedido do Helison antes da fila de candidaturas e do resumo do Chefe. O relatório foi marcado `interrompido: true`; não houve confirmação de inscrição nesta rodada e nenhum clique final deve ser interpretado como envio.
+- Próximo passo obrigatório: retomar a rodada com o processo controlado, coletar a conclusão da busca e observar a primeira vaga Gupy/ATS até o último passo. Só considerar T1.3 concluído com confirmação textual positiva do site; CAPTCHA permanece intervenção humana.
+
+### Rodada retomada após a Leva V13
+
+- Relatório: `work\\force-vagas-report-20261104.json`; terminou com `ok: true`.
+- Busca visual concluída em LinkedIn, Gupy, Indeed, Glassdoor, Catho, Coodesh, GeekHunter, Programathor, Trampos, Nerdin, BossaBox e Remotar.
+- LinkedIn: feed, posts salvos, notificações e busca foram lidos. `salvos-vagas` expirou ao carregar `my-items/saved-jobs`.
+- Encontradas nesta rodada: 184 registros no estado final, distribuídos entre Glassdoor 8, LinkedIn 15, Remotar 17, Nerdin 24, Trampos 21, Programathor 33, GeekHunter 33, Coodesh 6, Catho 14, Indeed 3 e Gupy 10.
+- Tentativas: 2. Confirmações positivas: 0. As duas falharam no Glassdoor porque a página da vaga expôs apenas navegação/menu, sem CTA de candidatura seguro; o executor não inventou um clique.
+- Fila restante: 1 vaga. O bloqueio registrado foi candidatura recente na vaga/empresa La Moda; não é erro de descoberta.
+- O Chefe fechou o ciclo com 0 aprovações e 1 bloqueio.
+- Conclusão do plano: T0.0/T0.1/T0.2/T0.3/T0.4/T0.6 e a reinstalação estão concluídos e cobertos por testes. T1.3 ainda não está concluído, pois nenhuma candidatura real recebeu confirmação textual do site. Permanecem pendentes a correção específica do CTA/ATS do Glassdoor, o timeout de `salvos-vagas` e uma candidatura Gupy/ATS confirmada.

@@ -152,7 +152,7 @@ function planFill(fields, profile = {}, respostas = {}, page = {}, secrets = {})
       } else acoes.push({ sel: f.sel, kind: "text", valor: answer });
       continue;
     }
-    if (/(aceita trabalho remoto|disponivel para remoto|open to remote|trabalhar remoto)/.test(label) && !/hibrid|presencial|mudar de cidade/.test(label)) {
+    if (/(aceita|disponivel|disposto|aberto|open to|comfortable).{0,40}remot|remot.{0,40}(aceita|disponivel|disposto|aberto)/.test(label) && !/hibrid|presencial|mudar de cidade|ja trabalhou|experiencia/.test(label)) {
       const options = (f.options || []).map((o) => ({ ...o, n: norm(o.text || o.value) }));
       const hit = options.find((o) => /^(sim|yes)$/.test(o.n)) || options.find((o) => /\bsim\b|\byes\b|remoto/.test(o.n));
       if (type === "select" || type === "radio" || type === "combobox") {
@@ -180,7 +180,7 @@ function planFill(fields, profile = {}, respostas = {}, page = {}, secrets = {})
       acoes.push({ sel: f.sel, kind: type === "select" ? "select" : type === "radio" ? "radio" : "text", valor: answer });
       continue;
     }
-    if (f.value && String(f.value).trim()) continue; // o site já preencheu (ex.: e-mail da conta)
+    if (f.value && String(f.value).trim() && type !== "radio" && type !== "checkbox") continue; // o site já preencheu (ex.: e-mail da conta)
     const rule = FIELD_RULES.find((r) => r.re.test(label));
     let value = rule ? rule.value(profile) : "";
     if (!value) value = saved(f.label || f.name);

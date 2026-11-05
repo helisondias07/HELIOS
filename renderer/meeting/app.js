@@ -5,6 +5,7 @@ const state = {
   lines: [], mode: 'pt', trCurrent: null, recording: false, starting: false, gen: 0, discard: false, shotPending: false, timing: {}, recs: [], streams: [], ctx: null, settings: {}, clickThrough: false,
   sessionId: newSessionId(), chat: [], pendingTr: [], trBusy: false, trPauseUntil: 0, trTimer: null, chunkAuto: 0, rateWaitMs: 5000, trShownId: 0, translating: false, rid: 0, startedAt: 0, timerIv: null,
   input: 'ask', view: '', last: null, question: '', capTimer: null, cardOpen: false, transcriptOpen: false,
+  voiceBusy: false, voiceQueued: '', hearingMic: false, screenIv: null, screenBusy: false, sttBusy: 0,
 };
 function newSessionId() { const d = new Date(); const p = (n) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`; }
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -91,31 +92,32 @@ function renderCaption(l) {
 }
 
 // ---------- card de resposta ----------
-function parseAnswer(text) {
-  const rows = String(text || '').split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
-  const en = rows.find((r) => /^EN:/i.test(r)); const pt = rows.find((r) => /^PT:/i.test(r));
-  if (en) return { main: en.replace(/^EN:\s*/i, ''), sub: pt ? pt.replace(/^PT:\s*/i, '') : '', bullets: [] };
-  const clean = rows.map((r) => r.replace(/^(PT:|OPÇÃO \d.*$)\s*/i, '')).filter(Boolean);
-  const [main = '', ...rest] = clean;
-  return { main, sub: '', bullets: rest.map((r) => r.replace(/^[-+•*]\s*|^\d+[.)]\s*/, '')).filter(Boolean).slice(0, 3) };
-}
 const linkify = (s) => esc(s).replace(/(https?:\/\/[^\s<)\]]+)/g, '<a class="lnk" data-link="$1">$1</a>');
 function paintAnswer(text, streaming = false) {
-  const a = parseAnswer(text);
+  const a = LineUtil.proseParts(text);
   $('ansMain').innerHTML = linkify(a.main || (streaming ? '…' : ''));
   $('ansMain').classList.toggle('wait', streaming && !a.main);
-  $('ansSub').textContent = a.sub;
-  $('ansList').innerHTML = a.bullets.map((b) => `<li>${linkify(b)}</li>`).join('');
+  $('ansSub').textContent = a.sub || '';
+  $('ansList').innerHTML = '';
   $('answer').querySelectorAll('[data-link]').forEach((k) => { k.onclick = async () => { const o = await api.openLink(k.dataset.link); if (!o.ok) toast(o.error || 'Não abri o link.'); }; });
 }
-function setAnswer(text, { title = '', more = null } = {}) {
+function showAsked(asked) {
+  const q = $('ansAsk');
+  if (!q) return;
+  const t = String(asked || '').trim();
+  q.textContent = t;
+  q.classList.toggle('hidden', !t);
+}
+function setAnswer(text, { title = '', more = null, asked = '' } = {}) {
   showView('answer');
-  state.last = { title, text, more };
+  state.last = { title, text, more, asked };
+  showAsked(asked);
   paintAnswer(text);
   $('btnMore').classList.toggle('hidden', !more);
 }
-async function runAI(title, fn, { more = null, record = true } = {}) {
+async function runAI(title, fn, { more = null, record = true, asked = '' } = {}) {
   showView('answer'); $('btnMore').classList.add('hidden');
+  showAsked(asked);
   paintAnswer('', true);
   const rid = ++state.rid;
   deltaHandlers.set(rid, (t) => paintAnswer(t, true));
@@ -125,16 +127,16 @@ async function runAI(title, fn, { more = null, record = true } = {}) {
   deltaHandlers.delete(rid);
   if (r.cancelled) return r;
   const text = r.ok ? (r.text || '—') : r.error;
-  setAnswer(text, { title, more: r.ok ? more : null });
+  setAnswer(text, { title, more: r.ok ? more : null, asked });
   if (!r.ok) { setStatus('erro'); if (r.rate) onRateLimit('resposta'); }
-  if (r.ok && record) { state.chat.push({ role: 'bot', title, text, at: new Date().toLocaleTimeString('pt-BR') }); renderHistory(); saveHistory(); }
+  if (r.ok && record) { state.chat.push({ role: 'bot', title, text, at: new Date().toLocaleTimeString('pt-BR'), asked }); renderHistory(); saveHistory(); }
   return r;
 }
 function renderHistory() {
   const box = $('history'); box.innerHTML = '';
   state.chat.slice().reverse().slice(0, 12).forEach((m) => {
-    const b = document.createElement('button'); b.type = 'button'; b.textContent = `${m.at} · ${parseAnswer(m.text).main}`;
-    b.onclick = () => setAnswer(m.text, { title: m.title }); box.appendChild(b);
+    const b = document.createElement('button'); b.type = 'button'; b.textContent = `${m.at} · ${LineUtil.proseParts(m.text).main.split('\n')[0]}`;
+    b.onclick = () => setAnswer(m.text, { title: m.title, asked: m.asked || '' }); box.appendChild(b);
   });
 }
 
@@ -165,11 +167,72 @@ function submitInput(q) {
   if (state.input === 'say' && state.mode === 'en') return translatePhrase(t);
   return ask(t);
 }
-function ask(q) {
+function builtQuestion(q) {
   const ctx = chatContext();
   const question = ctx ? `${q}\n\n(Respostas anteriores, para contexto:\n${ctx})` : q;
   const only = state.mode === 'pt' ? '\n\n(Responda somente em português, sem frases em inglês.)' : '';
-  return runAI('Perguntar', (rid) => api.ask(linesForAI(), `${question}${only}`, false, rid));
+  return `${question}${only}`;
+}
+function ask(q) {
+  return runAI('Perguntar', (rid) => api.ask(linesForAI(), builtQuestion(q), false, rid), { asked: q });
+}
+
+// Pergunta por voz: o mesmo chat de texto do Perguntar. A resposta não é lida em voz.
+// Com a escuta ativa a tela é atualizada sozinha, sem atalho, sem frase especial e sem prévia.
+// O áudio e o print não vão para o disco. Os gravadores (PC e microfone) não param por causa da resposta.
+function syncVoiceHint() {
+  const el = $('voiceHint');
+  if (!state.recording) { el.classList.add('hidden'); return; }
+  el.classList.remove('hidden');
+  if (!state.hearingMic) {
+    el.textContent = 'Para perguntar por voz, ligue o microfone no menu e comece a ouvir de novo. A tela continua atualizando enquanto a escuta está ativa.';
+    return;
+  }
+  el.textContent = 'Escuta ativa: a tela fica atualizada sozinha. Fale a pergunta. A resposta aparece aqui, só em texto. A escuta continua.';
+}
+async function refreshScreen() {
+  if (!state.recording || state.discard || state.screenBusy || state.sttBusy || state.voiceBusy || !api.screenRefresh) return;
+  state.screenBusy = true;
+  try {
+    const r = await api.screenRefresh();
+    if (!state.recording || state.discard) {
+      if (api.screenLiveStop) api.screenLiveStop().catch(() => {});
+      return;
+    }
+    if (r && r.warn) toastOnce(r.warn, 6000);
+  } catch { /* a pergunta tenta de novo na hora */ }
+  finally { state.screenBusy = false; }
+}
+function startScreenWatch() {
+  stopScreenWatch(false);
+  refreshScreen();
+  state.screenIv = setInterval(refreshScreen, 8000);
+}
+function stopScreenWatch(clear = true) {
+  clearInterval(state.screenIv);
+  state.screenIv = null;
+  if (clear && api.screenLiveStop) api.screenLiveStop().catch(() => {});
+}
+function maybeVoiceAsk(text) {
+  if (!state.recording || state.discard || !state.hearingMic) return;
+  if (!LineUtil.isVoiceQuestion(text)) return;
+  if (state.voiceBusy) { state.voiceQueued = text; return; }
+  runVoiceAsk(text);
+}
+async function runVoiceAsk(text) {
+  state.voiceBusy = true;
+  const withScreen = true;
+  setStatus('respondendo à pergunta por voz…');
+  try {
+    const r = await runAI('Pergunta por voz', (rid) => api.ask(linesForAI(), builtQuestion(text), withScreen, rid, withScreen ? 'voice' : undefined), { asked: text });
+    if (r && r.warn) toastOnce(r.warn, 6000);
+  } finally {
+    state.voiceBusy = false;
+    if (state.recording) setStatus('ouvindo');
+    const next = state.voiceQueued;
+    state.voiceQueued = '';
+    if (next && state.recording && !state.discard) maybeVoiceAsk(next);
+  }
 }
 
 // Tradutor PT→EN (modo EN): o inglês sai grande para ler em voz alta, o PT pequeno embaixo
@@ -284,7 +347,7 @@ async function translateRecent() {
     }
   } catch (e) { err = (e && e.message) || 'falha na tradução'; }
   const pts = them.map((l) => l.pt).filter(Boolean);
-  setAnswer(err || (pts.length ? [pts[pts.length - 1], ...pts.slice(0, -1).map((p) => `- ${p}`)].join('\n') : 'Não traduzi esse trecho.'), { title: 'Traduzir' });
+  setAnswer(err || (pts.length ? pts.slice().reverse().join('\n\n') : 'Não traduzi esse trecho.'), { title: 'Traduzir' });
   state.trShownId = LineUtil.shownCursor(state.lines, state.trShownId);
   saveHistory();
 }
@@ -306,30 +369,79 @@ async function refreshRate() { /* a cota fica no app principal; aqui só o ponto
 // ---------- captura: som do PC (Outro) e microfone (Você) em dois gravadores separados ----------
 const MIME = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus'].find((m) => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
 let seq = 0;
+const sttQ = { me: [], them: [] };
+const sttOn = { me: false, them: false };
+function sttKey(who) { return who === 'me' ? 'me' : 'them'; }
+function syncSttBusy() { state.sttBusy = (sttOn.me ? 1 : 0) + (sttOn.them ? 1 : 0); }
+function enqueueChunk(blob, who, retry = false) {
+  const key = sttKey(who);
+  const packed = LineUtil.enqueueStt(sttQ[key], { blob, retry }, 2);
+  sttQ[key] = packed.queue;
+  if (packed.dropped) toastOnce('A transcrição atrasou. Sigo com o trecho mais recente.');
+  pumpStt(key);
+}
+async function pumpStt(who) {
+  const key = sttKey(who);
+  if (sttOn[key] || !sttQ[key].length || state.discard) return;
+  const job = sttQ[key].shift();
+  sttOn[key] = true; syncSttBusy();
+  try { await handleChunk(job.blob, key, job.retry); }
+  finally {
+    sttOn[key] = false; syncSttBusy();
+    if (state.recording && !state.sttBusy && !state.voiceBusy) setStatus('ouvindo');
+    pumpStt(key);
+  }
+}
 function makeRecorder(stream, ctx, analyserSrc, who) {
   const an = ctx.createAnalyser(); an.fftSize = 1024; analyserSrc.connect(an);
   const buf = new Float32Array(an.fftSize);
   const rec = { stopped: false, voiced: 0, silent: 0, startAt: 0, mr: null, timer: null };
+  stream.getAudioTracks().forEach((track) => {
+    track.onended = () => {
+      if (rec.stopped) return;
+      setStatus('erro: áudio caiu');
+      toastOnce(who === 'me' ? 'O microfone parou. Toque em ouvir para retomar.' : 'O áudio do PC parou. Toque em ouvir para retomar.', 7000);
+    };
+  });
   rec.meter = setInterval(() => {
     an.getFloatTimeDomainData(buf);
     let sum = 0; for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
     if (Math.sqrt(sum / buf.length) > 0.01) { rec.voiced++; rec.silent = 0; } else rec.silent++;
-    // pausa na fala depois de metade do bloco: fecha o bloco já (a legenda sai antes e o corte cai entre frases)
-    if (rec.mr && rec.mr.state === 'recording' && LineUtil.shouldCut({ elapsedMs: Date.now() - rec.startAt, maxMs: chunkSecs() * 1000, voiced: rec.voiced, silentTicks: rec.silent })) rec.mr.stop();
+    // Áudio do PC: pausa depois de metade do bloco. Microfone: pausa de ~1,2 s, para a frase ir inteira.
+    const elapsedMs = Date.now() - rec.startAt;
+    const cut = who === 'me'
+      ? LineUtil.shouldCutVoice({ elapsedMs, voiced: rec.voiced, silentTicks: rec.silent })
+      : LineUtil.shouldCut({ elapsedMs, maxMs: chunkSecs() * 1000, voiced: rec.voiced, silentTicks: rec.silent });
+    if (rec.mr && rec.mr.state === 'recording' && cut) rec.mr.stop();
   }, 100);
   const cycle = () => {
     if (rec.stopped) return;
+    if (!stream.getAudioTracks().some((t) => t.readyState === 'live')) return;
     const chunks = [];
-    const mr = new MediaRecorder(stream, MIME ? { mimeType: MIME, audioBitsPerSecond: 32000 } : undefined);
+    let mr;
+    try {
+      mr = new MediaRecorder(stream, MIME ? { mimeType: MIME, audioBitsPerSecond: 32000 } : undefined);
+    } catch (e) {
+      toastOnce(mediaMessage(e, who === 'me' ? 'Microfone' : 'Áudio do PC'));
+      if (!rec.stopped) setTimeout(cycle, 400);
+      return;
+    }
     clearTimeout(rec.timer); rec.mr = mr; rec.voiced = 0; rec.silent = 0; rec.startAt = Date.now();
     mr.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
     mr.onstop = () => {
       const voiced = rec.voiced;
-      if (!rec.stopped) cycle();
-      if (voiced < 5 || !chunks.length) return; // silêncio: não gasta cota
-      handleChunk(new Blob(chunks, { type: mr.mimeType || 'audio/webm' }), who);
+      const blob = chunks.length ? new Blob(chunks, { type: mr.mimeType || 'audio/webm' }) : null;
+      // Solta a trilha antes de abrir o próximo bloco. No mesmo instante o Chromium às vezes trava o áudio.
+      if (!rec.stopped) setTimeout(cycle, 40);
+      if (voiced < 5 || !blob) return; // silêncio: não gasta cota
+      enqueueChunk(blob, who);
     };
-    mr.start();
+    try { mr.start(); }
+    catch (e) {
+      toastOnce(mediaMessage(e, who === 'me' ? 'Microfone' : 'Áudio do PC'));
+      if (!rec.stopped) setTimeout(cycle, 400);
+      return;
+    }
     rec.timer = setTimeout(() => { if (mr.state !== 'inactive') mr.stop(); }, chunkSecs() * 1000);
   };
   cycle();
@@ -347,16 +459,21 @@ async function handleChunk(blob, who = 'them', retried = false, forcedId = 0) {
   if (state.discard || r.cancelled) return;
   if (!r.ok && r.rate) {
     onRateLimit('transcrição');
-    if (!retried) { setStatus('limite da Groq: tentando de novo…'); await sleep(state.rateWaitMs); return handleChunk(blob, who, true, id); } // mesmo bloco, mesma posição na transcrição
+    // Não dorme em cima da fila: se já chegou fala mais nova, segue nela. Senão tenta este bloco uma vez.
+    if (!retried && !sttQ[sttKey(who)].length) { setStatus('limite da Groq: tentando de novo…'); await sleep(state.rateWaitMs); return handleChunk(blob, who, true, id); }
   }
-  if (!r.ok) { setStatus('erro na transcrição'); toastOnce(`Transcrição (${who === 'me' ? 'microfone' : 'áudio do PC'}): ${r.error}`); return; }
+  if (!r.ok) { toastOnce(`Transcrição (${who === 'me' ? 'microfone' : 'áudio do PC'}): ${r.error}`); if (state.recording) setStatus('ouvindo'); return; }
   if (state.recording) setStatus(state.listenText || 'ouvindo…');
   if (!r.text || r.skipped || LineUtil.isNoise(r.text)) return; // vazio, só pontuação ou legenda inventada no silêncio
   const recent = state.lines.filter((l) => l.id < id).slice(-8).map((l) => l.text);
-  if (LineUtil.isDuplicate(recent, r.text)) return; // bloco repetido, quase igual ou eco do microfone
+  if (LineUtil.isDuplicate(recent, r.text)) {
+    if (who === 'me') maybeVoiceAsk(r.text); // a mesma pergunta de novo ainda responde; a linha não duplica
+    return;
+  }
   const line = { id, who, text: r.text, lang: r.language || '', pt: '' };
   state.lines.push(line); state.lines.sort((a, b) => a.id - b.id);
   renderLine(line); saveHistory();
+  if (who === 'me') maybeVoiceAsk(line.text);
   if (who === 'them') detectQuestion(line);
   if (state.mode === 'en' && state.settings.translate && who !== 'me' && line.lang !== 'pt') { line.trq = true; state.pendingTr.push(line); pumpTranslate(); }
 }
@@ -430,10 +547,11 @@ async function start() {
     if (problems.length) toast(`${problems.join(' ')} Sigo só com ${hasThem ? 'o áudio do PC' : 'o microfone'}.`, 7000);
     state.streams = opened; state.ctx = ctx;
     state.recs = sources.map((s) => makeRecorder(s.stream, ctx, ctx.createMediaStreamSource(s.stream), s.who));
+    state.hearingMic = sources.some((s) => s.who === 'me');
     state.recording = true; setTiming({ cap: chunkSecs() });
     state.startedAt = Date.now(); tick(); state.timerIv = setInterval(tick, 1000);
     $('btnStart').classList.add('on'); $('dot').classList.add('live'); $('btnEnd').classList.remove('hidden');
-    setStatus('ouvindo'); openCard(true);
+    setStatus('ouvindo'); openCard(true); syncVoiceHint(); startScreenWatch();
     if (api.setHotkeysActive) api.setHotkeysActive(true); // Ctrl+Enter só durante a reunião
   } catch (e) {
     giveUp(); setStatus('parado'); toast(`Não consegui iniciar: ${(e && e.message) || e}`, 7000);
@@ -445,13 +563,13 @@ function stopSession(discard = true) {
   state.recs.forEach((r) => r.stop()); state.recs = [];
   state.streams.forEach((s) => s.getTracks().forEach((t) => t.stop())); state.streams = [];
   if (state.ctx) { state.ctx.close(); state.ctx = null; }
-  clearInterval(state.timerIv); state.recording = false;
+  clearInterval(state.timerIv); state.recording = false; state.hearingMic = false; state.voiceQueued = ''; sttQ.me = []; sttQ.them = []; stopScreenWatch();
   state.pendingTr.forEach((l) => { l.trq = false; }); state.pendingTr = []; clearTimeout(state.trTimer); state.trTimer = null; state.trPauseUntil = 0;
   if (discard) { deltaHandlers.clear(); streams.clear(); }
   shotDrop(); hideQuestion();
   if (api.setHotkeysActive) api.setHotkeysActive(false);
   $('btnStart').classList.remove('on'); $('dot').classList.remove('live'); $('btnEnd').classList.add('hidden');
-  setStatus('parado'); saveHistory();
+  setStatus('parado'); syncVoiceHint(); saveHistory();
 }
 const toggleStart = () => (state.recording || state.starting ? stopSession(false) : start());
 // Encerrar: para, roda o fechamento (resumo + pendências salvos no Second Brain) e já começa uma reunião nova
@@ -463,7 +581,7 @@ async function endMeeting() {
   $('transcript').innerHTML = ''; renderHistory(); $('caption').classList.add('hidden');
 }
 
-// ---------- menu (3 itens: tema, opacidade, microfone) ----------
+// ---------- menu: tema, opacidade e microfone ----------
 function applyTheme(t) { document.documentElement.setAttribute('data-mtheme', t === 'light' ? 'light' : 'dark'); }
 function fillMenu() {
   $('mOpacity').value = Number(state.settings.opacity) || 1;
@@ -479,7 +597,7 @@ function bind() {
   document.addEventListener('click', (e) => { if (!$('menu').contains(e.target)) $('menu').classList.add('hidden'); });
   $('mTheme').onclick = () => { const t = document.documentElement.getAttribute('data-mtheme') === 'light' ? 'dark' : 'light'; applyTheme(t); try { localStorage.setItem('heliosMeetingTheme', t); } catch { /* ok */ } };
   $('mOpacity').onchange = async () => { state.settings = await api.setSettings({ opacity: Number($('mOpacity').value) }); };
-  $('mMic').onchange = async () => { state.settings = await api.setSettings({ captureMic: $('mMic').checked }); };
+  $('mMic').onchange = async () => { state.settings = await api.setSettings({ captureMic: $('mMic').checked }); syncVoiceHint(); };
   $('modePt').onclick = () => setMode('pt'); $('modeEn').onclick = () => setMode('en');
   $('chipSay').onclick = () => assist();
   $('chipSug').onclick = () => assist();
@@ -492,7 +610,7 @@ function bind() {
   $('chipHist').onclick = () => (state.view === 'history' ? showView(state.last ? 'answer' : '') : (renderHistory(), showView('history')));
   $('chipQ').onclick = () => assist();
   $('btnMore').onclick = () => { if (state.last && state.last.more) state.last.more(); };
-  $('btnCopy').onclick = () => { if (state.last) { const a = parseAnswer(state.last.text); copyToast([a.main, ...a.bullets].join('\n'), 'Texto'); } };
+  $('btnCopy').onclick = () => { if (state.last) { const a = LineUtil.proseParts(state.last.text); copyToast([a.main, a.sub].filter(Boolean).join('\n\n'), 'Texto'); } };
   $('trEn').onclick = () => { if (state.trCurrent) copyToast(state.trCurrent.en, 'Inglês'); };
   $('btnCodeCopy').onclick = () => copyToast($('codeText').textContent, 'Código');
   $('btnPrev').onclick = () => stepLive(-1); $('btnNext').onclick = () => stepLive(1);

@@ -62,23 +62,52 @@ function parseBatch(text, items) {
 
 const OUTRO_RULE = 'Foque no que o(s) OUTRO(s) acabou de dizer (a última fala marcada "Outro(s)"). Se a última fala for do Helison, ajude-o a continuar a conversa.';
 
-// Leva H (estilo Cluely): 1 resposta só, pronta para falar, no máximo 2 frases e 25 palavras. "Mais" pede a versão elaborada.
+// Prova, verdadeiro/falso ou múltipla escolha na tela: julgar cada item. Não colapsar em "todas falsas".
+const PROSE = 'Texto corrido, em frases prontas para falar ou usar. Proibido lista, marcador, tópico, título, markdown e linha que comece com "-" ou número. Curto ou longo conforme o caso.';
+const SCREEN_EXAM = `Um print da tela atual está anexado. Leia o texto visível antes de responder. ${PROSE}
+Se for prova, questão, verdadeiro/falso ou múltipla escolha, julgue CADA afirmação na ordem da tela, separadamente. É proibido resumir como "todas são falsas" ou "todas são verdadeiras" sem ter decidido cada item. A primeira frase traz só a sequência, no formato "Verdadeiro, verdadeiro, falso, verdadeiro, falso." Depois vêm frases corridas, uma por afirmação, com o motivo. Não fale em primeira pessoa e não chute um veredito único para a lista. Esta regra vale mais do que o hábito de falar como o Helison.
+Se não for questão, use o que está visível para responder o pedido. Não descreva a tela inteira.`;
+
+// Ada, questão 19: classificador de spam. Gabarito usado no teste do prompt (não chama a rede).
+const ADA_Q19 = [
+  { n: 1, answer: "verdadeiro" },
+  { n: 2, answer: "verdadeiro" },
+  { n: 3, answer: "falso" },
+  { n: 4, answer: "verdadeiro" },
+  { n: 5, answer: "falso" },
+];
+function verdictLine(items) {
+  const words = (items || []).map((item) => String(item && item.answer || "").trim().toLowerCase()).filter(Boolean);
+  if (!words.length) return "";
+  const shown = words.map((word, i) => (i === 0 ? word.charAt(0).toUpperCase() + word.slice(1) : word));
+  return `${shown.join(", ")}.`;
+}
+
+// Três falas úteis, no tom do Cluely: específicas ao que acabou de ser dito e à tela. Não uma linha genérica.
 const CHEAT = 'Responda como cola de tela: o mínimo de palavras, nada de explicações a menos que pedidas. Sem preâmbulo, sem "Claro!", sem repetir a pergunta.';
-function suggest(lines, { myContext, lang, meeting, more = false } = {}) {
+function suggest(lines, { myContext, lang, meeting, more = false, withScreen = false } = {}) {
   const english = lang === 'en' || lang === 'both';
-  const size = more ? 'no máximo 3 frases e 45 palavras' : 'no máximo 2 frases e 25 palavras';
-  const format = english
-    ? `Formato obrigatório (nada além disso):\nEN: <a resposta em inglês simples, ${size}>\nPT: <tradução em português>`
-    : `Formato obrigatório (nada além disso): só a frase em português, ${size}. Opcional: uma linha "+ <detalhe extra de no máximo 10 palavras>".`;
   const style = english
-    ? 'Inglês natural e simples, no nível de um desenvolvedor brasileiro intermediário: frases curtas, vocabulário comum, contrações naturais (I\'m, I\'ve), sem gírias raras nem palavras difíceis.'
-    : 'Português do Brasil natural, fácil de falar em voz alta. Nada em inglês.';
+    ? 'Inglês natural e simples, no nível de um desenvolvedor brasileiro intermediário: frases que uma pessoa diria em voz alta, vocabulário comum, contrações naturais (I\'m, I\'ve), sem gírias raras nem palavras difíceis.'
+    : 'Português do Brasil natural, do jeito que se fala numa reunião. Nada em inglês. Nada de "Claro!", "Com certeza" ou frase vazia.';
+  const format = english
+    ? `Formato obrigatório: texto corrido, em frases. Proibido lista, marcador, título, markdown e linha que comece com "-" ou número.
+EN: <a resposta em inglês simples, específica, em frases corridas, sem tópicos>
+PT: <tradução em português> em frases corridas, sem tópicos
+Se houver outra fala, separe por uma linha em branco. A segunda resposta é outro parágrafo, não um tópico.`
+    : `Formato obrigatório: texto corrido, em frases. Proibido lista, marcador, título, markdown e linha que comece com "-" ou número.
+Um ou mais parágrafos. A melhor fala vem primeiro, específica, com 2 a 5 frases que dê para dizer em voz alta.
+Se couber outra, deixe uma linha em branco e escreva a segunda resposta como outro parágrafo, não como tópico.`;
+  const screen = withScreen ? SCREEN_EXAM : '';
+  const exam = withScreen ? 'Se a tela for prova ou verdadeiro/falso, a primeira fala começa pela sequência e segue em frases corridas, uma por afirmação. Outra fala, se houver, só reformula a MESMA correção, também em prosa. Não troque nenhum veredito e não use tópicos.' : '';
   return [
-    { role: 'system', content: `${base(myContext, meeting)}\n${CHEAT}` },
+    { role: 'system', content: `${base(myContext, meeting)}\nVocê sugere o que o Helison fala agora. Seja específico ao contexto. Proibido frase genérica. Se a tela for uma prova, a primeira sugestão é o gabarito item a item, não uma frase de reunião.` },
     { role: 'user', content: `${transcriptBlock(lines)}
+${screen}
 
 ${OUTRO_RULE}
-Escreva UMA resposta que o Helison pode falar em voz alta AGORA, em primeira pessoa${more ? ', um pouco mais elaborada' : ''}. ${style} Use o contexto da vaga/reunião (quando houver) e o perfil dele; não invente números, datas, empresas nem experiência que ele não tenha. Sem rótulos de opção.
+Três respostas que o Helison pode falar em voz alta AGORA${withScreen ? '. Se a tela não for prova, fale em primeira pessoa' : ', em primeira pessoa'}${more ? ', a primeira mais elaborada' : ''}. ${style} Use a transcrição, a tela (se houver), o contexto da vaga/reunião e o perfil dele. Não invente números, datas, empresas nem experiência que ele não tenha. Se ainda não há fala do outro, ofereça uma abertura útil para o que está na tela, não um cumprimento vazio.
+${exam}
 ${format}` },
   ];
 }
@@ -126,8 +155,8 @@ function research(lines, query, { myContext, meeting } = {}) {
     { role: 'user', content: `${transcriptBlock(lines)}
 
 Pesquise na web (somente leitura) sobre: ${query}
-Use o contexto da vaga/empresa/assunto da reunião para escolher o sentido certo do termo. Responda em português do Brasil, no máximo 6 linhas, direto ao ponto.
-Termine com a linha "Fontes:" e até 3 links completos (https://...) das páginas que você realmente consultou. Se não achar informação confiável, diga isso claramente e não invente.` },
+Use o contexto da vaga/empresa/assunto da reunião para escolher o sentido certo do termo. Responda em português do Brasil, em frases corridas. ${PROSE}
+Feche com a frase "Fontes:" e até 3 links completos (https://...) na sequência, sem transformar em lista. Se não achar informação confiável, diga isso claramente e não invente.` },
   ];
 }
 
@@ -137,24 +166,27 @@ function explain(lines, { myContext, term, meeting } = {}) {
     { role: 'user', content: `${transcriptBlock(lines)}
 
 ${term ? `Explique "${term}" no contexto desta conversa.` : 'Explique o termo, sigla ou assunto mais recente/difícil desta conversa, e o que está sendo discutido agora.'}
-Responda em português, no máximo 5 linhas, direto ao ponto.` },
+Responda em português, em até 5 frases. ${PROSE}` },
   ];
 }
 
 function ask(lines, question, { myContext, withScreen, meeting } = {}) {
+  const shape = withScreen
+    ? SCREEN_EXAM
+    : `${PROSE} A primeira frase é a resposta direta. Sem preâmbulo, sem "Claro!" e sem repetir a pergunta.`;
   return [
-    { role: 'system', content: base(myContext, meeting) },
+    { role: 'system', content: `${base(myContext, meeting)}${withScreen ? '\nSe o print for uma prova, resolva cada item. Não responda em primeira pessoa.' : ''}` },
     { role: 'user', content: `${transcriptBlock(lines)}
-${withScreen ? '\nUm print da tela atual do Helison está anexado.\n' : ''}
 Pergunta do Helison: ${question}
-Primeira linha: a resposta direta, em até 20 palavras. Depois, no máximo 3 bullets curtos ("- "). Sem preâmbulo, sem "Claro!", sem repetir a pergunta. Responda em português. Se ele pedir algo para falar em inglês, dê a frase em inglês e a tradução. Se ele perguntar "o que é X?", "não entendi X" ou pedir para explicar um termo, ferramenta, empresa ou sigla: pesquise na web (browser_search) se não tiver certeza, explique em português simples em 2-3 linhas (só dê frase em inglês se ele pedir). Fora isso, pesquise na web só se precisar de informação atual ou que você não sabe; cite a fonte em 1 linha só se pesquisou. Nunca invente experiência do Helison.` },
+${shape}
+Responda em português. Se ele pedir algo para falar em inglês, dê a frase em inglês e a tradução. Se ele perguntar "o que é X?", "não entendi X" ou pedir para explicar um termo, ferramenta, empresa ou sigla: pesquise na web (browser_search) se não tiver certeza, explique em português simples em 2-3 linhas (só dê frase em inglês se ele pedir). Fora isso, pesquise na web só se precisar de informação atual ou que você não sabe; cite a fonte em 1 linha só se pesquisou. Nunca invente experiência do Helison.` },
   ];
 }
 
 function roteiro(lines, topic) {
   return [
     { role: 'system', content: 'Você ajuda o Helison a conduzir uma entrevista ou uma reunião. Escreva perguntas em português, numeradas e curtas, para ELE fazer às outras pessoas. Não responda no lugar dele e não invente fatos da vida dele.' },
-    { role: 'user', content: `${transcriptBlock(lines)}\n\n${topic ? `Tema: ${topic}\n` : ''}Monte de 6 a 10 perguntas. Só em português; se ele quiser a versão em inglês, ele pede.` },
+    { role: 'user', content: `${transcriptBlock(lines)}\n\n${topic ? `Tema: ${topic}\n` : ''}Escreva de 6 a 10 perguntas em frases, uma por parágrafo, sem número e sem marcador. Só em português; se ele quiser a versão em inglês, ele pede. ${PROSE}` },
   ];
 }
 
@@ -163,8 +195,8 @@ function summary(lines, { myContext, meeting } = {}) {
     { role: 'system', content: base(myContext, meeting) },
     { role: 'user', content: `${transcriptBlock(lines)}
 
-Faça um resumo da reunião em português: tópicos principais, decisões e próximos passos (com responsáveis se mencionados). Use tópicos curtos.` },
+Faça um resumo da reunião em português, em prosa: o que foi tratado, o que ficou decidido e os próximos passos, com responsáveis se mencionados. ${PROSE}` },
   ];
 }
 
-module.exports = { CHEAT, detectQuestion, parseDetect, code, stripFences, sayEn, research, suggestBoth, setPersonal, PERSONAL_MAX, recent, translateBatch, parseBatch, translate, suggest, explain, ask, summary, roteiro, transcriptBlock };
+module.exports = { CHEAT, SCREEN_EXAM, ADA_Q19, verdictLine, detectQuestion, parseDetect, code, stripFences, sayEn, research, suggestBoth, setPersonal, PERSONAL_MAX, recent, translateBatch, parseBatch, translate, suggest, explain, ask, summary, roteiro, transcriptBlock };

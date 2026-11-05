@@ -166,7 +166,7 @@ Janela flutuante (`Ctrl+Shift+Espaço` abre/fecha; X e Esc também fecham e **pa
 
 ### Otimizações do modo reunião (no repositório; ainda não instaladas)
 
-- **Menos espera**: o bloco de áudio é cortado cedo numa pausa de fala (depois de metade do bloco, no mínimo 3 s); a Groq é "aquecida" ao iniciar; lotes de tradução de até 3 falas; limite de tokens proporcional ao lote.
+- **Menos espera**: o bloco de áudio do PC é cortado cedo numa pausa de fala (depois de metade do bloco, no mínimo 3 s). O microfone, na pergunta por voz, fecha na pausa de cerca de 0,8 s (o mesmo fim de fala do modo conversa), sem esperar essa metade. A Groq é "aquecida" ao iniciar; lotes de tradução de até 3 falas; limite de tokens proporcional ao lote.
 - **Streaming**: uma fala traduzida sozinha, a resposta do Tradutor e as respostas do chat aparecem palavra por palavra.
 - **Sem retraduzir**: cache das últimas traduções (mesma frase não gasta nova chamada) e do Tradutor; fala já traduzida nunca volta para a fila; o resumo espera a tradução em andamento em vez de refazê-la; o bloco de contexto da reunião é reaproveitado enquanto nada muda.
 - **429 da Groq**: espera curta (até 3 s, 2 tentativas) na transcrição; mesmo áudio reenviado uma vez; tradução pausa 8 s e tenta de novo (até 3 vezes por fala); aviso em português.
@@ -174,7 +174,11 @@ Janela flutuante (`Ctrl+Shift+Espaço` abre/fecha; X e Esc também fecham e **pa
 - **Limpeza ao fechar**: X, Esc, atalho e fechar a janela cancelam as chamadas em andamento na nuvem, limpam filas, temporizadores e trilhas de áudio.
 - Conexão: reaproveita a conexão padrão do Electron (keep-alive) e faz uma chamada leve ao iniciar para abrir a conexão antes da primeira fala. Não há cliente HTTP próprio.
 - **Livecoding (roteiro).** A aba pede o que construir e mostra, em português e com letra grande, a visão geral, a lista de arquivos (caminho e papel) e depois cada seção: o que ela faz, o porquê, o bloco de código e onde colar. **Próximo** e **Anterior** mudam a tela. Copiar o bloco é opcional. O único arquivo do recurso é o estado da sessão (`sessions.json`), para retomar. Os arquivos da aula não são gravados e nenhum editor é aberto. O agente que monta o roteiro continua sem ferramentas e em sandbox.
-- Print da tela: sempre mostra uma prévia e só envia se você confirmar (Cancelar/Esc descartam).
+- **Tela enquanto escuta**: com a escuta ligada, o HELIOS atualiza o print sozinho, cerca de cada 8 s, só na memória, e não captura enquanto a transcrição está ocupada. Não precisa dizer "vê a minha tela", nem usar Ctrl+Shift+Enter, nem confirmar prévia. Ao parar ou fechar, o print some. A pílula continua fora da captura. Sem a chave do Gemini, a pergunta segue sem a tela e a pílula avisa.
+- **Áudio**: microfone e áudio do PC seguem em filas separadas (no máximo 2 blocos cada). Se a Groq atrasar, o trecho antigo sai e a escuta continua no mais recente. Uma falha de transcrição não deixa o ponto em erro para sempre. Se o microfone ou o áudio do PC cair, a pílula avisa para tocar em ouvir de novo.
+- **Respostas da pílula**: Assist, chat, pergunta por voz, sugestão e resumo saem em texto corrido, pronto para falar. Sem lista, sem tópico e sem título. Se a tela for uma prova ou verdadeiro/falso, a fala começa pelo gabarito de cada afirmação (por exemplo "Verdadeiro, verdadeiro, falso, verdadeiro, falso.") e segue em frases, não em "todas são falsas". A leitura da tela usa um modelo de visão mais capaz que o texto comum.
+- **Pergunta por voz** (escuta ligada e microfone ativo): fale com naturalidade, por exemplo "como que eu respondo isso daqui?" ou "Helios, como que eu respondo isso daqui?". O HELIOS transcreve, usa a tela que já está atualizando e a resposta aparece **só como texto** no chat da pílula, no mesmo fluxo de quando você digita. Não há leitura em voz alta. Sem digitar, sem Enter e sem teclado. A escuta do microfone e do áudio do PC segue depois da resposta. O áudio não é gravado em disco.
+- **Olhar a tela** (atalho ou ícone, opcional): ainda mostra uma prévia e só envia se você confirmar (Cancelar/Esc descartam). A pergunta por voz não usa esse caminho.
 - Tempos por etapa (transcrição, tradução, resposta) aparecem discretos na barra de status.
 - Modo demonstração sem chamadas de IA: `HELIOS_MOCK=1`.
 - Roteiro de teste de 2 minutos: `Documents\HELIOS\teste-modo-reuniao.md`.
@@ -291,10 +295,12 @@ Atalhos do modo de reunião:
 | Ctrl+Shift+1 | Sugerir resposta em inglês |
 | Ctrl+Shift+2 | Sugerir resposta em português |
 | Ctrl+Shift+3 | Traduzir |
-| Ctrl+Shift+A | Perguntar |
-| Ctrl+Shift+Enter | Olhar a tela |
+| Ctrl+Shift+A | Perguntar (digitar) |
+| Ctrl+Shift+Enter | Olhar a tela na hora (opcional; com a escuta ligada a tela já atualiza sozinha) |
 | Ctrl+Shift+T | Deixar o clique passar pela pílula |
 | Ctrl+Shift+setas | Mover a pílula |
+
+Com a escuta ligada, a tela fica disponível sozinha. Fale a pergunta. A resposta aparece só em texto na pílula, sem leitura em voz, sem Enter e sem confirmação de print.
 
 Fechar a janela principal manda o HELIOS para a bandeja. Sair de verdade é pelo menu da bandeja. **Fechar modo de reunião**, na pílula, esconde só essa janela.
 

@@ -40,13 +40,14 @@ test("regra geral: sempre português, inglês só se pedido", () => {
   assert.doesNotMatch(prompts.summary(LINES)[1].content, /em inglês/i);
 });
 
-test("sugestão em português: 1 resposta curta, sem EN (Leva H)", () => {
-  const u = prompts.suggest(LINES, { lang: "pt" })[1].content;
-  assert.match(u, /UMA resposta/);
-  assert.match(u, /no máximo 2 frases e 25 palavras/);
-  assert.doesNotMatch(u, /OPÇÃO/);
+test("sugestão em português: três falas específicas, sem EN (Leva H)", () => {
+  const u = prompts.suggest(LINES, { lang: "pt", withScreen: true })[1].content;
+  assert.match(u, /Três respostas que o Helison pode falar/);
+  assert.match(u, /específica/);
+  assert.match(u, /print da tela atual/);
   assert.doesNotMatch(u, /EN: </);
   assert.match(u, /última fala marcada "Outro\(s\)"/);
+  assert.doesNotMatch(u, /25 palavras/);
 });
 
 test("sugestão em inglês: 1 resposta, inglês simples e português ao lado", () => {

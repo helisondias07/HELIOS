@@ -61,6 +61,67 @@
   function shouldCut({ elapsedMs = 0, maxMs = 6000, voiced = 0, silentTicks = 0 } = {}) {
     return elapsedMs >= Math.max(3000, maxMs * 0.5) && voiced >= 5 && silentTicks >= 8;
   }
-  const api = { norm, isDuplicate, newSince, shownCursor, claimTranslate, isNoise, shouldCut };
+  // Microfone da pergunta por voz: fecha na pausa, sem esperar metade do bloco.
+  // 5 medições com fala (~0,5 s) e 8 de silêncio (~0,8 s) — o mesmo fim de fala do modo conversa.
+  function shouldCutVoice({ elapsedMs = 0, voiced = 0, silentTicks = 0 } = {}) {
+    // ~1 s de fala e ~1,2 s de silêncio: a frase vai junta, sem cortar no meio nem esperar o bloco do PC.
+    return elapsedMs >= 1000 && voiced >= 6 && silentTicks >= 12;
+  }
+  // Fila de transcrição: guarda só os últimos blocos. O mais antigo sai para a escuta não ficar minutos atrás.
+  // Tira marcador, número e título para a sugestão aparecer como fala, não como lista.
+  function toProse(text) {
+    const lines = String(text || '').replace(/\r\n/g, '\n').split('\n').map((line) => {
+      let s = line.trim();
+      if (!s) return '';
+      s = s.replace(/^#{1,6}\s+/, '');
+      s = s.replace(/^[-+•*]\s+/, '');
+      s = s.replace(/^\d{1,2}[.)]\s+/, '');
+      return s.trim();
+    });
+    return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  }
+  function proseParts(text) {
+    const body = toProse(text);
+    const rows = body.split('\n').map((s) => s.trim()).filter(Boolean);
+    const en = rows.find((r) => /^EN:/i.test(r));
+    const pt = rows.find((r) => /^PT:/i.test(r));
+    if (!en) return { main: body, sub: '' };
+    const rest = rows.filter((r) => r !== en && r !== pt).join('\n\n');
+    const main = [en.replace(/^EN:\s*/i, '').trim(), rest].filter(Boolean).join('\n\n');
+    return { main, sub: pt ? pt.replace(/^PT:\s*/i, '').trim() : '' };
+  }
+  function enqueueStt(queue, item, max = 2) {
+    const list = (Array.isArray(queue) ? queue : []).concat([item]);
+    const dropped = list.length > max;
+    return { queue: dropped ? list.slice(list.length - max) : list, dropped };
+  }
+  // "como que eu respondo isso" / "como eu digo" — pedido natural para o HELIOS.
+  function asksHowToAnswer(n) {
+    return /\bcomo (?:que )?eu (?:respondo|responder|falo|digo)\b/.test(n)
+      || /\bo que (?:que )?eu (?:respondo|falo|digo)\b/.test(n);
+  }
+  // Pergunta do Helison para o HELIOS (não um "sim" nem um relato). Fala natural conta, com ou sem "?".
+  function isVoiceQuestion(text) {
+    if (isNoise(text)) return false;
+    const raw = String(text || '').trim();
+    const n = norm(raw);
+    if (n.length < 6) return false;
+    if (/^(oi|ola|obrigado|obrigada|valeu|ta bom|ok|beleza|entendi|perfeito|sim|nao|yes|yeah|thanks|thank you)$/.test(n)) return false;
+    const words = n.split(' ').filter(Boolean);
+    const head = words.slice(0, 10).join(' ');
+    if (/\b(?:helios|helio)\b/.test(n)) return true;
+    if (/\b(?:ve|veja|olha|olhe|mostra)\b/.test(n) && /\btela\b/.test(n)) return true;
+    if (asksHowToAnswer(n)) return true;
+    // No começo da fala (com um "e", "então", "por favor" ou "Helios" na frente). "ele explica a..." não conta.
+    const directed = /^(?:(?:e|entao|por favor|helios|helio) )?(?:nao entendi|me ajuda|me explica|explica|o que (?:e|tem|significa|aparece)|o que eu (?:digo|falo|respondo)|como eu (?:digo|falo|respondo|faco)|como (?:faco|fazer)|what is|what s on|how do i|can you (?:explain|see))\b/.test(n);
+    if (directed) return true;
+    if (raw.includes('?')) return true;
+    if (/^como vai\b/.test(n)) return false;
+    const shape = /^(qual|quais|quem|onde|aonde|quando|por que|porque|pra que|para que|quanto|cade|why|where|who|when)\b/.test(head)
+      || /\b(por que|porque)\b/.test(head);
+    if (!shape) return false;
+    return words.length >= 3 && words.length <= 18;
+  }
+  const api = { norm, isDuplicate, newSince, shownCursor, claimTranslate, isNoise, shouldCut, shouldCutVoice, isVoiceQuestion, enqueueStt, toProse, proseParts };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.LineUtil = api;
 })(typeof window !== 'undefined' ? window : globalThis);

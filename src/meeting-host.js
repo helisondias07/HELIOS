@@ -34,6 +34,17 @@ function transcribeLang(setting, who, mode) {
 // Blocos de áudio minúsculos (menos de ~0,5 s a 32 kbps) não têm fala: nem vão para a nuvem
 const MIN_AUDIO_BYTES = 2000;
 const tooSmall = (audio) => !audio || audio.length < MIN_AUDIO_BYTES;
+// Leitura de tela: o flash-lite erra texto denso de prova. Este modelo lê; o configurado entra se ele falhar.
+const VISION_MODEL = "gemini-2.5-flash";
+
+// Plano da tela na pergunta por voz. Sem Gemini e em demonstração não chama o capturador.
+function voiceScreenPlan({ mockMode = false, hasGemini = false } = {}) {
+  if (mockMode) return { capture: false, image: "mock", warn: "" };
+  if (!hasGemini) return { capture: false, image: null, warn: "Sem a chave do Gemini, a pergunta por voz segue sem a tela." };
+  return { capture: true, image: null, warn: "" };
+}
+// Com a escuta ativa o print fica na memória e é refeito. Mais novo que isto já serve a pergunta.
+const LIVE_SHOT_MS = 4000;
 
 // Cache curto (LRU) de traduções já feitas: não paga a IA de novo pela mesma frase
 function makeCache(max = 300) {
@@ -173,7 +184,8 @@ function registerMeeting({ getWin, closeMeeting, settings, vault, serverUrl, get
     const plan = [];
     if (imageBase64) {
       if (!current.gemini) throw new Error("A análise de tela usa o Gemini. Cole a chave no cofre do HELIOS.");
-      plan.push({ p: "gemini" });
+      const models = [VISION_MODEL, current.geminiModel].filter((name, i, all) => name && all.indexOf(name) === i);
+      for (const name of models) plan.push({ p: "gemini", m: name });
     } else {
       const groq = current.groq ? (fast ? [current.fastModel, current.llmModel] : [current.llmModel, current.fastModel]).map((model) => ({ p: "groq", m: model })) : [];
       const gem = current.gemini ? [{ p: "gemini" }] : [];
@@ -190,7 +202,16 @@ function registerMeeting({ getWin, closeMeeting, settings, vault, serverUrl, get
           const text = await providers.groqChat({ key: current.groq, model: step.m, messages, maxTokens, onDelta, search, signal });
           return { text, provider: tag(`Groq · ${step.m.replace("openai/", "")}`) };
         }
-        const text = await providers.geminiChat({ key: current.gemini, model: current.geminiModel, messages, imageBase64, search, signal });
+        const text = await providers.geminiChat({
+          key: current.gemini,
+          model: step.m || current.geminiModel,
+          messages,
+          imageBase64,
+          search,
+          signal,
+          maxTokens,
+          temperature: imageBase64 ? 0.1 : undefined,
+        });
         if (onDelta) onDelta(text);
         return { text, provider: tag("Gemini") };
       } catch (err) {
@@ -224,20 +245,55 @@ function registerMeeting({ getWin, closeMeeting, settings, vault, serverUrl, get
     throw lastErr;
   }
 
-  // Print da tela: guardado só aqui até o Helison confirmar na prévia; cancelar descarta.
+  // Print manual: guardado só aqui até o Helison confirmar na prévia; cancelar descarta.
+  // A escuta guarda outro print, só na memória, e a pergunta por voz não mexe nesta prévia.
   let pendingShot = null;
-  async function captureScreen() {
-    const display = screen.getPrimaryDisplay();
-    const sources = await desktopCapturer.getSources({
-      types: ["screen"],
-      thumbnailSize: {
-        width: Math.min(1920, display.size.width * display.scaleFactor),
-        height: Math.min(1080, display.size.height * display.scaleFactor),
-      },
+  let liveShot = null;
+  let captureTail = Promise.resolve();
+  function enqueueCapture(fn) {
+    const run = captureTail.then(fn, fn);
+    captureTail = run.then(() => {}, () => {});
+    return run;
+  }
+  function captureScreen() {
+    return enqueueCapture(async () => {
+      const display = screen.getPrimaryDisplay();
+      const sources = await Promise.race([
+        desktopCapturer.getSources({
+          types: ["screen"],
+          thumbnailSize: {
+            width: Math.min(1920, display.size.width * display.scaleFactor),
+            height: Math.min(1440, display.size.height * display.scaleFactor),
+          },
+        }),
+        new Promise((_, reject) => setTimeout(() => reject(Object.assign(new Error("A captura da tela demorou demais."), { name: "TimeoutError" })), 8000)),
+      ]);
+      if (!sources.length) throw new Error("Não foi possível capturar a tela.");
+      const thumb = sources[0].thumbnail;
+      return { base64: thumb.toJPEG(88).toString("base64"), preview: thumb.resize({ width: 320 }).toDataURL() };
     });
-    if (!sources.length) throw new Error("Não foi possível capturar a tela.");
-    const thumb = sources[0].thumbnail;
-    return { base64: thumb.toJPEG(75).toString("base64"), preview: thumb.resize({ width: 320 }).toDataURL() };
+  }
+  async function shotForSuggest() {
+    if (mock || !cfg().gemini) return null;
+    const fresh = liveShot && Date.now() - liveShot.at <= 12000;
+    if (!fresh) {
+      try { await refreshLiveShot(); } catch { /* segue com o último print */ }
+    }
+    return liveShot && liveShot.base64 ? liveShot.base64 : null;
+  }
+  async function refreshLiveShot() {
+    const plan = voiceScreenPlan({ mockMode: !!mock, hasGemini: !!cfg().gemini });
+    if (!plan.capture) {
+      liveShot = plan.image ? { base64: plan.image, at: Date.now() } : null;
+      return { at: liveShot ? liveShot.at : 0, warn: plan.warn };
+    }
+    const shot = await captureScreen();
+    liveShot = { base64: shot.base64, at: Date.now() };
+    return { at: liveShot.at, warn: "" };
+  }
+  function clearLiveShot() {
+    liveShot = null;
+    return {};
   }
 
   const wrap = (fn) => async (_event, ...args) => {
@@ -334,8 +390,11 @@ function registerMeeting({ getWin, closeMeeting, settings, vault, serverUrl, get
     return { items: [...hits, ...parsed], provider: result.provider, cached: hits.length };
   }));
   ipcMain.handle("rate:get", () => providers.getRate());
-  // Leva H: 1 resposta curta (maxTokens 120, modelo rápido); "more" gera a versão elaborada sob demanda.
-  ipcMain.handle("ai:suggest", wrap(async (lines, lang, rid, more) => chat(prompts.suggest(lines, { myContext: settings.get("myContext"), lang, more: !!more, meeting: meetingText(lines) }), { fast: true, maxTokens: more ? 200 : 120, onDelta: stream(rid) })));
+  // Três falas contextualizadas. O modelo maior, com a tela que a escuta já guardou. "more" alonga a primeira.
+  ipcMain.handle("ai:suggest", wrap(async (lines, lang, rid, more) => {
+    const image = await shotForSuggest();
+    return chat(prompts.suggest(lines, { myContext: settings.get("myContext"), lang, more: !!more, meeting: meetingText(lines), withScreen: !!image }), { maxTokens: more ? 900 : 700, imageBase64: image, onDelta: stream(rid) });
+  }));
   // Pergunta detectada na última fala do Outro(s): barata, alimenta o chip dinâmico (Tab responde).
   ipcMain.handle("ai:detect", wrap(async (text) => {
     const clean = String(text || "").trim();
@@ -399,6 +458,11 @@ function registerMeeting({ getWin, closeMeeting, settings, vault, serverUrl, get
     pendingShot = null;
     return { ok: true };
   });
+  ipcMain.handle("screen:refresh", wrap(async () => refreshLiveShot()));
+  ipcMain.handle("screen:liveStop", () => {
+    clearLiveShot();
+    return { ok: true };
+  });
   const sayCache = makeCache(100);
   ipcMain.handle("ai:sayEn", wrap(async (text, rid) => {
     const said = String(text || "").trim();
@@ -426,14 +490,29 @@ function registerMeeting({ getWin, closeMeeting, settings, vault, serverUrl, get
     await shell.openExternal(parsed.toString());
     return {};
   }));
-  ipcMain.handle("ai:ask", wrap(async (lines, question, withScreen, rid) => {
+  ipcMain.handle("ai:ask", wrap(async (lines, question, withScreen, rid, screenMode) => {
     let image = null;
+    let warn = "";
     if (withScreen) {
-      const shot = pendingShot || await captureScreen();
-      pendingShot = null;
-      image = shot.base64;
+      if (screenMode === "voice") {
+        const plan = voiceScreenPlan({ mockMode: !!mock, hasGemini: !!cfg().gemini });
+        warn = plan.warn;
+        if (plan.capture) {
+          const fresh = liveShot && Date.now() - liveShot.at <= LIVE_SHOT_MS;
+          if (!fresh) {
+            try { await refreshLiveShot(); } catch { /* usa o último print, se ainda houver */ }
+          }
+          image = liveShot && liveShot.base64;
+          if (!image) warn = "Não capturei a tela. Respondo só com o que você falou.";
+        } else if (plan.image) image = plan.image;
+      } else {
+        const shot = pendingShot || await captureScreen();
+        pendingShot = null;
+        image = shot.base64;
+      }
     }
-    return chat(prompts.ask(lines, question, { myContext: settings.get("myContext"), withScreen: !!image, meeting: meetingText(lines) }), { imageBase64: image, onDelta: stream(rid), search: !image, maxTokens: 300 });
+    const result = await chat(prompts.ask(lines, question, { myContext: settings.get("myContext"), withScreen: !!image, meeting: meetingText(lines) }), { imageBase64: image, onDelta: stream(rid), search: !image, maxTokens: image ? 1400 : 300 });
+    return warn ? { ...result, warn } : result;
   }));
   ipcMain.handle("ai:roteiro", wrap(async (lines, topic, rid) => {
     const current = cfg();
@@ -537,4 +616,4 @@ function registerMeeting({ getWin, closeMeeting, settings, vault, serverUrl, get
   return { loadPersonal, personalPath, abortInflight };
 }
 
-module.exports = { transcribeLang, registerMeeting, roteiroOffline, makeCache, tooSmall, MIN_AUDIO_BYTES };
+module.exports = { transcribeLang, registerMeeting, roteiroOffline, makeCache, tooSmall, MIN_AUDIO_BYTES, voiceScreenPlan, LIVE_SHOT_MS, VISION_MODEL };

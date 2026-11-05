@@ -64,7 +64,14 @@
   // Microfone da pergunta por voz: fecha na pausa, sem esperar metade do bloco.
   // 5 medições com fala (~0,5 s) e 8 de silêncio (~0,8 s) — o mesmo fim de fala do modo conversa.
   function shouldCutVoice({ elapsedMs = 0, voiced = 0, silentTicks = 0 } = {}) {
-    return elapsedMs >= 500 && voiced >= 5 && silentTicks >= 8;
+    // ~1 s de fala e ~1,2 s de silêncio: a frase vai junta, sem cortar no meio nem esperar o bloco do PC.
+    return elapsedMs >= 1000 && voiced >= 6 && silentTicks >= 12;
+  }
+  // Fila de transcrição: guarda só os últimos blocos. O mais antigo sai para a escuta não ficar minutos atrás.
+  function enqueueStt(queue, item, max = 2) {
+    const list = (Array.isArray(queue) ? queue : []).concat([item]);
+    const dropped = list.length > max;
+    return { queue: dropped ? list.slice(list.length - max) : list, dropped };
   }
   // "como que eu respondo isso" / "como eu digo" — pedido natural para o HELIOS.
   function asksHowToAnswer(n) {
@@ -93,6 +100,6 @@
     if (!shape) return false;
     return words.length >= 3 && words.length <= 18;
   }
-  const api = { norm, isDuplicate, newSince, shownCursor, claimTranslate, isNoise, shouldCut, shouldCutVoice, isVoiceQuestion };
+  const api = { norm, isDuplicate, newSince, shownCursor, claimTranslate, isNoise, shouldCut, shouldCutVoice, isVoiceQuestion, enqueueStt };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.LineUtil = api;
 })(typeof window !== 'undefined' ? window : globalThis);

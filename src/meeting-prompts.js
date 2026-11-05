@@ -62,23 +62,31 @@ function parseBatch(text, items) {
 
 const OUTRO_RULE = 'Foque no que o(s) OUTRO(s) acabou de dizer (a última fala marcada "Outro(s)"). Se a última fala for do Helison, ajude-o a continuar a conversa.';
 
-// Leva H (estilo Cluely): 1 resposta só, pronta para falar, no máximo 2 frases e 25 palavras. "Mais" pede a versão elaborada.
+// Três falas úteis, no tom do Cluely: específicas ao que acabou de ser dito e à tela. Não uma linha genérica.
 const CHEAT = 'Responda como cola de tela: o mínimo de palavras, nada de explicações a menos que pedidas. Sem preâmbulo, sem "Claro!", sem repetir a pergunta.';
-function suggest(lines, { myContext, lang, meeting, more = false } = {}) {
+function suggest(lines, { myContext, lang, meeting, more = false, withScreen = false } = {}) {
   const english = lang === 'en' || lang === 'both';
-  const size = more ? 'no máximo 3 frases e 45 palavras' : 'no máximo 2 frases e 25 palavras';
-  const format = english
-    ? `Formato obrigatório (nada além disso):\nEN: <a resposta em inglês simples, ${size}>\nPT: <tradução em português>`
-    : `Formato obrigatório (nada além disso): só a frase em português, ${size}. Opcional: uma linha "+ <detalhe extra de no máximo 10 palavras>".`;
   const style = english
-    ? 'Inglês natural e simples, no nível de um desenvolvedor brasileiro intermediário: frases curtas, vocabulário comum, contrações naturais (I\'m, I\'ve), sem gírias raras nem palavras difíceis.'
-    : 'Português do Brasil natural, fácil de falar em voz alta. Nada em inglês.';
+    ? 'Inglês natural e simples, no nível de um desenvolvedor brasileiro intermediário: frases que uma pessoa diria em voz alta, vocabulário comum, contrações naturais (I\'m, I\'ve), sem gírias raras nem palavras difíceis.'
+    : 'Português do Brasil natural, do jeito que se fala numa reunião. Nada em inglês. Nada de "Claro!", "Com certeza" ou frase vazia.';
+  const format = english
+    ? `Formato obrigatório (nada além disso):
+EN: <a resposta em inglês simples, 1 a 3 frases, específica ao que acabou de ser dito>
+PT: <tradução em português>
+- <segunda forma de dizer, em inglês>
+- <terceira forma, mais curta, em inglês>`
+    : `Formato obrigatório (nada além disso):
+<melhor resposta em português, 1 a 3 frases, específica>
+- <segunda resposta, outro ângulo, também falável>
+- <terceira, mais curta>`;
+  const screen = withScreen ? 'Um print da tela atual está anexado. Use o que está visível (código, slide, erro, mensagem, formulário) para a fala ficar específica. Não descreva a tela inteira.' : '';
   return [
-    { role: 'system', content: `${base(myContext, meeting)}\n${CHEAT}` },
+    { role: 'system', content: `${base(myContext, meeting)}\nVocê sugere o que o Helison fala agora. Seja específico ao contexto. Proibido frase genérica.` },
     { role: 'user', content: `${transcriptBlock(lines)}
+${screen}
 
 ${OUTRO_RULE}
-Escreva UMA resposta que o Helison pode falar em voz alta AGORA, em primeira pessoa${more ? ', um pouco mais elaborada' : ''}. ${style} Use o contexto da vaga/reunião (quando houver) e o perfil dele; não invente números, datas, empresas nem experiência que ele não tenha. Sem rótulos de opção.
+Três respostas que o Helison pode falar em voz alta AGORA, em primeira pessoa${more ? ', a primeira mais elaborada' : ''}. ${style} Use a transcrição, a tela (se houver), o contexto da vaga/reunião e o perfil dele. Não invente números, datas, empresas nem experiência que ele não tenha. Se ainda não há fala do outro, ofereça uma abertura útil para o que está na tela, não um cumprimento vazio.
 ${format}` },
   ];
 }

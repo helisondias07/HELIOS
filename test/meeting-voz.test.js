@@ -21,13 +21,23 @@ const win = read("src/meeting-window.js");
 const readme = read("README.md");
 const LINES = [{ who: "them", text: "Can you tell me about your experience with Wake?" }];
 
-test("shouldCutVoice: pausa curta no microfone, sem esperar metade do bloco do áudio do PC", () => {
-  const sample = { elapsedMs: 1200, maxMs: 9000, voiced: 8, silentTicks: 8 };
+test("shouldCutVoice: pausa no microfone junta a frase, sem esperar metade do bloco do áudio do PC", () => {
+  const sample = { elapsedMs: 2200, maxMs: 9000, voiced: 10, silentTicks: 12 };
   assert.equal(LineUtil.shouldCutVoice(sample), true);
   assert.equal(LineUtil.shouldCut(sample), false);
-  assert.equal(LineUtil.shouldCutVoice({ elapsedMs: 400, voiced: 8, silentTicks: 8 }), false);
-  assert.equal(LineUtil.shouldCutVoice({ elapsedMs: 1200, voiced: 4, silentTicks: 8 }), false);
-  assert.equal(LineUtil.shouldCutVoice({ elapsedMs: 1200, voiced: 8, silentTicks: 7 }), false);
+  assert.equal(LineUtil.shouldCutVoice({ elapsedMs: 800, voiced: 10, silentTicks: 12 }), false);
+  assert.equal(LineUtil.shouldCutVoice({ elapsedMs: 2200, voiced: 4, silentTicks: 12 }), false);
+  assert.equal(LineUtil.shouldCutVoice({ elapsedMs: 2200, voiced: 10, silentTicks: 8 }), false);
+});
+
+test("enqueueStt: a fila fica nos dois blocos mais recentes", () => {
+  let q = [];
+  for (const n of [1, 2, 3]) {
+    const step = LineUtil.enqueueStt(q, n, 2);
+    q = step.queue;
+    assert.equal(step.dropped, n === 3);
+  }
+  assert.deepEqual(q, [2, 3]);
 });
 
 test("isVoiceQuestion: pergunta do Helison entra; relato, cumprimento e ruído ficam só na transcrição", () => {
@@ -163,12 +173,16 @@ test("janela: ciclo da pergunta por voz não para os gravadores nem grava áudio
   assert.doesNotMatch(body, /stopSession|rec\.stop|getTracks\(/);
   assert.match(app, /who === 'me'\s*\?\s*LineUtil\.shouldCutVoice/);
   assert.match(app, /LineUtil\.shouldCut\(\{ elapsedMs, maxMs: chunkSecs\(\) \* 1000/);
-  assert.match(app, /if \(!rec\.stopped\) cycle\(\)/);
+  assert.match(app, /if \(!rec\.stopped\) setTimeout\(cycle, 40\)/);
+  assert.match(app, /enqueueStt\(sttQ\[key\]/);
+  assert.match(app, /Sigo com o trecho mais recente/);
+  assert.match(app, /erro: áudio caiu/);
   assert.match(app, /if \(who === 'me'\) maybeVoiceAsk\(line\.text\)/);
   assert.match(app, /if \(who === 'me'\) maybeVoiceAsk\(r\.text\)/);
   assert.match(app, /const withScreen = true/);
   assert.match(app, /startScreenWatch\(\)/);
-  assert.match(app, /setInterval\(refreshScreen, 2500\)/);
+  assert.match(app, /setInterval\(refreshScreen, 8000\)/);
+  assert.match(app, /state\.sttBusy \|\| state\.voiceBusy/);
   assert.match(app, /O áudio e o print não vão para o disco/);
   assert.match(app, /A resposta não é lida em voz/);
   assert.doesNotMatch(app, /wantsVoiceScreen|mVoiceScreen|heliosMeetingVoiceScreen/);

@@ -237,18 +237,37 @@ function registerMeeting({ getWin, closeMeeting, settings, vault, serverUrl, get
   // A escuta guarda outro print, só na memória, e a pergunta por voz não mexe nesta prévia.
   let pendingShot = null;
   let liveShot = null;
-  async function captureScreen() {
-    const display = screen.getPrimaryDisplay();
-    const sources = await desktopCapturer.getSources({
-      types: ["screen"],
-      thumbnailSize: {
-        width: Math.min(1920, display.size.width * display.scaleFactor),
-        height: Math.min(1080, display.size.height * display.scaleFactor),
-      },
+  let captureTail = Promise.resolve();
+  function enqueueCapture(fn) {
+    const run = captureTail.then(fn, fn);
+    captureTail = run.then(() => {}, () => {});
+    return run;
+  }
+  function captureScreen() {
+    return enqueueCapture(async () => {
+      const display = screen.getPrimaryDisplay();
+      const sources = await Promise.race([
+        desktopCapturer.getSources({
+          types: ["screen"],
+          thumbnailSize: {
+            width: Math.min(1920, display.size.width * display.scaleFactor),
+            height: Math.min(1080, display.size.height * display.scaleFactor),
+          },
+        }),
+        new Promise((_, reject) => setTimeout(() => reject(Object.assign(new Error("A captura da tela demorou demais."), { name: "TimeoutError" })), 8000)),
+      ]);
+      if (!sources.length) throw new Error("Não foi possível capturar a tela.");
+      const thumb = sources[0].thumbnail;
+      return { base64: thumb.toJPEG(75).toString("base64"), preview: thumb.resize({ width: 320 }).toDataURL() };
     });
-    if (!sources.length) throw new Error("Não foi possível capturar a tela.");
-    const thumb = sources[0].thumbnail;
-    return { base64: thumb.toJPEG(75).toString("base64"), preview: thumb.resize({ width: 320 }).toDataURL() };
+  }
+  async function shotForSuggest() {
+    if (mock || !cfg().gemini) return null;
+    const fresh = liveShot && Date.now() - liveShot.at <= 12000;
+    if (!fresh) {
+      try { await refreshLiveShot(); } catch { /* segue com o último print */ }
+    }
+    return liveShot && liveShot.base64 ? liveShot.base64 : null;
   }
   async function refreshLiveShot() {
     const plan = voiceScreenPlan({ mockMode: !!mock, hasGemini: !!cfg().gemini });
@@ -359,8 +378,11 @@ function registerMeeting({ getWin, closeMeeting, settings, vault, serverUrl, get
     return { items: [...hits, ...parsed], provider: result.provider, cached: hits.length };
   }));
   ipcMain.handle("rate:get", () => providers.getRate());
-  // Leva H: 1 resposta curta (maxTokens 120, modelo rápido); "more" gera a versão elaborada sob demanda.
-  ipcMain.handle("ai:suggest", wrap(async (lines, lang, rid, more) => chat(prompts.suggest(lines, { myContext: settings.get("myContext"), lang, more: !!more, meeting: meetingText(lines) }), { fast: true, maxTokens: more ? 200 : 120, onDelta: stream(rid) })));
+  // Três falas contextualizadas. O modelo maior, com a tela que a escuta já guardou. "more" alonga a primeira.
+  ipcMain.handle("ai:suggest", wrap(async (lines, lang, rid, more) => {
+    const image = await shotForSuggest();
+    return chat(prompts.suggest(lines, { myContext: settings.get("myContext"), lang, more: !!more, meeting: meetingText(lines), withScreen: !!image }), { maxTokens: more ? 900 : 700, imageBase64: image, onDelta: stream(rid) });
+  }));
   // Pergunta detectada na última fala do Outro(s): barata, alimenta o chip dinâmico (Tab responde).
   ipcMain.handle("ai:detect", wrap(async (text) => {
     const clean = String(text || "").trim();

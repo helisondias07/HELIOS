@@ -5,7 +5,7 @@ const state = {
   lines: [], mode: 'pt', trCurrent: null, recording: false, starting: false, gen: 0, discard: false, shotPending: false, timing: {}, recs: [], streams: [], ctx: null, settings: {}, clickThrough: false,
   sessionId: newSessionId(), chat: [], pendingTr: [], trBusy: false, trPauseUntil: 0, trTimer: null, chunkAuto: 0, rateWaitMs: 5000, trShownId: 0, translating: false, rid: 0, startedAt: 0, timerIv: null,
   input: 'ask', view: '', last: null, question: '', capTimer: null, cardOpen: false, transcriptOpen: false,
-  voiceBusy: false, voiceQueued: '', hearingMic: false, screenIv: null, screenBusy: false,
+  voiceBusy: false, voiceQueued: '', hearingMic: false, screenIv: null, screenBusy: false, sttBusy: 0,
 };
 function newSessionId() { const d = new Date(); const p = (n) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`; }
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -94,11 +94,15 @@ function renderCaption(l) {
 // ---------- card de resposta ----------
 function parseAnswer(text) {
   const rows = String(text || '').split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+  const strip = (r) => String(r || '').replace(/^[-+•*]\s*|^\d+[.)]\s*/, '').replace(/^(EN:|PT:)\s*/i, '').trim();
   const en = rows.find((r) => /^EN:/i.test(r)); const pt = rows.find((r) => /^PT:/i.test(r));
-  if (en) return { main: en.replace(/^EN:\s*/i, ''), sub: pt ? pt.replace(/^PT:\s*/i, '') : '', bullets: [] };
-  const clean = rows.map((r) => r.replace(/^(PT:|OPÇÃO \d.*$)\s*/i, '')).filter(Boolean);
+  if (en) {
+    const extras = rows.filter((r) => r !== en && r !== pt);
+    return { main: strip(en), sub: pt ? strip(pt) : '', bullets: extras.map(strip).filter(Boolean).slice(0, 3) };
+  }
+  const clean = rows.map(strip).filter(Boolean);
   const [main = '', ...rest] = clean;
-  return { main, sub: '', bullets: rest.map((r) => r.replace(/^[-+•*]\s*|^\d+[.)]\s*/, '')).filter(Boolean).slice(0, 3) };
+  return { main, sub: '', bullets: rest.slice(0, 3) };
 }
 const linkify = (s) => esc(s).replace(/(https?:\/\/[^\s<)\]]+)/g, '<a class="lnk" data-link="$1">$1</a>');
 function paintAnswer(text, streaming = false) {
@@ -199,7 +203,7 @@ function syncVoiceHint() {
   el.textContent = 'Escuta ativa: a tela fica atualizada sozinha. Fale a pergunta. A resposta aparece aqui, só em texto. A escuta continua.';
 }
 async function refreshScreen() {
-  if (!state.recording || state.discard || state.screenBusy || !api.screenRefresh) return;
+  if (!state.recording || state.discard || state.screenBusy || state.sttBusy || state.voiceBusy || !api.screenRefresh) return;
   state.screenBusy = true;
   try {
     const r = await api.screenRefresh();
@@ -214,7 +218,7 @@ async function refreshScreen() {
 function startScreenWatch() {
   stopScreenWatch(false);
   refreshScreen();
-  state.screenIv = setInterval(refreshScreen, 2500);
+  state.screenIv = setInterval(refreshScreen, 8000);
 }
 function stopScreenWatch(clear = true) {
   clearInterval(state.screenIv);
@@ -377,15 +381,45 @@ async function refreshRate() { /* a cota fica no app principal; aqui só o ponto
 // ---------- captura: som do PC (Outro) e microfone (Você) em dois gravadores separados ----------
 const MIME = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus'].find((m) => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
 let seq = 0;
+const sttQ = { me: [], them: [] };
+const sttOn = { me: false, them: false };
+function sttKey(who) { return who === 'me' ? 'me' : 'them'; }
+function syncSttBusy() { state.sttBusy = (sttOn.me ? 1 : 0) + (sttOn.them ? 1 : 0); }
+function enqueueChunk(blob, who, retry = false) {
+  const key = sttKey(who);
+  const packed = LineUtil.enqueueStt(sttQ[key], { blob, retry }, 2);
+  sttQ[key] = packed.queue;
+  if (packed.dropped) toastOnce('A transcrição atrasou. Sigo com o trecho mais recente.');
+  pumpStt(key);
+}
+async function pumpStt(who) {
+  const key = sttKey(who);
+  if (sttOn[key] || !sttQ[key].length || state.discard) return;
+  const job = sttQ[key].shift();
+  sttOn[key] = true; syncSttBusy();
+  try { await handleChunk(job.blob, key, job.retry); }
+  finally {
+    sttOn[key] = false; syncSttBusy();
+    if (state.recording && !state.sttBusy && !state.voiceBusy) setStatus('ouvindo');
+    pumpStt(key);
+  }
+}
 function makeRecorder(stream, ctx, analyserSrc, who) {
   const an = ctx.createAnalyser(); an.fftSize = 1024; analyserSrc.connect(an);
   const buf = new Float32Array(an.fftSize);
   const rec = { stopped: false, voiced: 0, silent: 0, startAt: 0, mr: null, timer: null };
+  stream.getAudioTracks().forEach((track) => {
+    track.onended = () => {
+      if (rec.stopped) return;
+      setStatus('erro: áudio caiu');
+      toastOnce(who === 'me' ? 'O microfone parou. Toque em ouvir para retomar.' : 'O áudio do PC parou. Toque em ouvir para retomar.', 7000);
+    };
+  });
   rec.meter = setInterval(() => {
     an.getFloatTimeDomainData(buf);
     let sum = 0; for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
     if (Math.sqrt(sum / buf.length) > 0.01) { rec.voiced++; rec.silent = 0; } else rec.silent++;
-    // Áudio do PC: pausa depois de metade do bloco. Microfone: pausa curta, para a pergunta por voz não esperar o bloco inteiro.
+    // Áudio do PC: pausa depois de metade do bloco. Microfone: pausa de ~1,2 s, para a frase ir inteira.
     const elapsedMs = Date.now() - rec.startAt;
     const cut = who === 'me'
       ? LineUtil.shouldCutVoice({ elapsedMs, voiced: rec.voiced, silentTicks: rec.silent })
@@ -394,17 +428,32 @@ function makeRecorder(stream, ctx, analyserSrc, who) {
   }, 100);
   const cycle = () => {
     if (rec.stopped) return;
+    if (!stream.getAudioTracks().some((t) => t.readyState === 'live')) return;
     const chunks = [];
-    const mr = new MediaRecorder(stream, MIME ? { mimeType: MIME, audioBitsPerSecond: 32000 } : undefined);
+    let mr;
+    try {
+      mr = new MediaRecorder(stream, MIME ? { mimeType: MIME, audioBitsPerSecond: 32000 } : undefined);
+    } catch (e) {
+      toastOnce(mediaMessage(e, who === 'me' ? 'Microfone' : 'Áudio do PC'));
+      if (!rec.stopped) setTimeout(cycle, 400);
+      return;
+    }
     clearTimeout(rec.timer); rec.mr = mr; rec.voiced = 0; rec.silent = 0; rec.startAt = Date.now();
     mr.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
     mr.onstop = () => {
       const voiced = rec.voiced;
-      if (!rec.stopped) cycle();
-      if (voiced < 5 || !chunks.length) return; // silêncio: não gasta cota
-      handleChunk(new Blob(chunks, { type: mr.mimeType || 'audio/webm' }), who);
+      const blob = chunks.length ? new Blob(chunks, { type: mr.mimeType || 'audio/webm' }) : null;
+      // Solta a trilha antes de abrir o próximo bloco. No mesmo instante o Chromium às vezes trava o áudio.
+      if (!rec.stopped) setTimeout(cycle, 40);
+      if (voiced < 5 || !blob) return; // silêncio: não gasta cota
+      enqueueChunk(blob, who);
     };
-    mr.start();
+    try { mr.start(); }
+    catch (e) {
+      toastOnce(mediaMessage(e, who === 'me' ? 'Microfone' : 'Áudio do PC'));
+      if (!rec.stopped) setTimeout(cycle, 400);
+      return;
+    }
     rec.timer = setTimeout(() => { if (mr.state !== 'inactive') mr.stop(); }, chunkSecs() * 1000);
   };
   cycle();
@@ -422,9 +471,10 @@ async function handleChunk(blob, who = 'them', retried = false, forcedId = 0) {
   if (state.discard || r.cancelled) return;
   if (!r.ok && r.rate) {
     onRateLimit('transcrição');
-    if (!retried) { setStatus('limite da Groq: tentando de novo…'); await sleep(state.rateWaitMs); return handleChunk(blob, who, true, id); } // mesmo bloco, mesma posição na transcrição
+    // Não dorme em cima da fila: se já chegou fala mais nova, segue nela. Senão tenta este bloco uma vez.
+    if (!retried && !sttQ[sttKey(who)].length) { setStatus('limite da Groq: tentando de novo…'); await sleep(state.rateWaitMs); return handleChunk(blob, who, true, id); }
   }
-  if (!r.ok) { setStatus('erro na transcrição'); toastOnce(`Transcrição (${who === 'me' ? 'microfone' : 'áudio do PC'}): ${r.error}`); return; }
+  if (!r.ok) { toastOnce(`Transcrição (${who === 'me' ? 'microfone' : 'áudio do PC'}): ${r.error}`); if (state.recording) setStatus('ouvindo'); return; }
   if (state.recording) setStatus(state.listenText || 'ouvindo…');
   if (!r.text || r.skipped || LineUtil.isNoise(r.text)) return; // vazio, só pontuação ou legenda inventada no silêncio
   const recent = state.lines.filter((l) => l.id < id).slice(-8).map((l) => l.text);
@@ -525,7 +575,7 @@ function stopSession(discard = true) {
   state.recs.forEach((r) => r.stop()); state.recs = [];
   state.streams.forEach((s) => s.getTracks().forEach((t) => t.stop())); state.streams = [];
   if (state.ctx) { state.ctx.close(); state.ctx = null; }
-  clearInterval(state.timerIv); state.recording = false; state.hearingMic = false; state.voiceQueued = ''; stopScreenWatch();
+  clearInterval(state.timerIv); state.recording = false; state.hearingMic = false; state.voiceQueued = ''; sttQ.me = []; sttQ.them = []; stopScreenWatch();
   state.pendingTr.forEach((l) => { l.trq = false; }); state.pendingTr = []; clearTimeout(state.trTimer); state.trTimer = null; state.trPauseUntil = 0;
   if (discard) { deltaHandlers.clear(); streams.clear(); }
   shotDrop(); hideQuestion();

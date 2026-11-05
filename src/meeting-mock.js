@@ -68,9 +68,9 @@ function mockChat(messages) {
   }
   if (/Você detecta perguntas/.test(system)) return /\?\s*$/.test(user.trim()) ? toPt(user).replace(/^\(demonstração\)\s*/, "").split(/\s+/).slice(0, 8).join(" ") : "NONE";
   if (/cola de livecoding/.test(system)) return "function debounce(fn, ms = 300) {\n  let t;\n  return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };\n}";
-  if (/Escreva UMA resposta/.test(user)) {
-    if (/EN: </.test(user)) return "EN: I have three years building Wake storefronts, mostly focused on speed.\nPT: Tenho três anos construindo lojas na Wake, com foco em velocidade.";
-    return "Tenho três anos com lojas na Wake, focado em velocidade.\n+ Começo sempre medindo a página.";
+  if (/Três respostas que o Helison pode falar/.test(user)) {
+    if (/EN: <a resposta/.test(user)) return "EN: I can walk you through the checkout I built on Wake, from cart to payment.\nPT: Posso te mostrar o checkout que eu montei na Wake, do carrinho até o pagamento.\n- I would start by measuring the slowest page.\n- The hardest part was the mobile product list.";
+    return "Posso te mostrar o checkout que eu montei na Wake, do carrinho até o pagamento.\n- Se quiser, eu detalho onde a gente cortou o tempo de carga.\n- O mais difícil foi a lista de produtos no celular.";
   }
   return "(demonstração) Resposta simulada em português: nenhuma chamada de IA foi feita.";
 }

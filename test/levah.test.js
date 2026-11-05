@@ -36,10 +36,11 @@ test("leva H: chips por modo e Livecoding mantido como chip", () => {
   assert.match(preload, /liveNext/); assert.match(preload, /onLiveSession/);
 });
 
-test("leva H: prompts curtos (cola de tela), detectQuestion e livecoding só código", () => {
+test("leva H: sugestão em três falas, detectQuestion e livecoding só código", () => {
   const pt = prompts.suggest(LINES, { lang: "pt" });
-  assert.match(pt[0].content, /cola de tela/);
-  assert.match(pt[1].content, /no máximo 2 frases e 25 palavras/);
+  assert.match(pt[0].content, /específico ao contexto/);
+  assert.match(pt[1].content, /Três respostas que o Helison pode falar/);
+  assert.match(pt[1].content, /segunda resposta/);
   assert.doesNotMatch(pt[1].content, /EN: </);
   assert.match(prompts.suggest(LINES, { lang: "pt", more: true })[1].content, /mais elaborada/);
   assert.match(prompts.ask(LINES, "o que é CDN?")[1].content, /até 20 palavras[\s\S]*no máximo 3 bullets/);
@@ -53,7 +54,7 @@ test("leva H: prompts curtos (cola de tela), detectQuestion e livecoding só có
 });
 
 test("leva H: suggest rápido (120 tokens), ask 300, detect e code no host", () => {
-  assert.match(host, /"ai:suggest"[\s\S]{0,400}fast: true, maxTokens: more \? 200 : 120/);
+  assert.match(host, /"ai:suggest"[\s\S]{0,500}maxTokens: more \? 900 : 700/);
   assert.match(host, /search: !image, maxTokens: 300/);
   assert.match(host, /ipcMain\.handle\("ai:detect"/);
   assert.match(host, /ipcMain\.handle\("ai:code"/);

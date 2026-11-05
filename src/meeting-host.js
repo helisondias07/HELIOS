@@ -34,6 +34,8 @@ function transcribeLang(setting, who, mode) {
 // Blocos de áudio minúsculos (menos de ~0,5 s a 32 kbps) não têm fala: nem vão para a nuvem
 const MIN_AUDIO_BYTES = 2000;
 const tooSmall = (audio) => !audio || audio.length < MIN_AUDIO_BYTES;
+// Leitura de tela: o flash-lite erra texto denso de prova. Este modelo lê; o configurado entra se ele falhar.
+const VISION_MODEL = "gemini-2.5-flash";
 
 // Plano da tela na pergunta por voz. Sem Gemini e em demonstração não chama o capturador.
 function voiceScreenPlan({ mockMode = false, hasGemini = false } = {}) {
@@ -182,7 +184,8 @@ function registerMeeting({ getWin, closeMeeting, settings, vault, serverUrl, get
     const plan = [];
     if (imageBase64) {
       if (!current.gemini) throw new Error("A análise de tela usa o Gemini. Cole a chave no cofre do HELIOS.");
-      plan.push({ p: "gemini" });
+      const models = [VISION_MODEL, current.geminiModel].filter((name, i, all) => name && all.indexOf(name) === i);
+      for (const name of models) plan.push({ p: "gemini", m: name });
     } else {
       const groq = current.groq ? (fast ? [current.fastModel, current.llmModel] : [current.llmModel, current.fastModel]).map((model) => ({ p: "groq", m: model })) : [];
       const gem = current.gemini ? [{ p: "gemini" }] : [];
@@ -199,7 +202,16 @@ function registerMeeting({ getWin, closeMeeting, settings, vault, serverUrl, get
           const text = await providers.groqChat({ key: current.groq, model: step.m, messages, maxTokens, onDelta, search, signal });
           return { text, provider: tag(`Groq · ${step.m.replace("openai/", "")}`) };
         }
-        const text = await providers.geminiChat({ key: current.gemini, model: current.geminiModel, messages, imageBase64, search, signal });
+        const text = await providers.geminiChat({
+          key: current.gemini,
+          model: step.m || current.geminiModel,
+          messages,
+          imageBase64,
+          search,
+          signal,
+          maxTokens,
+          temperature: imageBase64 ? 0.1 : undefined,
+        });
         if (onDelta) onDelta(text);
         return { text, provider: tag("Gemini") };
       } catch (err) {
@@ -251,14 +263,14 @@ function registerMeeting({ getWin, closeMeeting, settings, vault, serverUrl, get
           types: ["screen"],
           thumbnailSize: {
             width: Math.min(1920, display.size.width * display.scaleFactor),
-            height: Math.min(1080, display.size.height * display.scaleFactor),
+            height: Math.min(1440, display.size.height * display.scaleFactor),
           },
         }),
         new Promise((_, reject) => setTimeout(() => reject(Object.assign(new Error("A captura da tela demorou demais."), { name: "TimeoutError" })), 8000)),
       ]);
       if (!sources.length) throw new Error("Não foi possível capturar a tela.");
       const thumb = sources[0].thumbnail;
-      return { base64: thumb.toJPEG(75).toString("base64"), preview: thumb.resize({ width: 320 }).toDataURL() };
+      return { base64: thumb.toJPEG(88).toString("base64"), preview: thumb.resize({ width: 320 }).toDataURL() };
     });
   }
   async function shotForSuggest() {
@@ -499,7 +511,7 @@ function registerMeeting({ getWin, closeMeeting, settings, vault, serverUrl, get
         image = shot.base64;
       }
     }
-    const result = await chat(prompts.ask(lines, question, { myContext: settings.get("myContext"), withScreen: !!image, meeting: meetingText(lines) }), { imageBase64: image, onDelta: stream(rid), search: !image, maxTokens: 300 });
+    const result = await chat(prompts.ask(lines, question, { myContext: settings.get("myContext"), withScreen: !!image, meeting: meetingText(lines) }), { imageBase64: image, onDelta: stream(rid), search: !image, maxTokens: image ? 1400 : 300 });
     return warn ? { ...result, warn } : result;
   }));
   ipcMain.handle("ai:roteiro", wrap(async (lines, topic, rid) => {
@@ -604,4 +616,4 @@ function registerMeeting({ getWin, closeMeeting, settings, vault, serverUrl, get
   return { loadPersonal, personalPath, abortInflight };
 }
 
-module.exports = { transcribeLang, registerMeeting, roteiroOffline, makeCache, tooSmall, MIN_AUDIO_BYTES, voiceScreenPlan, LIVE_SHOT_MS };
+module.exports = { transcribeLang, registerMeeting, roteiroOffline, makeCache, tooSmall, MIN_AUDIO_BYTES, voiceScreenPlan, LIVE_SHOT_MS, VISION_MODEL };

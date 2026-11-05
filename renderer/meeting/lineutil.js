@@ -68,6 +68,28 @@
     return elapsedMs >= 1000 && voiced >= 6 && silentTicks >= 12;
   }
   // Fila de transcrição: guarda só os últimos blocos. O mais antigo sai para a escuta não ficar minutos atrás.
+  // Tira marcador, número e título para a sugestão aparecer como fala, não como lista.
+  function toProse(text) {
+    const lines = String(text || '').replace(/\r\n/g, '\n').split('\n').map((line) => {
+      let s = line.trim();
+      if (!s) return '';
+      s = s.replace(/^#{1,6}\s+/, '');
+      s = s.replace(/^[-+•*]\s+/, '');
+      s = s.replace(/^\d{1,2}[.)]\s+/, '');
+      return s.trim();
+    });
+    return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  }
+  function proseParts(text) {
+    const body = toProse(text);
+    const rows = body.split('\n').map((s) => s.trim()).filter(Boolean);
+    const en = rows.find((r) => /^EN:/i.test(r));
+    const pt = rows.find((r) => /^PT:/i.test(r));
+    if (!en) return { main: body, sub: '' };
+    const rest = rows.filter((r) => r !== en && r !== pt).join('\n\n');
+    const main = [en.replace(/^EN:\s*/i, '').trim(), rest].filter(Boolean).join('\n\n');
+    return { main, sub: pt ? pt.replace(/^PT:\s*/i, '').trim() : '' };
+  }
   function enqueueStt(queue, item, max = 2) {
     const list = (Array.isArray(queue) ? queue : []).concat([item]);
     const dropped = list.length > max;
@@ -100,6 +122,6 @@
     if (!shape) return false;
     return words.length >= 3 && words.length <= 18;
   }
-  const api = { norm, isDuplicate, newSince, shownCursor, claimTranslate, isNoise, shouldCut, shouldCutVoice, isVoiceQuestion, enqueueStt };
+  const api = { norm, isDuplicate, newSince, shownCursor, claimTranslate, isNoise, shouldCut, shouldCutVoice, isVoiceQuestion, enqueueStt, toProse, proseParts };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.LineUtil = api;
 })(typeof window !== 'undefined' ? window : globalThis);

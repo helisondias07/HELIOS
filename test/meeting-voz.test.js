@@ -30,6 +30,20 @@ test("shouldCutVoice: pausa no microfone junta a frase, sem esperar metade do bl
   assert.equal(LineUtil.shouldCutVoice({ elapsedMs: 2200, voiced: 10, silentTicks: 8 }), false);
 });
 
+test("toProse: tira lista, número e título e deixa a fala corrida", () => {
+  const t = LineUtil.toProse("# Título\n- Verdadeiro, verdadeiro, falso.\n2. A primeira é verdadeira porque o treino vaza.");
+  assert.doesNotMatch(t, /^#/m);
+  assert.doesNotMatch(t, /^[-*]\s/m);
+  assert.match(t, /Verdadeiro, verdadeiro, falso/);
+  assert.match(t, /A primeira é verdadeira/);
+  const parts = LineUtil.proseParts("EN: I would measure the page first.\nPT: Eu mediria a página primeiro.\n- Then I would explain the checkout.");
+  assert.match(parts.main, /I would measure the page first/);
+  assert.match(parts.main, /Then I would explain the checkout/);
+  assert.equal(parts.sub, "Eu mediria a página primeiro.");
+  assert.doesNotMatch(app, /a\.bullets\.map/);
+  assert.match(app, /ansList'\)\.innerHTML = ''/);
+});
+
 test("enqueueStt: a fila fica nos dois blocos mais recentes", () => {
   let q = [];
   for (const n of [1, 2, 3]) {

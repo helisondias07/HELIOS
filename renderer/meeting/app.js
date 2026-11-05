@@ -92,25 +92,13 @@ function renderCaption(l) {
 }
 
 // ---------- card de resposta ----------
-function parseAnswer(text) {
-  const rows = String(text || '').split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
-  const strip = (r) => String(r || '').replace(/^[-+•*]\s*|^\d+[.)]\s*/, '').replace(/^(EN:|PT:)\s*/i, '').trim();
-  const en = rows.find((r) => /^EN:/i.test(r)); const pt = rows.find((r) => /^PT:/i.test(r));
-  if (en) {
-    const extras = rows.filter((r) => r !== en && r !== pt);
-    return { main: strip(en), sub: pt ? strip(pt) : '', bullets: extras.map(strip).filter(Boolean).slice(0, 3) };
-  }
-  const clean = rows.map(strip).filter(Boolean);
-  const [main = '', ...rest] = clean;
-  return { main, sub: '', bullets: rest.slice(0, 3) };
-}
 const linkify = (s) => esc(s).replace(/(https?:\/\/[^\s<)\]]+)/g, '<a class="lnk" data-link="$1">$1</a>');
 function paintAnswer(text, streaming = false) {
-  const a = parseAnswer(text);
+  const a = LineUtil.proseParts(text);
   $('ansMain').innerHTML = linkify(a.main || (streaming ? '…' : ''));
   $('ansMain').classList.toggle('wait', streaming && !a.main);
-  $('ansSub').textContent = a.sub;
-  $('ansList').innerHTML = a.bullets.map((b) => `<li>${linkify(b)}</li>`).join('');
+  $('ansSub').textContent = a.sub || '';
+  $('ansList').innerHTML = '';
   $('answer').querySelectorAll('[data-link]').forEach((k) => { k.onclick = async () => { const o = await api.openLink(k.dataset.link); if (!o.ok) toast(o.error || 'Não abri o link.'); }; });
 }
 function showAsked(asked) {
@@ -147,7 +135,7 @@ async function runAI(title, fn, { more = null, record = true, asked = '' } = {})
 function renderHistory() {
   const box = $('history'); box.innerHTML = '';
   state.chat.slice().reverse().slice(0, 12).forEach((m) => {
-    const b = document.createElement('button'); b.type = 'button'; b.textContent = `${m.at} · ${parseAnswer(m.text).main}`;
+    const b = document.createElement('button'); b.type = 'button'; b.textContent = `${m.at} · ${LineUtil.proseParts(m.text).main.split('\n')[0]}`;
     b.onclick = () => setAnswer(m.text, { title: m.title, asked: m.asked || '' }); box.appendChild(b);
   });
 }
@@ -359,7 +347,7 @@ async function translateRecent() {
     }
   } catch (e) { err = (e && e.message) || 'falha na tradução'; }
   const pts = them.map((l) => l.pt).filter(Boolean);
-  setAnswer(err || (pts.length ? [pts[pts.length - 1], ...pts.slice(0, -1).map((p) => `- ${p}`)].join('\n') : 'Não traduzi esse trecho.'), { title: 'Traduzir' });
+  setAnswer(err || (pts.length ? pts.slice().reverse().join('\n\n') : 'Não traduzi esse trecho.'), { title: 'Traduzir' });
   state.trShownId = LineUtil.shownCursor(state.lines, state.trShownId);
   saveHistory();
 }
@@ -622,7 +610,7 @@ function bind() {
   $('chipHist').onclick = () => (state.view === 'history' ? showView(state.last ? 'answer' : '') : (renderHistory(), showView('history')));
   $('chipQ').onclick = () => assist();
   $('btnMore').onclick = () => { if (state.last && state.last.more) state.last.more(); };
-  $('btnCopy').onclick = () => { if (state.last) { const a = parseAnswer(state.last.text); copyToast([a.main, ...a.bullets].join('\n'), 'Texto'); } };
+  $('btnCopy').onclick = () => { if (state.last) { const a = LineUtil.proseParts(state.last.text); copyToast([a.main, a.sub].filter(Boolean).join('\n\n'), 'Texto'); } };
   $('trEn').onclick = () => { if (state.trCurrent) copyToast(state.trCurrent.en, 'Inglês'); };
   $('btnCodeCopy').onclick = () => copyToast($('codeText').textContent, 'Código');
   $('btnPrev').onclick = () => stepLive(-1); $('btnNext').onclick = () => stepLive(1);

@@ -35,6 +35,13 @@ function transcribeLang(setting, who, mode) {
 const MIN_AUDIO_BYTES = 2000;
 const tooSmall = (audio) => !audio || audio.length < MIN_AUDIO_BYTES;
 
+// Plano da tela na pergunta por voz. Sem Gemini e em demonstração não chama o capturador.
+function voiceScreenPlan({ mockMode = false, hasGemini = false } = {}) {
+  if (mockMode) return { capture: false, image: "mock", warn: "" };
+  if (!hasGemini) return { capture: false, image: null, warn: "Sem a chave do Gemini, a pergunta por voz segue sem a tela." };
+  return { capture: true, image: null, warn: "" };
+}
+
 // Cache curto (LRU) de traduções já feitas: não paga a IA de novo pela mesma frase
 function makeCache(max = 300) {
   const map = new Map();
@@ -224,7 +231,8 @@ function registerMeeting({ getWin, closeMeeting, settings, vault, serverUrl, get
     throw lastErr;
   }
 
-  // Print da tela: guardado só aqui até o Helison confirmar na prévia; cancelar descarta.
+  // Print manual: guardado só aqui até o Helison confirmar na prévia; cancelar descarta.
+  // A pergunta por voz não lê nem apaga esta prévia — captura outra imagem, ou segue sem tela.
   let pendingShot = null;
   async function captureScreen() {
     const display = screen.getPrimaryDisplay();
@@ -426,14 +434,29 @@ function registerMeeting({ getWin, closeMeeting, settings, vault, serverUrl, get
     await shell.openExternal(parsed.toString());
     return {};
   }));
-  ipcMain.handle("ai:ask", wrap(async (lines, question, withScreen, rid) => {
+  ipcMain.handle("ai:ask", wrap(async (lines, question, withScreen, rid, screenMode) => {
     let image = null;
+    let warn = "";
     if (withScreen) {
-      const shot = pendingShot || await captureScreen();
-      pendingShot = null;
-      image = shot.base64;
+      if (screenMode === "voice") {
+        const plan = voiceScreenPlan({ mockMode: !!mock, hasGemini: !!cfg().gemini });
+        warn = plan.warn;
+        if (plan.capture) {
+          try {
+            image = (await captureScreen()).base64;
+          } catch {
+            image = null;
+            warn = "Não capturei a tela. Respondo só com o que você falou.";
+          }
+        } else if (plan.image) image = plan.image;
+      } else {
+        const shot = pendingShot || await captureScreen();
+        pendingShot = null;
+        image = shot.base64;
+      }
     }
-    return chat(prompts.ask(lines, question, { myContext: settings.get("myContext"), withScreen: !!image, meeting: meetingText(lines) }), { imageBase64: image, onDelta: stream(rid), search: !image, maxTokens: 300 });
+    const result = await chat(prompts.ask(lines, question, { myContext: settings.get("myContext"), withScreen: !!image, meeting: meetingText(lines) }), { imageBase64: image, onDelta: stream(rid), search: !image, maxTokens: 300 });
+    return warn ? { ...result, warn } : result;
   }));
   ipcMain.handle("ai:roteiro", wrap(async (lines, topic, rid) => {
     const current = cfg();
@@ -537,4 +560,4 @@ function registerMeeting({ getWin, closeMeeting, settings, vault, serverUrl, get
   return { loadPersonal, personalPath, abortInflight };
 }
 
-module.exports = { transcribeLang, registerMeeting, roteiroOffline, makeCache, tooSmall, MIN_AUDIO_BYTES };
+module.exports = { transcribeLang, registerMeeting, roteiroOffline, makeCache, tooSmall, MIN_AUDIO_BYTES, voiceScreenPlan };

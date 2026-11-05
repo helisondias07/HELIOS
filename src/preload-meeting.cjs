@@ -28,7 +28,7 @@ contextBridge.exposeInMainWorld("api", {
   explain: (lines, term, rid) => ipcRenderer.invoke("ai:explain", lines, term, rid),
   summary: (lines, rid) => ipcRenderer.invoke("ai:summary", lines, rid),
   wrapup: (lines, rid) => ipcRenderer.invoke("meeting:wrapup", lines, rid),
-  ask: (lines, question, withScreen, rid) => ipcRenderer.invoke("ai:ask", lines, question, withScreen, rid),
+  ask: (lines, question, withScreen, rid, screenMode) => ipcRenderer.invoke("ai:ask", lines, question, withScreen, rid, screenMode),
   roteiro: (lines, topic, rid) => ipcRenderer.invoke("ai:roteiro", lines, topic, rid),
   onDelta: (cb) => ipcRenderer.on("ai:delta", (_event, rid, text) => cb(rid, text)),
   saveHistory: (id, text) => ipcRenderer.invoke("history:save", id, text),

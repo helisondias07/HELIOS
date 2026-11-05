@@ -61,6 +61,30 @@
   function shouldCut({ elapsedMs = 0, maxMs = 6000, voiced = 0, silentTicks = 0 } = {}) {
     return elapsedMs >= Math.max(3000, maxMs * 0.5) && voiced >= 5 && silentTicks >= 8;
   }
-  const api = { norm, isDuplicate, newSince, shownCursor, claimTranslate, isNoise, shouldCut };
+  // Microfone da pergunta por voz: fecha na pausa, sem esperar metade do bloco.
+  // 5 medições com fala (~0,5 s) e 8 de silêncio (~0,8 s) — o mesmo fim de fala do modo conversa.
+  function shouldCutVoice({ elapsedMs = 0, voiced = 0, silentTicks = 0 } = {}) {
+    return elapsedMs >= 500 && voiced >= 5 && silentTicks >= 8;
+  }
+  // Pergunta do Helison para o HELIOS (não um "sim" nem um relato). "?" conta; sem "?", só forma de pergunta curta.
+  function isVoiceQuestion(text) {
+    if (isNoise(text)) return false;
+    const raw = String(text || '').trim();
+    const n = norm(raw);
+    if (n.length < 6) return false;
+    if (/^(oi|ola|obrigado|obrigada|valeu|ta bom|ok|beleza|entendi|perfeito|sim|nao|yes|yeah|thanks|thank you)$/.test(n)) return false;
+    const words = n.split(' ').filter(Boolean);
+    const head = words.slice(0, 10).join(' ');
+    // No começo da fala (com um "e", "então", "por favor" ou "Helios" na frente). "ele explica a..." não conta.
+    const directed = /^(?:(?:e|entao|por favor|helios|helio) )?(?:nao entendi|me ajuda|me explica|explica|o que (?:e|tem|significa|aparece)|o que eu (?:digo|falo|respondo)|como eu (?:digo|falo|respondo|faco)|como (?:faco|fazer)|what is|what s on|how do i|can you (?:explain|see))\b/.test(n);
+    if (directed) return true;
+    if (raw.includes('?')) return true;
+    if (/^como vai\b/.test(n)) return false;
+    const shape = /^(qual|quais|quem|onde|aonde|quando|por que|porque|pra que|para que|quanto|cade|why|where|who|when)\b/.test(head)
+      || /\b(por que|porque)\b/.test(head);
+    if (!shape) return false;
+    return words.length >= 3 && words.length <= 18;
+  }
+  const api = { norm, isDuplicate, newSince, shownCursor, claimTranslate, isNoise, shouldCut, shouldCutVoice, isVoiceQuestion };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.LineUtil = api;
 })(typeof window !== 'undefined' ? window : globalThis);

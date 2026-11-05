@@ -166,7 +166,7 @@ Janela flutuante (`Ctrl+Shift+Espaço` abre/fecha; X e Esc também fecham e **pa
 
 ### Otimizações do modo reunião (no repositório; ainda não instaladas)
 
-- **Menos espera**: o bloco de áudio é cortado cedo numa pausa de fala (depois de metade do bloco, no mínimo 3 s); a Groq é "aquecida" ao iniciar; lotes de tradução de até 3 falas; limite de tokens proporcional ao lote.
+- **Menos espera**: o bloco de áudio do PC é cortado cedo numa pausa de fala (depois de metade do bloco, no mínimo 3 s). O microfone, na pergunta por voz, fecha na pausa de cerca de 0,8 s (o mesmo fim de fala do modo conversa), sem esperar essa metade. A Groq é "aquecida" ao iniciar; lotes de tradução de até 3 falas; limite de tokens proporcional ao lote.
 - **Streaming**: uma fala traduzida sozinha, a resposta do Tradutor e as respostas do chat aparecem palavra por palavra.
 - **Sem retraduzir**: cache das últimas traduções (mesma frase não gasta nova chamada) e do Tradutor; fala já traduzida nunca volta para a fila; o resumo espera a tradução em andamento em vez de refazê-la; o bloco de contexto da reunião é reaproveitado enquanto nada muda.
 - **429 da Groq**: espera curta (até 3 s, 2 tentativas) na transcrição; mesmo áudio reenviado uma vez; tradução pausa 8 s e tenta de novo (até 3 vezes por fala); aviso em português.
@@ -174,7 +174,9 @@ Janela flutuante (`Ctrl+Shift+Espaço` abre/fecha; X e Esc também fecham e **pa
 - **Limpeza ao fechar**: X, Esc, atalho e fechar a janela cancelam as chamadas em andamento na nuvem, limpam filas, temporizadores e trilhas de áudio.
 - Conexão: reaproveita a conexão padrão do Electron (keep-alive) e faz uma chamada leve ao iniciar para abrir a conexão antes da primeira fala. Não há cliente HTTP próprio.
 - **Livecoding (roteiro).** A aba pede o que construir e mostra, em português e com letra grande, a visão geral, a lista de arquivos (caminho e papel) e depois cada seção: o que ela faz, o porquê, o bloco de código e onde colar. **Próximo** e **Anterior** mudam a tela. Copiar o bloco é opcional. O único arquivo do recurso é o estado da sessão (`sessions.json`), para retomar. Os arquivos da aula não são gravados e nenhum editor é aberto. O agente que monta o roteiro continua sem ferramentas e em sandbox.
-- Print da tela: sempre mostra uma prévia e só envia se você confirmar (Cancelar/Esc descartam).
+- **Olhar a tela** (atalho ou ícone): sempre mostra uma prévia e só envia se você confirmar (Cancelar/Esc descartam). A pílula continua fora da captura.
+- **Pergunta por voz** (escuta ligada e microfone ativo): ao terminar uma pergunta, a resposta aparece na pílula, sem digitar e sem Enter. A escuta do microfone e do áudio do PC segue depois da resposta. O áudio não é gravado em disco: vai só em memória até a transcrição.
+- **Incluir tela nas perguntas por voz** (menu ⋯ da pílula): ligado por padrão. Só envia um print enquanto a escuta está ativa, sem prévia. Desligue para perguntar por voz só com o texto; a escolha fica neste computador. Sem a chave do Gemini, a pergunta segue sem a tela e a pílula avisa. O atalho de olhar a tela continua pedindo confirmação.
 - Tempos por etapa (transcrição, tradução, resposta) aparecem discretos na barra de status.
 - Modo demonstração sem chamadas de IA: `HELIOS_MOCK=1`.
 - Roteiro de teste de 2 minutos: `Documents\HELIOS\teste-modo-reuniao.md`.
@@ -291,10 +293,12 @@ Atalhos do modo de reunião:
 | Ctrl+Shift+1 | Sugerir resposta em inglês |
 | Ctrl+Shift+2 | Sugerir resposta em português |
 | Ctrl+Shift+3 | Traduzir |
-| Ctrl+Shift+A | Perguntar |
-| Ctrl+Shift+Enter | Olhar a tela |
+| Ctrl+Shift+A | Perguntar (digitar) |
+| Ctrl+Shift+Enter | Olhar a tela (prévia e confirmação) |
 | Ctrl+Shift+T | Deixar o clique passar pela pílula |
 | Ctrl+Shift+setas | Mover a pílula |
+
+Com a escuta ligada, uma pergunta no microfone já pergunta sozinha (e olha a tela, se o item do menu estiver ligado). Não precisa desse atalho nem do Enter.
 
 Fechar a janela principal manda o HELIOS para a bandeja. Sair de verdade é pelo menu da bandeja. **Fechar modo de reunião**, na pílula, esconde só essa janela.
 

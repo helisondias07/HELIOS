@@ -13,6 +13,8 @@ contextBridge.exposeInMainWorld("api", {
   openLink: (url) => ipcRenderer.invoke("link:open", url),
   screenPreview: () => ipcRenderer.invoke("screen:preview"),
   screenCancel: () => ipcRenderer.invoke("screen:cancel"),
+  screenRefresh: () => ipcRenderer.invoke("screen:refresh"),
+  screenLiveStop: () => ipcRenderer.invoke("screen:liveStop"),
   translateBatch: (items, history, rid) => ipcRenderer.invoke("ai:translateBatch", items, history, rid),
   glossaryGet: () => ipcRenderer.invoke("glossary:get"),
   glossarySet: (text) => ipcRenderer.invoke("glossary:set", text),

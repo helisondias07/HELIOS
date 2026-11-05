@@ -47,8 +47,6 @@
     <button id="mTheme" type="button" role="menuitem">Tema</button>
     <label class="mrow"><span>Opacidade</span><input id="mOpacity" type="range" min="0.4" max="1" step="0.05"></label>
     <label class="mrow"><span>Microfone</span><input id="mMic" type="checkbox"></label>
-    <label class="mrow"><span>Incluir tela nas perguntas por voz</span><input id="mVoiceScreen" type="checkbox" checked></label>
-    <p id="mVoiceNote" class="mnote">Padrão ligado. A tela só entra na pergunta por voz enquanto a escuta está ativa, sem prévia.</p>
   </div>
 
   <div id="caption" class="caption hidden" aria-live="polite"><span class="cap-pt"></span></div>
@@ -70,6 +68,7 @@
     <p id="voiceHint" class="voice-hint hidden" aria-live="polite"></p>
 
     <div id="answer" class="answer hidden" aria-live="polite">
+      <div id="ansAsk" class="ans-ask hidden"></div>
       <div id="ansMain" class="ans-main"></div>
       <div id="ansSub" class="ans-sub"></div>
       <ul id="ansList" class="ans-list"></ul>

@@ -41,6 +41,8 @@ function voiceScreenPlan({ mockMode = false, hasGemini = false } = {}) {
   if (!hasGemini) return { capture: false, image: null, warn: "Sem a chave do Gemini, a pergunta por voz segue sem a tela." };
   return { capture: true, image: null, warn: "" };
 }
+// Com a escuta ativa o print fica na memória e é refeito. Mais novo que isto já serve a pergunta.
+const LIVE_SHOT_MS = 4000;
 
 // Cache curto (LRU) de traduções já feitas: não paga a IA de novo pela mesma frase
 function makeCache(max = 300) {
@@ -232,8 +234,9 @@ function registerMeeting({ getWin, closeMeeting, settings, vault, serverUrl, get
   }
 
   // Print manual: guardado só aqui até o Helison confirmar na prévia; cancelar descarta.
-  // A pergunta por voz não lê nem apaga esta prévia — captura outra imagem, ou segue sem tela.
+  // A escuta guarda outro print, só na memória, e a pergunta por voz não mexe nesta prévia.
   let pendingShot = null;
+  let liveShot = null;
   async function captureScreen() {
     const display = screen.getPrimaryDisplay();
     const sources = await desktopCapturer.getSources({
@@ -246,6 +249,20 @@ function registerMeeting({ getWin, closeMeeting, settings, vault, serverUrl, get
     if (!sources.length) throw new Error("Não foi possível capturar a tela.");
     const thumb = sources[0].thumbnail;
     return { base64: thumb.toJPEG(75).toString("base64"), preview: thumb.resize({ width: 320 }).toDataURL() };
+  }
+  async function refreshLiveShot() {
+    const plan = voiceScreenPlan({ mockMode: !!mock, hasGemini: !!cfg().gemini });
+    if (!plan.capture) {
+      liveShot = plan.image ? { base64: plan.image, at: Date.now() } : null;
+      return { at: liveShot ? liveShot.at : 0, warn: plan.warn };
+    }
+    const shot = await captureScreen();
+    liveShot = { base64: shot.base64, at: Date.now() };
+    return { at: liveShot.at, warn: "" };
+  }
+  function clearLiveShot() {
+    liveShot = null;
+    return {};
   }
 
   const wrap = (fn) => async (_event, ...args) => {
@@ -407,6 +424,11 @@ function registerMeeting({ getWin, closeMeeting, settings, vault, serverUrl, get
     pendingShot = null;
     return { ok: true };
   });
+  ipcMain.handle("screen:refresh", wrap(async () => refreshLiveShot()));
+  ipcMain.handle("screen:liveStop", () => {
+    clearLiveShot();
+    return { ok: true };
+  });
   const sayCache = makeCache(100);
   ipcMain.handle("ai:sayEn", wrap(async (text, rid) => {
     const said = String(text || "").trim();
@@ -442,12 +464,12 @@ function registerMeeting({ getWin, closeMeeting, settings, vault, serverUrl, get
         const plan = voiceScreenPlan({ mockMode: !!mock, hasGemini: !!cfg().gemini });
         warn = plan.warn;
         if (plan.capture) {
-          try {
-            image = (await captureScreen()).base64;
-          } catch {
-            image = null;
-            warn = "Não capturei a tela. Respondo só com o que você falou.";
+          const fresh = liveShot && Date.now() - liveShot.at <= LIVE_SHOT_MS;
+          if (!fresh) {
+            try { await refreshLiveShot(); } catch { /* usa o último print, se ainda houver */ }
           }
+          image = liveShot && liveShot.base64;
+          if (!image) warn = "Não capturei a tela. Respondo só com o que você falou.";
         } else if (plan.image) image = plan.image;
       } else {
         const shot = pendingShot || await captureScreen();
@@ -560,4 +582,4 @@ function registerMeeting({ getWin, closeMeeting, settings, vault, serverUrl, get
   return { loadPersonal, personalPath, abortInflight };
 }
 
-module.exports = { transcribeLang, registerMeeting, roteiroOffline, makeCache, tooSmall, MIN_AUDIO_BYTES, voiceScreenPlan };
+module.exports = { transcribeLang, registerMeeting, roteiroOffline, makeCache, tooSmall, MIN_AUDIO_BYTES, voiceScreenPlan, LIVE_SHOT_MS };

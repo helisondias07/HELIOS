@@ -5,7 +5,7 @@ const state = {
   lines: [], mode: 'pt', trCurrent: null, recording: false, starting: false, gen: 0, discard: false, shotPending: false, timing: {}, recs: [], streams: [], ctx: null, settings: {}, clickThrough: false,
   sessionId: newSessionId(), chat: [], pendingTr: [], trBusy: false, trPauseUntil: 0, trTimer: null, chunkAuto: 0, rateWaitMs: 5000, trShownId: 0, translating: false, rid: 0, startedAt: 0, timerIv: null,
   input: 'ask', view: '', last: null, question: '', capTimer: null, cardOpen: false, transcriptOpen: false,
-  voiceScreen: true, voiceBusy: false, voiceQueued: '', hearingMic: false,
+  voiceBusy: false, voiceQueued: '', hearingMic: false, screenIv: null, screenBusy: false,
 };
 function newSessionId() { const d = new Date(); const p = (n) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`; }
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -109,14 +109,23 @@ function paintAnswer(text, streaming = false) {
   $('ansList').innerHTML = a.bullets.map((b) => `<li>${linkify(b)}</li>`).join('');
   $('answer').querySelectorAll('[data-link]').forEach((k) => { k.onclick = async () => { const o = await api.openLink(k.dataset.link); if (!o.ok) toast(o.error || 'Não abri o link.'); }; });
 }
-function setAnswer(text, { title = '', more = null } = {}) {
+function showAsked(asked) {
+  const q = $('ansAsk');
+  if (!q) return;
+  const t = String(asked || '').trim();
+  q.textContent = t;
+  q.classList.toggle('hidden', !t);
+}
+function setAnswer(text, { title = '', more = null, asked = '' } = {}) {
   showView('answer');
-  state.last = { title, text, more };
+  state.last = { title, text, more, asked };
+  showAsked(asked);
   paintAnswer(text);
   $('btnMore').classList.toggle('hidden', !more);
 }
-async function runAI(title, fn, { more = null, record = true } = {}) {
+async function runAI(title, fn, { more = null, record = true, asked = '' } = {}) {
   showView('answer'); $('btnMore').classList.add('hidden');
+  showAsked(asked);
   paintAnswer('', true);
   const rid = ++state.rid;
   deltaHandlers.set(rid, (t) => paintAnswer(t, true));
@@ -126,16 +135,16 @@ async function runAI(title, fn, { more = null, record = true } = {}) {
   deltaHandlers.delete(rid);
   if (r.cancelled) return r;
   const text = r.ok ? (r.text || '—') : r.error;
-  setAnswer(text, { title, more: r.ok ? more : null });
+  setAnswer(text, { title, more: r.ok ? more : null, asked });
   if (!r.ok) { setStatus('erro'); if (r.rate) onRateLimit('resposta'); }
-  if (r.ok && record) { state.chat.push({ role: 'bot', title, text, at: new Date().toLocaleTimeString('pt-BR') }); renderHistory(); saveHistory(); }
+  if (r.ok && record) { state.chat.push({ role: 'bot', title, text, at: new Date().toLocaleTimeString('pt-BR'), asked }); renderHistory(); saveHistory(); }
   return r;
 }
 function renderHistory() {
   const box = $('history'); box.innerHTML = '';
   state.chat.slice().reverse().slice(0, 12).forEach((m) => {
     const b = document.createElement('button'); b.type = 'button'; b.textContent = `${m.at} · ${parseAnswer(m.text).main}`;
-    b.onclick = () => setAnswer(m.text, { title: m.title }); box.appendChild(b);
+    b.onclick = () => setAnswer(m.text, { title: m.title, asked: m.asked || '' }); box.appendChild(b);
   });
 }
 
@@ -173,36 +182,44 @@ function builtQuestion(q) {
   return `${question}${only}`;
 }
 function ask(q) {
-  return runAI('Perguntar', (rid) => api.ask(linesForAI(), builtQuestion(q), false, rid));
+  return runAI('Perguntar', (rid) => api.ask(linesForAI(), builtQuestion(q), false, rid), { asked: q });
 }
 
-// Pergunta por voz: o microfone fecha o bloco na pausa (~0,8 s) e, se for pergunta, responde na pílula.
-// A tela entra sem prévia só com o toggle ligado e a escuta ativa. O áudio não vai para o disco.
-// Os gravadores (PC e microfone) não param por causa da resposta.
-function loadVoiceScreen() {
-  try {
-    const saved = localStorage.getItem('heliosMeetingVoiceScreen');
-    state.voiceScreen = saved === null ? true : saved === '1';
-  } catch { state.voiceScreen = true; }
-  const box = $('mVoiceScreen');
-  if (box) box.checked = state.voiceScreen;
-}
+// Pergunta por voz: o mesmo chat de texto do Perguntar. A resposta não é lida em voz.
+// Com a escuta ativa a tela é atualizada sozinha, sem atalho, sem frase especial e sem prévia.
+// O áudio e o print não vão para o disco. Os gravadores (PC e microfone) não param por causa da resposta.
 function syncVoiceHint() {
   const el = $('voiceHint');
   if (!state.recording) { el.classList.add('hidden'); return; }
   el.classList.remove('hidden');
   if (!state.hearingMic) {
-    el.textContent = 'Para perguntar por voz, ligue o microfone no menu e comece a ouvir de novo.';
+    el.textContent = 'Para perguntar por voz, ligue o microfone no menu e comece a ouvir de novo. A tela continua atualizando enquanto a escuta está ativa.';
     return;
   }
-  el.textContent = state.voiceScreen
-    ? 'Pergunta no microfone: a resposta aparece aqui, com a tela, sem digitar. A escuta continua.'
-    : 'Pergunta no microfone: a resposta aparece aqui, sem enviar a tela. A escuta continua.';
+  el.textContent = 'Escuta ativa: a tela fica atualizada sozinha. Fale a pergunta. A resposta aparece aqui, só em texto. A escuta continua.';
 }
-function saveVoiceScreen(on) {
-  state.voiceScreen = !!on;
-  try { localStorage.setItem('heliosMeetingVoiceScreen', state.voiceScreen ? '1' : '0'); } catch { /* sem armazenamento */ }
-  syncVoiceHint();
+async function refreshScreen() {
+  if (!state.recording || state.discard || state.screenBusy || !api.screenRefresh) return;
+  state.screenBusy = true;
+  try {
+    const r = await api.screenRefresh();
+    if (!state.recording || state.discard) {
+      if (api.screenLiveStop) api.screenLiveStop().catch(() => {});
+      return;
+    }
+    if (r && r.warn) toastOnce(r.warn, 6000);
+  } catch { /* a pergunta tenta de novo na hora */ }
+  finally { state.screenBusy = false; }
+}
+function startScreenWatch() {
+  stopScreenWatch(false);
+  refreshScreen();
+  state.screenIv = setInterval(refreshScreen, 2500);
+}
+function stopScreenWatch(clear = true) {
+  clearInterval(state.screenIv);
+  state.screenIv = null;
+  if (clear && api.screenLiveStop) api.screenLiveStop().catch(() => {});
 }
 function maybeVoiceAsk(text) {
   if (!state.recording || state.discard || !state.hearingMic) return;
@@ -212,10 +229,10 @@ function maybeVoiceAsk(text) {
 }
 async function runVoiceAsk(text) {
   state.voiceBusy = true;
-  const withScreen = !!state.voiceScreen;
+  const withScreen = true;
   setStatus('respondendo à pergunta por voz…');
   try {
-    const r = await runAI('Pergunta por voz', (rid) => api.ask(linesForAI(), builtQuestion(text), withScreen, rid, withScreen ? 'voice' : undefined));
+    const r = await runAI('Pergunta por voz', (rid) => api.ask(linesForAI(), builtQuestion(text), withScreen, rid, withScreen ? 'voice' : undefined), { asked: text });
     if (r && r.warn) toastOnce(r.warn, 6000);
   } finally {
     state.voiceBusy = false;
@@ -496,7 +513,7 @@ async function start() {
     state.recording = true; setTiming({ cap: chunkSecs() });
     state.startedAt = Date.now(); tick(); state.timerIv = setInterval(tick, 1000);
     $('btnStart').classList.add('on'); $('dot').classList.add('live'); $('btnEnd').classList.remove('hidden');
-    setStatus('ouvindo'); openCard(true); syncVoiceHint();
+    setStatus('ouvindo'); openCard(true); syncVoiceHint(); startScreenWatch();
     if (api.setHotkeysActive) api.setHotkeysActive(true); // Ctrl+Enter só durante a reunião
   } catch (e) {
     giveUp(); setStatus('parado'); toast(`Não consegui iniciar: ${(e && e.message) || e}`, 7000);
@@ -508,7 +525,7 @@ function stopSession(discard = true) {
   state.recs.forEach((r) => r.stop()); state.recs = [];
   state.streams.forEach((s) => s.getTracks().forEach((t) => t.stop())); state.streams = [];
   if (state.ctx) { state.ctx.close(); state.ctx = null; }
-  clearInterval(state.timerIv); state.recording = false; state.hearingMic = false; state.voiceQueued = '';
+  clearInterval(state.timerIv); state.recording = false; state.hearingMic = false; state.voiceQueued = ''; stopScreenWatch();
   state.pendingTr.forEach((l) => { l.trq = false; }); state.pendingTr = []; clearTimeout(state.trTimer); state.trTimer = null; state.trPauseUntil = 0;
   if (discard) { deltaHandlers.clear(); streams.clear(); }
   shotDrop(); hideQuestion();
@@ -526,12 +543,11 @@ async function endMeeting() {
   $('transcript').innerHTML = ''; renderHistory(); $('caption').classList.add('hidden');
 }
 
-// ---------- menu: tema, opacidade, microfone e tela na pergunta por voz ----------
+// ---------- menu: tema, opacidade e microfone ----------
 function applyTheme(t) { document.documentElement.setAttribute('data-mtheme', t === 'light' ? 'light' : 'dark'); }
 function fillMenu() {
   $('mOpacity').value = Number(state.settings.opacity) || 1;
   $('mMic').checked = !!state.settings.captureMic;
-  $('mVoiceScreen').checked = state.voiceScreen !== false;
 }
 
 function bind() {
@@ -544,7 +560,6 @@ function bind() {
   $('mTheme').onclick = () => { const t = document.documentElement.getAttribute('data-mtheme') === 'light' ? 'dark' : 'light'; applyTheme(t); try { localStorage.setItem('heliosMeetingTheme', t); } catch { /* ok */ } };
   $('mOpacity').onchange = async () => { state.settings = await api.setSettings({ opacity: Number($('mOpacity').value) }); };
   $('mMic').onchange = async () => { state.settings = await api.setSettings({ captureMic: $('mMic').checked }); syncVoiceHint(); };
-  $('mVoiceScreen').onchange = () => saveVoiceScreen($('mVoiceScreen').checked);
   $('modePt').onclick = () => setMode('pt'); $('modeEn').onclick = () => setMode('en');
   $('chipSay').onclick = () => assist();
   $('chipSug').onclick = () => assist();
@@ -618,7 +633,6 @@ async function selftest() {
 
 (async () => {
   if (api.selftest) return selftest();
-  loadVoiceScreen();
   bind();
   let savedMode = 'pt'; try { savedMode = localStorage.getItem('heliosMeetingMode') || 'pt'; } catch { /* sem armazenamento */ }
   try { applyTheme(localStorage.getItem('heliosMeetingTheme') || 'dark'); } catch { applyTheme('dark'); }

@@ -67,6 +67,7 @@ button:focus-visible, input:focus-visible { outline: 1.5px solid var(--m-gold); 
 .mode-pt .only-en, .mode-en .only-pt { display: none !important; }
 
 .answer { position: relative; padding: 2px 92px 2px 4px; }
+.ans-ask { margin: 0 0 8px; color: var(--m-muted); font-size: 12px; line-height: 1.4; }
 .ans-main { font-size: 17px; line-height: 1.4; font-weight: 500; white-space: pre-wrap; }
 .ans-main.wait { color: var(--m-muted); }
 .ans-sub { color: var(--m-muted); font-size: 13px; margin-top: 4px; }

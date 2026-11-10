@@ -43,6 +43,7 @@ button:focus-visible, input:focus-visible { outline: 1.5px solid var(--m-gold); 
 .end { background: var(--m-fg); color: var(--m-bg-solid); border: 0; border-radius: 999px; height: 30px; padding: 0 12px; font-size: 12px; font-weight: 600; display: inline-flex; gap: 6px; align-items: center; }
 .end:hover { background: var(--m-gold); color: #0a0a0a; }
 .timer { font-variant-numeric: tabular-nums; opacity: 0.8; }
+.phase { font-size: 12px; font-weight: 600; color: var(--m-muted); min-width: 72px; padding: 0 6px; }
 
 .menu { position: fixed; top: 50px; z-index: 5; background: var(--m-bg-solid); backdrop-filter: blur(18px); border: 1px solid var(--m-line); border-radius: 12px; padding: 6px; display: flex; flex-direction: column; gap: 2px; min-width: 280px; max-width: 320px; }
 .menu > button, .mrow { background: none; border: 0; text-align: left; padding: 8px 10px; border-radius: 8px; display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 40px; }

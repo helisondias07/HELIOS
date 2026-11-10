@@ -1,8 +1,8 @@
 {
   "name": "helios",
   "productName": "HELIOS",
-  "version": "0.1.0",
-  "description": "HELIOS — assistente pessoal de desktop do Helison",
+  "version": "0.2.0",
+  "description": "HELIOS — assistente de reuniões para desktop",
   "author": "Helison",
   "private": true,
   "main": "src/main.js",
@@ -10,7 +10,6 @@
     "start": "electron .",
     "lint": "eslint server src renderer test scripts eslint.config.mjs",
     "check": "node scripts/check.js",
-    "eval": "node scripts/eval.js",
     "test": "node --test test/*.test.js",
     "icons": "node scripts/make-icons.js",
     "dist:win": "electron-builder --win nsis --publish never"
@@ -27,18 +26,9 @@
       "src/**/*",
       "server/**/*",
       "renderer/**/*",
-      "config/oauth-clients.json",
       "package.json"
     ],
     "asar": true,
-    "asarUnpack": [
-      "**/node_modules/@cursor/sdk/**",
-      "**/node_modules/@cursor/sdk-*/**",
-      "**/node_modules/zod/**",
-      "**/node_modules/@bufbuild/protobuf/**",
-      "**/node_modules/@connectrpc/connect/**",
-      "**/node_modules/@connectrpc/connect-web/**"
-    ],
     "electronFuses": {
       "runAsNode": false,
       "enableNodeOptionsEnvironmentVariable": false,
@@ -72,9 +62,7 @@
     }
   },
   "dependencies": {
-    "@cursor/sdk": "^1.0.31",
-    "dotenv": "^17.2.3",
-    "zod": "^4.6.7"
+    "dotenv": "^17.2.3"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

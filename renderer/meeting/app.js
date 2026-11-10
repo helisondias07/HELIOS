@@ -1,210 +1,148 @@
-'use strict';
-// LEVA H: modo reunião no estilo Cluely. Pílula + card de resposta; nada aparece até você pedir.
+"use strict";
+
 const $ = (id) => document.getElementById(id);
 const state = {
-  lines: [], mode: 'pt', trCurrent: null, recording: false, starting: false, gen: 0, discard: false, shotPending: false, timing: {}, recs: [], streams: [], ctx: null, settings: {}, clickThrough: false,
-  sessionId: newSessionId(), chat: [], pendingTr: [], trBusy: false, trPauseUntil: 0, trTimer: null, chunkAuto: 0, rateWaitMs: 5000, trShownId: 0, translating: false, rid: 0, startedAt: 0, timerIv: null,
-  input: 'ask', view: '', last: null, question: '', capTimer: null, cardOpen: false, transcriptOpen: false,
-  voiceBusy: false, voiceQueued: '', hearingMic: false, screenIv: null, screenBusy: false, sttBusy: 0,
+  lines: [], recording: false, starting: false, paused: false, gen: 0, discard: false, shotPending: false, timing: {}, recs: [], streams: [], ctx: null, settings: {}, clickThrough: false,
+  session: null, chat: [], pendingTr: [], trBusy: false, trPauseUntil: 0, trTimer: null, chunkAuto: 0, rateWaitMs: 5000, rid: 0, startedAt: 0, elapsedMs: 0, timerIv: null,
+  view: "insights", last: null, question: "", cardOpen: false, transcriptOpen: false,
+  voiceBusy: false, voiceQueued: "", hearingMic: false, screenIv: null, screenBusy: false, sttBusy: 0, ended: false,
 };
-function newSessionId() { const d = new Date(); const p = (n) => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`; }
-const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const esc = (s) => String(s || "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const fit = () => api.setHeight(Math.ceil($("root").getBoundingClientRect().height) + 4);
+new ResizeObserver(fit).observe($("root"));
+function openCard(on = true) { state.cardOpen = on; $("card").classList.toggle("hidden", !on); }
 
-// ---------- janela / card ----------
-const fit = () => api.setHeight(Math.ceil($('root').getBoundingClientRect().height) + 4);
-new ResizeObserver(fit).observe($('root'));
-function openCard(on = true) { state.cardOpen = on; $('card').classList.toggle('hidden', !on); }
-// Uma área de resultado por vez: resposta, tradução, código, histórico ou transcrição
-function showView(view) {
-  state.view = view; openCard(true);
-  for (const [v, id] of [['answer', 'answer'], ['tr', 'trOut'], ['code', 'codeOut'], ['history', 'history']]) $(id).classList.toggle('hidden', v !== view);
-  $('chipHist').classList.toggle('on', view === 'history');
-}
-function toggleTranscript(force) {
-  state.transcriptOpen = typeof force === 'boolean' ? force : !state.transcriptOpen;
-  openCard(true);
-  $('transcript').classList.toggle('hidden', !state.transcriptOpen);
-  $('chipTranscript').classList.toggle('on', state.transcriptOpen);
-  if (state.transcriptOpen) { const b = $('transcript'); b.scrollTop = b.scrollHeight; }
+function setPhase(text, { live = false, err = false } = {}) {
+  $("phase").textContent = text;
+  $("btnStart").title = text;
+  $("dot").classList.toggle("live", live);
+  $("dot").classList.toggle("err", err);
+  $("btnStart").classList.toggle("on", live || state.paused);
 }
 function toast(msg, ms = 3500) {
-  const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg;
-  $('root').appendChild(t); setTimeout(() => t.remove(), ms);
+  const t = document.createElement("div"); t.className = "toast"; t.textContent = msg;
+  $("root").appendChild(t); setTimeout(() => t.remove(), ms);
 }
-// Sem linha de status: o estado vira só a cor do ponto (o texto fica no título, para leitor de tela)
-const setStatus = (t) => { $('btnStart').title = t; $('dot').classList.toggle('err', /erro/.test(t)); };
-function setTiming(part) { Object.assign(state.timing, part); }
-// Avisos repetidos (erro a cada bloco de áudio) aparecem no máximo 1 vez a cada 30 s
 const lastToast = new Map();
 function toastOnce(msg, ms = 5000) { const now = Date.now(); if (now - (lastToast.get(msg) || 0) < 30000) return; lastToast.set(msg, now); toast(msg, ms); }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-// Blocos de áudio em segundos: o automático (depois de um 429 da Groq) vale só nesta sessão
 const chunkSecs = () => state.chunkAuto || Number(state.settings.chunkSeconds) || 9;
-// Limite da Groq: recua sozinho para blocos de 9 s (menos chamadas por minuto) e avisa em português
 function onRateLimit(where) {
   if (chunkSecs() < 9) {
-    state.chunkAuto = 9; setTiming({ cap: 9 });
-    toastOnce(`Limite da Groq (${where}). Aumentei o bloco de áudio para 9 s automaticamente.`, 6000);
+    state.chunkAuto = 9;
+    toastOnce(`Limite da Groq (${where}). Aumentei o bloco de áudio para 9 s.`, 6000);
   } else toastOnce(`Limite da Groq (${where}). Continuo em alguns segundos.`, 6000);
 }
-// Respostas em streaming (rid -> função que recebe o texto parcial)
 const deltaHandlers = new Map();
-const streams = deltaHandlers;
 api.onDelta((rid, text) => { const h = deltaHandlers.get(rid); if (h) h(text); });
 function mediaMessage(e, label) {
-  const n = (e && e.name) || '';
-  if (n === 'NotAllowedError' || n === 'SecurityError') return `${label}: o Windows ou o app negou a permissão.`;
-  if (n === 'NotFoundError' || n === 'OverconstrainedError') return `${label}: nenhum dispositivo encontrado.`;
-  if (n === 'NotReadableError' || n === 'AbortError') return `${label}: em uso por outro app.`;
-  if (n === 'NoAudio') return `${label}: sem áudio do sistema.`;
-  return `${label}: ${(e && e.message) || 'falhou'}.`;
+  const n = (e && e.name) || "";
+  if (n === "NotAllowedError" || n === "SecurityError") return `${label}: o sistema negou a permissão.`;
+  if (n === "NotFoundError" || n === "OverconstrainedError") return `${label}: nenhum dispositivo encontrado.`;
+  if (n === "NotReadableError" || n === "AbortError") return `${label}: em uso por outro app.`;
+  if (n === "NoAudio") return `${label}: sem áudio do sistema (no Linux isso é comum).`;
+  return `${label}: ${(e && e.message) || "falhou"}.`;
 }
 async function copyText(text) {
-  try { await navigator.clipboard.writeText(text); return true; } catch { /* sem foco: plano B */ }
-  try { const ta = document.createElement('textarea'); ta.value = text; ta.style.cssText = 'position:fixed;opacity:0'; document.body.appendChild(ta); ta.select(); const ok = document.execCommand('copy'); ta.remove(); return ok; } catch { return false; }
+  try { await navigator.clipboard.writeText(text); return true; } catch { /* plano B */ }
+  try { const ta = document.createElement("textarea"); ta.value = text; ta.style.cssText = "position:fixed;opacity:0"; document.body.appendChild(ta); ta.select(); const ok = document.execCommand("copy"); ta.remove(); return ok; } catch { return false; }
 }
-async function copyToast(text, what) { toast((await copyText(text)) ? `${what} copiado.` : 'Não copiei.', 1500); }
 
-// ---------- transcrição (escondida por padrão) ----------
-const WHO = { me: 'Você', them: 'Outro' };
+function showTranscript(on) {
+  state.transcriptOpen = on;
+  $("transcript").classList.toggle("hidden", !on);
+  $("chipTranscript").classList.toggle("on", on);
+  $("chipInsights").classList.toggle("on", !on && state.view === "insights");
+  if (on) { const b = $("transcript"); b.scrollTop = b.scrollHeight; }
+}
+function showInsights() {
+  state.view = "insights";
+  showTranscript(false);
+  $("answer").classList.remove("hidden");
+  $("chipInsights").classList.add("on");
+  openCard(true);
+}
+
+const WHO = { me: "Você", them: "Outro" };
 function renderLine(l) {
-  const box = $('transcript');
+  const box = $("transcript");
   let el = box.querySelector(`[data-id="${l.id}"]`);
   const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
-  if (!el) { el = document.createElement('div'); el.dataset.id = l.id; el.onclick = () => el.classList.toggle('open'); box.appendChild(el); }
-  // Modo EN: só a tradução do Outro aparece; o original abre ao clicar na linha
-  const hide = state.mode === 'en' && l.who === 'them' && l.lang !== 'pt';
-  el.className = `line ${l.who || ''}${hide ? '' : ' plain'}${el.classList.contains('open') ? ' open' : ''}`;
-  const tag = `<span class="who">${WHO[l.who] || ''}</span>`;
-  const pt = l.pt || l.live || (hide ? (l.trFailed ? '…' : state.settings.translate ? 'traduzindo…' : '…') : '');
-  el.innerHTML = `${tag}<span class="pt">${esc(pt)}</span><span class="orig">${esc(l.text)}</span>`;
+  if (!el) { el = document.createElement("div"); el.dataset.id = l.id; box.appendChild(el); }
+  el.className = `line ${l.who || ""} plain`;
+  el.innerHTML = `<span class="who">${WHO[l.who] || ""}</span><span class="orig">${esc(l.pt || l.text)}</span>`;
   if (atBottom) box.scrollTop = box.scrollHeight;
-  const last = state.lines[state.lines.length - 1];
-  if (last && last.id === l.id) renderCaption(l);
-}
-// Legenda ao vivo (só EN): uma linha fina com o PT da última fala do Outro; some depois de 8 s
-function renderCaption(l) {
-  const el = $('caption');
-  if (!l || state.mode !== 'en' || l.who !== 'them' || l.lang === 'pt' || !(l.pt || l.live)) return;
-  el.querySelector('.cap-pt').textContent = l.pt || l.live;
-  el.classList.remove('hidden');
-  clearTimeout(state.capTimer); state.capTimer = setTimeout(() => el.classList.add('hidden'), 8000);
 }
 
-// ---------- card de resposta ----------
-const linkify = (s) => esc(s).replace(/(https?:\/\/[^\s<)\]]+)/g, '<a class="lnk" data-link="$1">$1</a>');
 function paintAnswer(text, streaming = false) {
-  const a = LineUtil.proseParts(text);
-  $('ansMain').innerHTML = linkify(a.main || (streaming ? '…' : ''));
-  $('ansMain').classList.toggle('wait', streaming && !a.main);
-  $('ansSub').textContent = a.sub || '';
-  $('ansList').innerHTML = '';
-  $('answer').querySelectorAll('[data-link]').forEach((k) => { k.onclick = async () => { const o = await api.openLink(k.dataset.link); if (!o.ok) toast(o.error || 'Não abri o link.'); }; });
+  $("ansMain").textContent = text || (streaming ? "…" : "");
+  $("ansMain").classList.toggle("wait", streaming && !text);
 }
 function showAsked(asked) {
-  const q = $('ansAsk');
-  if (!q) return;
-  const t = String(asked || '').trim();
+  const q = $("ansAsk");
+  const t = String(asked || "").trim();
   q.textContent = t;
-  q.classList.toggle('hidden', !t);
+  q.classList.toggle("hidden", !t);
 }
-function setAnswer(text, { title = '', more = null, asked = '' } = {}) {
-  showView('answer');
+function setAnswer(text, { title = "", more = null, asked = "" } = {}) {
+  showInsights();
   state.last = { title, text, more, asked };
   showAsked(asked);
   paintAnswer(text);
-  $('btnMore').classList.toggle('hidden', !more);
+  $("btnMore").classList.toggle("hidden", !more);
 }
-async function runAI(title, fn, { more = null, record = true, asked = '' } = {}) {
-  showView('answer'); $('btnMore').classList.add('hidden');
+async function runAI(title, fn, { more = null, asked = "" } = {}) {
+  showInsights(); $("btnMore").classList.add("hidden");
   showAsked(asked);
-  paintAnswer('', true);
+  paintAnswer("", true);
   const rid = ++state.rid;
   deltaHandlers.set(rid, (t) => paintAnswer(t, true));
-  const t0 = performance.now();
   const r = await fn(rid);
-  setTiming({ ai: (performance.now() - t0) / 1000 });
   deltaHandlers.delete(rid);
   if (r.cancelled) return r;
-  const text = r.ok ? (r.text || '—') : r.error;
+  const text = r.ok ? (r.text || "—") : r.error;
   setAnswer(text, { title, more: r.ok ? more : null, asked });
-  if (!r.ok) { setStatus('erro'); if (r.rate) onRateLimit('resposta'); }
-  if (r.ok && record) { state.chat.push({ role: 'bot', title, text, at: new Date().toLocaleTimeString('pt-BR'), asked }); renderHistory(); saveHistory(); }
+  if (!r.ok) { setPhase("erro", { err: true }); if (r.rate) onRateLimit("resposta"); }
+  if (r.ok) state.chat.push({ role: "bot", title, text, asked });
+  if (r.warn) toastOnce(r.warn, 6000);
   return r;
 }
-function renderHistory() {
-  const box = $('history'); box.innerHTML = '';
-  state.chat.slice().reverse().slice(0, 12).forEach((m) => {
-    const b = document.createElement('button'); b.type = 'button'; b.textContent = `${m.at} · ${LineUtil.proseParts(m.text).main.split('\n')[0]}`;
-    b.onclick = () => setAnswer(m.text, { title: m.title, asked: m.asked || '' }); box.appendChild(b);
-  });
-}
-
 const linesForAI = () => state.lines.map(({ who, text }) => ({ who, text }));
-const chatContext = () => state.chat.filter((m) => m.text).slice(-3).map((m) => `${m.title}: ${m.text.slice(0, 300)}`).join('\n');
-
-// O que digo (PT) / Sugestão (EN): 1 resposta curta; "Mais" gera a versão elaborada
 function assist(more = false) {
-  const lang = state.mode === 'en' ? 'en' : 'pt';
   hideQuestion();
-  return runAI(lang === 'en' ? 'Sugestão' : 'O que digo', (rid) => api.suggest(linesForAI(), lang, rid, more), { more: more ? null : () => assist(true) });
-}
-
-// ---------- campo único: Perguntar (PT) · Dizer em EN (EN) · Livecoding ----------
-const INPUTS = { ask: ['', 'Pergunte…'], say: ['EN', 'Dizer em inglês…'], code: ['</>', 'Código…'] };
-function setInput(kind, focus = false) {
-  state.input = INPUTS[kind] ? kind : 'ask';
-  const [tag, ph] = INPUTS[state.input];
-  $('askTag').textContent = tag; $('askInput').placeholder = ph;
-  $('chipLive').classList.toggle('on', state.input === 'code');
-  $('chipSayEn').classList.toggle('on', state.input === 'say');
-  if (focus) { openCard(true); api.focus(); setTimeout(() => $('askInput').focus(), 40); }
-}
-const defaultInput = () => (state.mode === 'en' ? 'say' : 'ask');
-function submitInput(q) {
-  const t = String(q || '').trim(); if (!t) return;
-  if (state.input === 'code') return liveCode(t);
-  if (state.input === 'say' && state.mode === 'en') return translatePhrase(t);
-  return ask(t);
-}
-function builtQuestion(q) {
-  const ctx = chatContext();
-  const question = ctx ? `${q}\n\n(Respostas anteriores, para contexto:\n${ctx})` : q;
-  const only = state.mode === 'pt' ? '\n\n(Responda somente em português, sem frases em inglês.)' : '';
-  return `${question}${only}`;
+  return runAI("O que digo", (rid) => api.suggest(linesForAI(), "pt", rid, more), { more: more ? null : () => assist(true) });
 }
 function ask(q) {
-  return runAI('Perguntar', (rid) => api.ask(linesForAI(), builtQuestion(q), false, rid), { asked: q });
+  const screen = !!(state.session && state.session.captureScreen);
+  return runAI("Perguntar", (rid) => api.ask(linesForAI(), q, screen, rid, screen ? "voice" : undefined), { asked: q });
 }
 
-// Pergunta por voz: o mesmo chat de texto do Perguntar. A resposta não é lida em voz.
-// Com a escuta ativa a tela é atualizada sozinha, sem atalho, sem frase especial e sem prévia.
-// O áudio e o print não vão para o disco. Os gravadores (PC e microfone) não param por causa da resposta.
 function syncVoiceHint() {
-  const el = $('voiceHint');
-  if (!state.recording) { el.classList.add('hidden'); return; }
-  el.classList.remove('hidden');
-  if (!state.hearingMic) {
-    el.textContent = 'Para perguntar por voz, ligue o microfone no menu e comece a ouvir de novo. A tela continua atualizando enquanto a escuta está ativa.';
-    return;
-  }
-  el.textContent = 'Escuta ativa: a tela fica atualizada sozinha. Fale a pergunta. A resposta aparece aqui, só em texto. A escuta continua.';
+  const el = $("voiceHint");
+  if (!state.recording) { el.classList.add("hidden"); return; }
+  el.classList.remove("hidden");
+  el.textContent = state.hearingMic
+    ? "Ouvindo. Perguntas faladas aparecem como texto. Fatos vêm da transcrição; o resto é sugestão."
+    : "Sem microfone: só o áudio do computador. Ligue o microfone no menu para perguntar por voz.";
 }
+function syncScreenHint() {
+  const on = !!(state.session && state.session.captureScreen);
+  $("screenHint").classList.toggle("hidden", !on);
+}
+
 async function refreshScreen() {
-  if (!state.recording || state.discard || state.screenBusy || state.sttBusy || state.voiceBusy || !api.screenRefresh) return;
+  if (!state.recording || state.discard || state.screenBusy || state.sttBusy || !state.session || !state.session.captureScreen) return;
   state.screenBusy = true;
   try {
     const r = await api.screenRefresh();
-    if (!state.recording || state.discard) {
-      if (api.screenLiveStop) api.screenLiveStop().catch(() => {});
-      return;
-    }
+    if (!state.recording || state.discard) { api.screenLiveStop().catch(() => {}); return; }
     if (r && r.warn) toastOnce(r.warn, 6000);
-  } catch { /* a pergunta tenta de novo na hora */ }
+  } catch { /* a pergunta tenta de novo */ }
   finally { state.screenBusy = false; }
 }
 function startScreenWatch() {
   stopScreenWatch(false);
+  if (!state.session || !state.session.captureScreen) return;
   refreshScreen();
   state.screenIv = setInterval(refreshScreen, 8000);
 }
@@ -221,163 +159,51 @@ function maybeVoiceAsk(text) {
 }
 async function runVoiceAsk(text) {
   state.voiceBusy = true;
-  const withScreen = true;
-  setStatus('respondendo à pergunta por voz…');
+  const withScreen = !!(state.session && state.session.captureScreen);
+  setPhase("respondendo…");
   try {
-    const r = await runAI('Pergunta por voz', (rid) => api.ask(linesForAI(), builtQuestion(text), withScreen, rid, withScreen ? 'voice' : undefined), { asked: text });
+    const r = await runAI("Pergunta por voz", (rid) => api.ask(linesForAI(), text, withScreen, rid, withScreen ? "voice" : undefined), { asked: text });
     if (r && r.warn) toastOnce(r.warn, 6000);
   } finally {
     state.voiceBusy = false;
-    if (state.recording) setStatus('ouvindo');
+    if (state.recording) setPhase("Ouvindo", { live: true });
     const next = state.voiceQueued;
-    state.voiceQueued = '';
+    state.voiceQueued = "";
     if (next && state.recording && !state.discard) maybeVoiceAsk(next);
   }
 }
 
-// Tradutor PT→EN (modo EN): o inglês sai grande para ler em voz alta, o PT pequeno embaixo
-function showTranslation(item) {
-  state.trCurrent = item; showView('tr');
-  $('trEn').textContent = item.en; $('trPt').textContent = item.pt || '';
-}
-async function translatePhrase(text) {
-  const t = String(text || '').trim(); if (!t) return;
-  showView('tr'); $('trEn').textContent = '…'; $('trPt').textContent = '';
-  const t0 = performance.now();
-  const rid = ++state.rid;
-  deltaHandlers.set(rid, (text) => { const part = (text.match(/^EN:\s*(.*)$/m) || [])[1]; if (part) $('trEn').textContent = part; });
-  const r = await api.sayEn(t, rid);
-  deltaHandlers.delete(rid);
-  setTiming({ ai: (performance.now() - t0) / 1000 });
-  if (r.cancelled) return;
-  if (!r.ok) { $('trEn').textContent = ''; $('trPt').textContent = r.error; return; }
-  const en = ((r.text || '').match(/^EN:\s*(.*)$/m) || [])[1] || (r.text || '').trim();
-  const pt = ((r.text || '').match(/^PT:\s*(.*)$/m) || [])[1] || '';
-  const item = { src: t, en, pt };
-  state.chat.push({ role: 'bot', title: 'Dizer em EN', text: `EN: ${en}\nPT: ${pt}`, at: new Date().toLocaleTimeString('pt-BR') }); renderHistory();
-  showTranslation(item);
-}
-
-// ---------- Livecoding: só o código, curto e direto ----------
-let live = null;
-async function liveCode(request) {
-  live = null; $('liveNav').classList.add('hidden');
-  showView('code'); $('codeText').textContent = '…';
-  const rid = ++state.rid;
-  deltaHandlers.set(rid, (t) => { $('codeText').textContent = t.replace(/^\s*```[\w-]*\s*\n?/, ''); });
-  const r = await api.code(linesForAI(), request, rid);
-  deltaHandlers.delete(rid);
-  if (r.cancelled) return;
-  $('codeText').textContent = r.ok ? (r.text || '') : r.error;
-  if (r.ok) { state.chat.push({ role: 'bot', title: 'Livecoding', text: r.text, at: new Date().toLocaleTimeString('pt-BR') }); renderHistory(); saveHistory(); }
-}
-// Roteiro de livecoding aberto pelo chat do HELIOS: mostra só o bloco de código atual, com ‹ ›
-function renderLive() {
-  if (!live) return;
-  showView('code');
-  const total = live.total || 1; const cursor = Number(live.cursor) || 0;
-  const atual = live.atual;
-  $('codeText').textContent = atual && atual.codigo ? `${atual.arquivo ? `// ${atual.arquivo}\n` : ''}${atual.codigo}` : (live.arquivos || []).map((f) => `// ${f.path}`).join('\n') || live.title || '';
-  $('liveNav').classList.remove('hidden');
-  $('liveCount').textContent = `${Math.min(total, cursor + 1)}/${total}`;
-  $('btnPrev').disabled = cursor <= 0;
-  $('btnNext').disabled = live.status === 'done' || cursor >= total - 1;
-}
-async function stepLive(dir) {
-  if (!live) return;
-  const r = dir > 0 ? await api.liveNext(live.id) : await api.livePrev(live.id);
-  if (!r.ok) { toast(r.error || 'Não andei o roteiro.'); return; }
-  live = r.session; renderLive();
-}
-
-// Alterna PT/EN (lembra a última escolha). PT não tem nada em inglês.
-function setMode(mode, persist = true) {
-  state.mode = mode === 'en' ? 'en' : 'pt';
-  $('root').classList.toggle('mode-en', state.mode === 'en'); $('root').classList.toggle('mode-pt', state.mode === 'pt');
-  $('modePt').classList.toggle('active', state.mode === 'pt'); $('modeEn').classList.toggle('active', state.mode === 'en');
-  if (persist) { try { localStorage.setItem('heliosMeetingMode', state.mode); } catch { /* sem armazenamento */ } }
-  if (state.mode === 'pt') { $('caption').classList.add('hidden'); if (state.view === 'tr') showView(''); }
-  if (state.input !== 'code') setInput(defaultInput());
-  state.lines.forEach(renderLine);
-}
-// Falas anteriores (só texto original) que acompanham a tradução; a quantidade vem dos Ajustes
-function historyBefore(id) {
-  const n = Number(state.settings.translateHistory ?? 3);
-  return n > 0 ? state.lines.filter((l) => l.id < id && l.text).slice(-n).map((l) => l.text) : [];
-}
-
-// ---------- pergunta detectada (chip dinâmico, Tab responde) ----------
 async function detectQuestion(line) {
-  if (!api.detect || line.who !== 'them') return;
+  if (!api.detect || line.who !== "them") return;
   const r = await api.detect(line.text);
   if (!r || !r.ok || !r.question || state.discard) return;
   state.question = r.question;
-  $('chipQText').textContent = r.question; $('chipQ').classList.remove('hidden'); openCard(true);
+  $("chipQText").textContent = r.question; $("chipQ").classList.remove("hidden"); openCard(true);
 }
-function hideQuestion() { state.question = ''; $('chipQ').classList.add('hidden'); }
+function hideQuestion() { state.question = ""; $("chipQ").classList.add("hidden"); }
 
-// Print da tela: miniatura com ✓ e ✕; nada é enviado antes do ✓
 async function screenAsk() {
   const r = await api.screenPreview();
-  if (!r.ok) { toast(r.error || 'Não capturei a tela.', 5000); return; }
+  if (!r.ok) { toast(r.error || "Não capturei a tela.", 5000); return; }
   openCard(true);
-  state.shotPending = true; $('shotImg').src = r.preview; $('shotBox').classList.remove('hidden');
+  state.shotPending = true; $("shotImg").src = r.preview; $("shotBox").classList.remove("hidden");
 }
-function shotHide() { state.shotPending = false; $('shotBox').classList.add('hidden'); $('shotImg').removeAttribute('src'); }
+function shotHide() { state.shotPending = false; $("shotBox").classList.add("hidden"); $("shotImg").removeAttribute("src"); }
 function shotCancel() { shotHide(); api.screenCancel(); }
 function shotDrop() { if (state.shotPending) { shotHide(); api.screenCancel(); } }
-async function shotSend() { shotHide(); await runAI('Tela', (rid) => api.ask(linesForAI(), 'Analise minha tela junto com a conversa e diga, em português, o que eu devo fazer ou dizer agora.', true, rid)); }
+async function shotSend() { shotHide(); await runAI("Tela", (rid) => api.ask(linesForAI(), "Use só o que for relevante à reunião neste print. Não descreva o PC inteiro.", true, rid)); }
 
-// Modo EN: só a tradução em português do que o Outro disse por último (3 falas); o original não aparece
-async function translateRecent() {
-  const them = state.lines.filter((l) => l.who === 'them' && l.lang !== 'pt').slice(-3);
-  if (!them.length) { toast('Ainda não ouvi o Outro.', 2000); return; }
-  showView('answer'); paintAnswer('', true); $('btnMore').classList.add('hidden');
-  let err = '';
-  try {
-    // não traduz de novo o que já está a caminho (legenda ao vivo): espera o lote em andamento terminar
-    const deadline = Date.now() + 8000;
-    while (them.some((l) => l.trq && !l.pt) && Date.now() < deadline && !state.discard) await sleep(150);
-    const missing = them.filter((l) => !l.pt);
-    if (missing.length) {
-      const t0 = performance.now();
-      const r = await api.translateBatch(missing.map((l) => ({ id: l.id, text: l.text })), historyBefore(missing[0].id));
-      setTiming({ tr: (performance.now() - t0) / 1000 });
-      if (r.ok) { for (const it of r.items) { const l = state.lines.find((x) => x.id === it.id); if (l && it.pt) { l.pt = it.pt; renderLine(l); } } } else err = r.error || 'falha na tradução';
-    }
-  } catch (e) { err = (e && e.message) || 'falha na tradução'; }
-  const pts = them.map((l) => l.pt).filter(Boolean);
-  setAnswer(err || (pts.length ? pts.slice().reverse().join('\n\n') : 'Não traduzi esse trecho.'), { title: 'Traduzir' });
-  state.trShownId = LineUtil.shownCursor(state.lines, state.trShownId);
-  saveHistory();
-}
-
-// ---------- histórico ----------
-let saveTimer = null;
-function saveHistory() {
-  clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    if (!state.lines.length && !state.chat.length) return;
-    const md = `# Reunião ${state.sessionId}\n\n## Transcrição\n\n` +
-      state.lines.map((l) => `- ${l.who === 'me' ? '**Você:** ' : l.who === 'them' ? '**Outro:** ' : ''}${l.text}${l.pt ? `\n  > ${l.pt}` : ''}`).join('\n') +
-      (state.chat.length ? '\n\n## Respostas\n\n' + state.chat.map((m) => `**${m.title} (${m.at}):**\n\n${m.text}`).join('\n\n') : '') + '\n';
-    api.saveHistory(state.sessionId, md);
-  }, 1500);
-}
-async function refreshRate() { /* a cota fica no app principal; aqui só o ponto colorido */ }
-
-// ---------- captura: som do PC (Outro) e microfone (Você) em dois gravadores separados ----------
-const MIME = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus'].find((m) => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || '';
+const MIME = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus"].find((m) => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || "";
 let seq = 0;
 const sttQ = { me: [], them: [] };
 const sttOn = { me: false, them: false };
-function sttKey(who) { return who === 'me' ? 'me' : 'them'; }
+function sttKey(who) { return who === "me" ? "me" : "them"; }
 function syncSttBusy() { state.sttBusy = (sttOn.me ? 1 : 0) + (sttOn.them ? 1 : 0); }
 function enqueueChunk(blob, who, retry = false) {
   const key = sttKey(who);
   const packed = LineUtil.enqueueStt(sttQ[key], { blob, retry }, 2);
   sttQ[key] = packed.queue;
-  if (packed.dropped) toastOnce('A transcrição atrasou. Sigo com o trecho mais recente.');
+  if (packed.dropped) toastOnce("A transcrição atrasou. Sigo com o trecho mais recente.");
   pumpStt(key);
 }
 async function pumpStt(who) {
@@ -388,7 +214,7 @@ async function pumpStt(who) {
   try { await handleChunk(job.blob, key, job.retry); }
   finally {
     sttOn[key] = false; syncSttBusy();
-    if (state.recording && !state.sttBusy && !state.voiceBusy) setStatus('ouvindo');
+    if (state.recording && !state.sttBusy && !state.voiceBusy) setPhase("Ouvindo", { live: true });
     pumpStt(key);
   }
 }
@@ -399,30 +225,29 @@ function makeRecorder(stream, ctx, analyserSrc, who) {
   stream.getAudioTracks().forEach((track) => {
     track.onended = () => {
       if (rec.stopped) return;
-      setStatus('erro: áudio caiu');
-      toastOnce(who === 'me' ? 'O microfone parou. Toque em ouvir para retomar.' : 'O áudio do PC parou. Toque em ouvir para retomar.', 7000);
+      setPhase("erro: áudio caiu", { err: true });
+      toastOnce(who === "me" ? "O microfone parou. Toque em ouvir para retomar." : "O áudio do PC parou. Toque em ouvir para retomar.", 7000);
     };
   });
   rec.meter = setInterval(() => {
     an.getFloatTimeDomainData(buf);
     let sum = 0; for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
     if (Math.sqrt(sum / buf.length) > 0.01) { rec.voiced++; rec.silent = 0; } else rec.silent++;
-    // Áudio do PC: pausa depois de metade do bloco. Microfone: pausa de ~1,2 s, para a frase ir inteira.
     const elapsedMs = Date.now() - rec.startAt;
-    const cut = who === 'me'
+    const cut = who === "me"
       ? LineUtil.shouldCutVoice({ elapsedMs, voiced: rec.voiced, silentTicks: rec.silent })
       : LineUtil.shouldCut({ elapsedMs, maxMs: chunkSecs() * 1000, voiced: rec.voiced, silentTicks: rec.silent });
-    if (rec.mr && rec.mr.state === 'recording' && cut) rec.mr.stop();
+    if (rec.mr && rec.mr.state === "recording" && cut) rec.mr.stop();
   }, 100);
   const cycle = () => {
     if (rec.stopped) return;
-    if (!stream.getAudioTracks().some((t) => t.readyState === 'live')) return;
+    if (!stream.getAudioTracks().some((t) => t.readyState === "live")) return;
     const chunks = [];
     let mr;
     try {
       mr = new MediaRecorder(stream, MIME ? { mimeType: MIME, audioBitsPerSecond: 32000 } : undefined);
     } catch (e) {
-      toastOnce(mediaMessage(e, who === 'me' ? 'Microfone' : 'Áudio do PC'));
+      toastOnce(mediaMessage(e, who === "me" ? "Microfone" : "Áudio do PC"));
       if (!rec.stopped) setTimeout(cycle, 400);
       return;
     }
@@ -430,251 +255,212 @@ function makeRecorder(stream, ctx, analyserSrc, who) {
     mr.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
     mr.onstop = () => {
       const voiced = rec.voiced;
-      const blob = chunks.length ? new Blob(chunks, { type: mr.mimeType || 'audio/webm' }) : null;
-      // Solta a trilha antes de abrir o próximo bloco. No mesmo instante o Chromium às vezes trava o áudio.
+      const blob = chunks.length ? new Blob(chunks, { type: mr.mimeType || "audio/webm" }) : null;
       if (!rec.stopped) setTimeout(cycle, 40);
-      if (voiced < 5 || !blob) return; // silêncio: não gasta cota
+      if (voiced < 5 || !blob) return;
       enqueueChunk(blob, who);
     };
     try { mr.start(); }
     catch (e) {
-      toastOnce(mediaMessage(e, who === 'me' ? 'Microfone' : 'Áudio do PC'));
+      toastOnce(mediaMessage(e, who === "me" ? "Microfone" : "Áudio do PC"));
       if (!rec.stopped) setTimeout(cycle, 400);
       return;
     }
-    rec.timer = setTimeout(() => { if (mr.state !== 'inactive') mr.stop(); }, chunkSecs() * 1000);
+    rec.timer = setTimeout(() => { if (mr.state !== "inactive") mr.stop(); }, chunkSecs() * 1000);
   };
   cycle();
-  rec.stop = () => { rec.stopped = true; clearTimeout(rec.timer); clearInterval(rec.meter); if (rec.mr && rec.mr.state !== 'inactive') rec.mr.stop(); };
+  rec.stop = () => { rec.stopped = true; clearTimeout(rec.timer); clearInterval(rec.meter); if (rec.mr && rec.mr.state !== "inactive") rec.mr.stop(); };
   return rec;
 }
 
-async function handleChunk(blob, who = 'them', retried = false, forcedId = 0) {
-  if (state.discard) return; // janela fechada: nada que ainda estava a caminho vai para a nuvem
+async function handleChunk(blob, who = "them", retried = false, forcedId = 0) {
+  if (state.discard) return;
   const id = forcedId || ++seq;
-  const t0 = performance.now();
-  const r = await api.transcribe(await blob.arrayBuffer(), blob.type, who, state.mode);
-  setTiming({ stt: (performance.now() - t0) / 1000 });
-  refreshRate();
+  const r = await api.transcribe(await blob.arrayBuffer(), blob.type, who, "pt");
   if (state.discard || r.cancelled) return;
   if (!r.ok && r.rate) {
-    onRateLimit('transcrição');
-    // Não dorme em cima da fila: se já chegou fala mais nova, segue nela. Senão tenta este bloco uma vez.
-    if (!retried && !sttQ[sttKey(who)].length) { setStatus('limite da Groq: tentando de novo…'); await sleep(state.rateWaitMs); return handleChunk(blob, who, true, id); }
+    onRateLimit("transcrição");
+    if (!retried && !sttQ[sttKey(who)].length) { setPhase("limite da Groq…"); await sleep(state.rateWaitMs); return handleChunk(blob, who, true, id); }
   }
-  if (!r.ok) { toastOnce(`Transcrição (${who === 'me' ? 'microfone' : 'áudio do PC'}): ${r.error}`); if (state.recording) setStatus('ouvindo'); return; }
-  if (state.recording) setStatus(state.listenText || 'ouvindo…');
-  if (!r.text || r.skipped || LineUtil.isNoise(r.text)) return; // vazio, só pontuação ou legenda inventada no silêncio
+  if (!r.ok) { toastOnce(`Transcrição (${who === "me" ? "microfone" : "áudio do PC"}): ${r.error}`); if (state.recording) setPhase("Ouvindo", { live: true }); return; }
+  if (state.recording) setPhase("Ouvindo", { live: true });
+  if (!r.text || r.skipped || LineUtil.isNoise(r.text)) return;
   const recent = state.lines.filter((l) => l.id < id).slice(-8).map((l) => l.text);
   if (LineUtil.isDuplicate(recent, r.text)) {
-    if (who === 'me') maybeVoiceAsk(r.text); // a mesma pergunta de novo ainda responde; a linha não duplica
+    if (who === "me") maybeVoiceAsk(r.text);
     return;
   }
-  const line = { id, who, text: r.text, lang: r.language || '', pt: '' };
+  const line = { id, who, text: r.text, lang: r.language || "", pt: "" };
   state.lines.push(line); state.lines.sort((a, b) => a.id - b.id);
-  renderLine(line); saveHistory();
-  if (who === 'me') maybeVoiceAsk(line.text);
-  if (who === 'them') detectQuestion(line);
-  if (state.mode === 'en' && state.settings.translate && who !== 'me' && line.lang !== 'pt') { line.trq = true; state.pendingTr.push(line); pumpTranslate(); }
+  renderLine(line);
+  if (who === "me") maybeVoiceAsk(line.text);
+  if (who === "them") detectQuestion(line);
 }
 
-async function pumpTranslate() {
-  if (state.trBusy || !state.pendingTr.length) return;
-  const wait = state.trPauseUntil - Date.now();
-  if (wait > 0) { if (!state.trTimer) state.trTimer = setTimeout(() => { state.trTimer = null; pumpTranslate(); }, wait + 50); return; } // recuo depois de 429
-  state.trBusy = true;
-  const taken = state.pendingTr.splice(0, 3); // lotes pequenos: a legenda aparece mais cedo
-  taken.filter((l) => l.pt).forEach((l) => { l.trq = false; }); // já traduzida: não traduz de novo
-  const batch = taken.filter((l) => !l.pt);
-  if (batch.length) {
-    batch.forEach((l) => { l.tries = (l.tries || 0) + 1; });
-    const rid = batch.length === 1 ? ++state.rid : 0; // uma fala só: a tradução aparece palavra a palavra
-    if (rid) deltaHandlers.set(rid, (text) => { const part = text.replace(/^\s*\d+\s*[|.)-]\s*/, '').trim(); if (part && !batch[0].pt) { batch[0].live = part; renderLine(batch[0]); } });
-    const t0 = performance.now();
-    const r = await api.translateBatch(batch.map((l) => ({ id: l.id, text: l.text })), historyBefore(batch[0].id), rid);
-    if (rid) deltaHandlers.delete(rid);
-    batch.forEach((l) => { l.live = ''; });
-    if (state.discard || r.cancelled) { batch.forEach((l) => { l.trq = false; }); state.trBusy = false; return; }
-    setTiming({ tr: (performance.now() - t0) / 1000 });
-    if (r.ok) {
-      for (const it of r.items) { const l = state.lines.find((x) => x.id === it.id); if (l && it.pt && it.pt.trim() !== l.text.trim()) { l.pt = it.pt; renderLine(l); } }
-      batch.forEach((l) => { l.trq = false; if (!l.pt) { l.trFailed = true; renderLine(l); } });
-      state.trShownId = LineUtil.shownCursor(state.lines, state.trShownId);
-    } else if (r.rate) {
-      // limite da Groq: espera alguns segundos e tenta o mesmo lote de novo (no máximo 3 vezes por fala)
-      state.trPauseUntil = Date.now() + 8000;
-      toastOnce('Limite da Groq na tradução. Espero alguns segundos e continuo (as falas já estão na transcrição).', 9000);
-      const again = batch.filter((l) => l.tries < 3);
-      batch.filter((l) => l.tries >= 3).forEach((l) => { l.trq = false; l.trFailed = true; renderLine(l); });
-      state.pendingTr.unshift(...again);
-    } else { batch.forEach((l) => { l.trq = false; l.trFailed = true; renderLine(l); }); toastOnce(`Tradução: ${r.error}`); }
-    saveHistory();
-  }
-  state.trBusy = false;
-  if (state.pendingTr.length) pumpTranslate();
+function tick() {
+  const s = Math.floor((state.elapsedMs + (state.recording ? Date.now() - state.startedAt : 0)) / 1000);
+  $("timer").textContent = `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 }
-
-function tick() { const s = Math.floor((Date.now() - state.startedAt) / 1000); $('timer').textContent = `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`; }
 
 async function start() {
-  if (state.starting || state.recording) return;
+  if (state.starting || state.recording || state.ended) return;
   state.settings = await api.getSettings();
-  if (!state.settings.hasGroqKey && !state.settings.hasGeminiKey) { toast('Falta a chave da Groq: Ajustes › Reunião, ou peça ao HELIOS.', 6000); setStatus('erro: sem chave'); return; }
-  state.starting = true; state.discard = false; state.chunkAuto = 0;
-  if (typeof api.warm === 'function') api.warm().catch(() => {}); // aquece a conexão com a Groq enquanto o áudio abre
+  state.session = state.settings.session || state.session;
+  if (!state.settings.hasGroqKey && !state.settings.hasGeminiKey && !state.settings.mock) {
+    toast("Falta a chave da Groq em Ajustes. Sem chave, a transcrição não roda.", 6000);
+    setPhase("sem chave", { err: true });
+    return;
+  }
+  state.starting = true; state.discard = false; state.paused = false; state.chunkAuto = 0;
+  if (typeof api.warm === "function") api.warm().catch(() => {});
   const gen = state.gen; const alive = () => state.gen === gen;
-  setStatus('abrindo o áudio…');
+  setPhase("abrindo áudio…");
   const ctx = new AudioContext();
   const sources = []; const problems = []; const opened = [];
   const giveUp = () => { opened.forEach((s) => s.getTracks().forEach((t) => t.stop())); ctx.close(); };
   try {
-    try {
-      const sys = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
-      opened.push(sys); sys.getVideoTracks().forEach((t) => t.stop());
-      if (!sys.getAudioTracks().length) throw Object.assign(new Error('sem trilha de áudio'), { name: 'NoAudio' });
-      sources.push({ who: 'them', stream: new MediaStream(sys.getAudioTracks()) });
-    } catch (e) { problems.push(mediaMessage(e, 'Áudio do PC')); }
-    if (!alive()) { giveUp(); return; }
-    if (state.settings.captureMic) {
+    const wantSys = state.session ? state.session.captureSystem !== false : state.settings.captureSystem !== false;
+    const wantMic = state.session ? state.session.captureMic !== false : state.settings.captureMic !== false;
+    if (wantSys) {
       try {
-        const mic = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
-        opened.push(mic); sources.push({ who: 'me', stream: mic });
-      } catch (e) { problems.push(mediaMessage(e, 'Microfone')); }
+        const sys = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+        opened.push(sys); sys.getVideoTracks().forEach((t) => t.stop());
+        if (!sys.getAudioTracks().length) throw Object.assign(new Error("sem trilha de áudio"), { name: "NoAudio" });
+        sources.push({ who: "them", stream: new MediaStream(sys.getAudioTracks()) });
+      } catch (e) { problems.push(mediaMessage(e, "Áudio do PC")); }
       if (!alive()) { giveUp(); return; }
     }
-    if (!sources.length) { giveUp(); setStatus('parado'); toast(`Não consegui ouvir nada. ${problems.join(' ')} Tente de novo ou use o microfone com o alto-falante ligado.`, 9000); return; }
-    const hasThem = sources.some((s) => s.who === 'them');
-    if (problems.length) toast(`${problems.join(' ')} Sigo só com ${hasThem ? 'o áudio do PC' : 'o microfone'}.`, 7000);
+    if (wantMic) {
+      try {
+        const mic = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+        opened.push(mic); sources.push({ who: "me", stream: mic });
+      } catch (e) { problems.push(mediaMessage(e, "Microfone")); }
+      if (!alive()) { giveUp(); return; }
+    }
+    if (!sources.length) { giveUp(); setPhase("parado"); toast(`Não consegui ouvir nada. ${problems.join(" ")}`, 9000); return; }
+    if (problems.length) toast(`${problems.join(" ")} Sigo com o que abriu.`, 7000);
     state.streams = opened; state.ctx = ctx;
     state.recs = sources.map((s) => makeRecorder(s.stream, ctx, ctx.createMediaStreamSource(s.stream), s.who));
-    state.hearingMic = sources.some((s) => s.who === 'me');
-    state.recording = true; setTiming({ cap: chunkSecs() });
+    state.hearingMic = sources.some((s) => s.who === "me");
+    state.recording = true;
     state.startedAt = Date.now(); tick(); state.timerIv = setInterval(tick, 1000);
-    $('btnStart').classList.add('on'); $('dot').classList.add('live'); $('btnEnd').classList.remove('hidden');
-    setStatus('ouvindo'); openCard(true); syncVoiceHint(); startScreenWatch();
-    if (api.setHotkeysActive) api.setHotkeysActive(true); // Ctrl+Enter só durante a reunião
+    $("btnEnd").classList.remove("hidden");
+    setPhase("Ouvindo", { live: true }); openCard(true); syncVoiceHint(); syncScreenHint(); startScreenWatch();
+    if (api.setHotkeysActive) api.setHotkeysActive(true);
+    if (api.resumeMeeting && state.session) api.resumeMeeting(state.session.id).catch(() => {});
   } catch (e) {
-    giveUp(); setStatus('parado'); toast(`Não consegui iniciar: ${(e && e.message) || e}`, 7000);
+    giveUp(); setPhase("parado"); toast(`Não consegui iniciar: ${(e && e.message) || e}`, 7000);
   } finally { state.starting = false; }
 }
-// Por padrão descarta o que ainda estava a caminho (fechar a janela não manda mais nada para a nuvem); "Parar" mantém o último trecho.
-function stopSession(discard = true) {
+
+function stopCapture(discard = true) {
   state.gen += 1; state.discard = discard;
   state.recs.forEach((r) => r.stop()); state.recs = [];
   state.streams.forEach((s) => s.getTracks().forEach((t) => t.stop())); state.streams = [];
   if (state.ctx) { state.ctx.close(); state.ctx = null; }
-  clearInterval(state.timerIv); state.recording = false; state.hearingMic = false; state.voiceQueued = ''; sttQ.me = []; sttQ.them = []; stopScreenWatch();
-  state.pendingTr.forEach((l) => { l.trq = false; }); state.pendingTr = []; clearTimeout(state.trTimer); state.trTimer = null; state.trPauseUntil = 0;
-  if (discard) { deltaHandlers.clear(); streams.clear(); }
+  if (state.recording) state.elapsedMs += Date.now() - state.startedAt;
+  clearInterval(state.timerIv); state.recording = false; state.hearingMic = false; state.voiceQueued = ""; sttQ.me = []; sttQ.them = []; stopScreenWatch();
+  state.pendingTr = []; clearTimeout(state.trTimer); state.trTimer = null;
+  if (discard) deltaHandlers.clear();
   shotDrop(); hideQuestion();
   if (api.setHotkeysActive) api.setHotkeysActive(false);
-  $('btnStart').classList.remove('on'); $('dot').classList.remove('live'); $('btnEnd').classList.add('hidden');
-  setStatus('parado'); syncVoiceHint(); saveHistory();
-}
-const toggleStart = () => (state.recording || state.starting ? stopSession(false) : start());
-// Encerrar: para, roda o fechamento (resumo + pendências salvos no Second Brain) e já começa uma reunião nova
-async function endMeeting() {
-  stopSession(false);
-  if (state.lines.length) await runAI('Encerrar', (rid) => api.wrapup(linesForAI(), rid), { record: false });
-  saveHistory();
-  state.lines = []; state.chat = []; state.trShownId = 0; state.sessionId = newSessionId();
-  $('transcript').innerHTML = ''; renderHistory(); $('caption').classList.add('hidden');
 }
 
-// ---------- menu: tema, opacidade e microfone ----------
-function applyTheme(t) { document.documentElement.setAttribute('data-mtheme', t === 'light' ? 'light' : 'dark'); }
+function pauseListen() {
+  if (!state.recording) return;
+  stopCapture(false);
+  state.paused = true;
+  state.discard = false;
+  setPhase("Pausado");
+  if (api.pauseMeeting && state.session) api.pauseMeeting(state.session.id).catch(() => {});
+}
+
+function stopSession(discard = true) {
+  stopCapture(discard);
+  state.paused = false;
+  $("btnEnd").classList.add("hidden");
+  setPhase(state.ended ? "Encerrada" : "Pronto");
+  syncVoiceHint();
+}
+
+const toggleStart = () => {
+  if (state.ended) return;
+  if (state.recording || state.starting) pauseListen();
+  else start();
+};
+
+async function endMeeting() {
+  const durationMs = state.elapsedMs + (state.recording ? Date.now() - state.startedAt : 0);
+  stopSession(false);
+  state.ended = true;
+  setPhase("Encerrada");
+  $("btnEnd").classList.add("hidden");
+  if (state.lines.length) await runAI("Encerrar", (rid) => api.wrapup(linesForAI(), rid, durationMs));
+  else await runAI("Encerrar", (rid) => api.wrapup(linesForAI(), rid, durationMs));
+}
+
+function applyTheme(t) { document.documentElement.setAttribute("data-mtheme", t === "light" ? "light" : "dark"); }
 function fillMenu() {
-  $('mOpacity').value = Number(state.settings.opacity) || 1;
-  $('mMic').checked = !!state.settings.captureMic;
+  $("mOpacity").value = Number(state.settings.opacity) || 1;
+  $("mMic").checked = state.session ? state.session.captureMic !== false : !!state.settings.captureMic;
 }
 
 function bind() {
-  $('btnStart').onclick = toggleStart;
-  $('btnEnd').onclick = endMeeting;
-  $('btnLogo').onclick = () => openCard(!state.cardOpen);
-  $('btnHide').onclick = () => { stopSession(); api.hide(); };
-  $('btnMenu').onclick = (e) => { e.stopPropagation(); fillMenu(); $('menu').classList.toggle('hidden'); };
-  document.addEventListener('click', (e) => { if (!$('menu').contains(e.target)) $('menu').classList.add('hidden'); });
-  $('mTheme').onclick = () => { const t = document.documentElement.getAttribute('data-mtheme') === 'light' ? 'dark' : 'light'; applyTheme(t); try { localStorage.setItem('heliosMeetingTheme', t); } catch { /* ok */ } };
-  $('mOpacity').onchange = async () => { state.settings = await api.setSettings({ opacity: Number($('mOpacity').value) }); };
-  $('mMic').onchange = async () => { state.settings = await api.setSettings({ captureMic: $('mMic').checked }); syncVoiceHint(); };
-  $('modePt').onclick = () => setMode('pt'); $('modeEn').onclick = () => setMode('en');
-  $('chipSay').onclick = () => assist();
-  $('chipSug').onclick = () => assist();
-  $('chipAsk').onclick = () => setInput('ask', true);
-  $('chipTr').onclick = translateRecent;
-  $('chipSayEn').onclick = () => setInput('say', true);
-  $('chipLive').onclick = () => setInput(state.input === 'code' ? defaultInput() : 'code', true);
-  $('chipShot').onclick = screenAsk;
-  $('chipTranscript').onclick = () => toggleTranscript();
-  $('chipHist').onclick = () => (state.view === 'history' ? showView(state.last ? 'answer' : '') : (renderHistory(), showView('history')));
-  $('chipQ').onclick = () => assist();
-  $('btnMore').onclick = () => { if (state.last && state.last.more) state.last.more(); };
-  $('btnCopy').onclick = () => { if (state.last) { const a = LineUtil.proseParts(state.last.text); copyToast([a.main, a.sub].filter(Boolean).join('\n\n'), 'Texto'); } };
-  $('trEn').onclick = () => { if (state.trCurrent) copyToast(state.trCurrent.en, 'Inglês'); };
-  $('btnCodeCopy').onclick = () => copyToast($('codeText').textContent, 'Código');
-  $('btnPrev').onclick = () => stepLive(-1); $('btnNext').onclick = () => stepLive(1);
-  api.onLiveSession((session) => { live = session; renderLive(); });
-  $('btnShotSend').onclick = shotSend;
-  $('btnShotCancel').onclick = shotCancel;
-  $('askForm').onsubmit = (e) => { e.preventDefault(); const q = $('askInput').value; $('askInput').value = ''; submitInput(q); };
+  $("btnStart").onclick = toggleStart;
+  $("btnEnd").onclick = endMeeting;
+  $("btnLogo").onclick = () => openCard(!state.cardOpen);
+  $("btnHide").onclick = () => { stopSession(); api.hide(); };
+  $("btnMenu").onclick = (e) => { e.stopPropagation(); fillMenu(); $("menu").classList.toggle("hidden"); };
+  document.addEventListener("click", (e) => { if (!$("menu").contains(e.target)) $("menu").classList.add("hidden"); });
+  $("mTheme").onclick = () => { const t = document.documentElement.getAttribute("data-mtheme") === "light" ? "dark" : "light"; applyTheme(t); try { localStorage.setItem("heliosMeetingTheme", t); } catch { /* ok */ } };
+  $("mOpacity").onchange = async () => { state.settings = await api.setSettings({ opacity: Number($("mOpacity").value) }); };
+  $("mMic").onchange = async () => { state.settings = await api.setSettings({ captureMic: $("mMic").checked }); syncVoiceHint(); };
+  $("chipSay").onclick = () => assist();
+  $("chipAsk").onclick = () => { openCard(true); $("askInput").focus(); };
+  $("chipInsights").onclick = () => {
+    if (!state.last) runAI("Ajuda", (rid) => api.insights(linesForAI(), rid));
+    else showInsights();
+  };
+  $("chipTranscript").onclick = () => { openCard(true); showTranscript(!state.transcriptOpen); };
+  $("chipShot").onclick = screenAsk;
+  $("chipQ").onclick = () => assist();
+  $("btnMore").onclick = () => { if (state.last && state.last.more) state.last.more(); };
+  $("btnCopy").onclick = async () => { if (state.last) toast((await copyText(state.last.text)) ? "Copiado." : "Não copiei.", 1500); };
+  $("btnShotSend").onclick = shotSend;
+  $("btnShotCancel").onclick = shotCancel;
+  $("askForm").onsubmit = (e) => { e.preventDefault(); const q = $("askInput").value; $("askInput").value = ""; if (q.trim()) ask(q.trim()); };
   api.onHotkey((n) => {
-    if (n === 'assist') { if (state.recording) assist(); }
-    else if (n === 'translate') { if (state.mode === 'en') translateRecent(); }
-    else if (n === 'record') toggleStart();
-    else if (n === 'say') setInput(state.mode === 'en' ? 'say' : 'ask', true);
-    else if (n === 'live') setInput('code', true);
-    else if (n === 'mode') setMode(state.mode === 'en' ? 'pt' : 'en');
-    else if (n === 'screen') screenAsk();
-    else if (n === 'clickthrough') { state.clickThrough = !state.clickThrough; $('ctBadge').classList.toggle('hidden', !state.clickThrough); }
+    if (n === "assist") { if (state.recording) assist(); }
+    else if (n === "record") toggleStart();
+    else if (n === "screen") screenAsk();
+    else if (n === "clickthrough") { state.clickThrough = !state.clickThrough; $("ctBadge").classList.toggle("hidden", !state.clickThrough); }
   });
-  // O main avisa quando a janela fecha por fora do botão (Esc, Alt+F4, atalho): para a captura e desliga o modo atravessar.
   api.onMeetingStop((info) => {
     if (info && info.stop) { if (state.recording || state.starting) stopSession(); shotDrop(); }
-    if (state.clickThrough) { state.clickThrough = false; $('ctBadge').classList.add('hidden'); }
+    if (state.clickThrough) { state.clickThrough = false; $("ctBadge").classList.add("hidden"); }
   });
-  document.addEventListener('keydown', (e) => {
+  if (api.onSession) api.onSession((session) => { state.session = session; syncScreenHint(); });
+  document.addEventListener("keydown", (e) => {
     if (e.defaultPrevented || e.isComposing) return;
     const el = document.activeElement; const typing = el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName);
-    // Tab (com foco na janela, fora do campo) responde à pergunta detectada
-    if (e.key === 'Tab' && state.question && !typing) { e.preventDefault(); assist(); return; }
-    // Ctrl+Enter dentro da janela também pede a resposta, mas só com a reunião ativa
-    if (e.key === 'Enter' && e.ctrlKey && !e.shiftKey && state.recording) { e.preventDefault(); assist(); return; }
-    if (e.key !== 'Escape') return;
+    if (e.key === "Tab" && state.question && !typing) { e.preventDefault(); assist(); return; }
+    if (e.key === "Enter" && e.ctrlKey && !e.shiftKey && state.recording) { e.preventDefault(); assist(); return; }
+    if (e.key !== "Escape") return;
     if (state.shotPending) { shotCancel(); return; }
-    if (!$('menu').classList.contains('hidden')) { $('menu').classList.add('hidden'); return; }
+    if (!$("menu").classList.contains("hidden")) { $("menu").classList.add("hidden"); return; }
     if (state.recording) return;
     if (typing && el.value) { el.blur(); return; }
     api.hide();
   });
-  api.onHotkeysFailed((l) => toast(`Atalho em uso por outro app: ${l.join(', ')}`, 6000));
-  window.addEventListener('beforeunload', () => saveHistory());
-}
-
-// Autoteste (CLUELY_SELFTEST=1): grava 4 s de áudio do sistema sem chamar API e reporta tamanho/pico.
-async function selftest() {
-  const r = { mime: MIME };
-  try {
-    const sys = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
-    sys.getVideoTracks().forEach((t) => t.stop());
-    r.audioTracks = sys.getAudioTracks().length;
-    const ctx = new AudioContext(); const an = ctx.createAnalyser(); ctx.createMediaStreamSource(sys).connect(an);
-    const buf = new Float32Array(an.fftSize); let peak = 0;
-    const iv = setInterval(() => { an.getFloatTimeDomainData(buf); let s = 0; for (const v of buf) s += v * v; peak = Math.max(peak, Math.sqrt(s / buf.length)); }, 100);
-    const mr = new MediaRecorder(new MediaStream(sys.getAudioTracks()), { mimeType: MIME }); const ch = [];
-    mr.ondataavailable = (e) => ch.push(e.data);
-    await new Promise((res) => { mr.onstop = res; mr.start(); setTimeout(() => mr.stop(), 4000); });
-    clearInterval(iv); r.bytes = ch.reduce((n, b) => n + b.size, 0); r.peak = peak; r.ok = r.bytes > 0;
-  } catch (e) { r.ok = false; r.error = String(e); }
-  api.selftestResult(r);
+  api.onHotkeysFailed((l) => toast(`Atalho em uso por outro app: ${l.join(", ")}`, 6000));
 }
 
 (async () => {
-  if (api.selftest) return selftest();
   bind();
-  let savedMode = 'pt'; try { savedMode = localStorage.getItem('heliosMeetingMode') || 'pt'; } catch { /* sem armazenamento */ }
-  try { applyTheme(localStorage.getItem('heliosMeetingTheme') || 'dark'); } catch { applyTheme('dark'); }
-  setMode(savedMode, false);
+  try { applyTheme(localStorage.getItem("heliosMeetingTheme") || "light"); } catch { applyTheme("light"); }
   state.settings = await api.getSettings();
+  state.session = state.settings.session || (api.activeMeeting ? await api.activeMeeting() : null);
+  syncScreenHint();
+  if (state.session && state.session.status === "live") start();
   fit();
 })();

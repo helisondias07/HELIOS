@@ -19,7 +19,7 @@ function meetingBrowserOptions() {
     hasShadow: false,
     show: false,
     backgroundColor: "#00000000",
-    title: "HELIOS â€” Modo de reuniÃ£o",
+    title: "HELIOS — Reunião",
   };
 }
 

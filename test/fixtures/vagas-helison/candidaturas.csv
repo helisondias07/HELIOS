@@ -1,5 +1,0 @@
-data,plataforma,empresa,titulo,url,metodo,status,motivo
-2026-10-19,LinkedIn,Empresa Alpha,Frontend React,https://exemplo.invalid/vaga/1,easy-apply,aplicada,Confirmada
-2026-10-19,LinkedIn,Empresa Beta,Java Senior,https://exemplo.invalid/vaga/2,easy-apply,descartada,Exige 5 anos
-2026-10-20,ProgramaThor,Empresa Gamma,Full Stack Junior,https://exemplo.invalid/vaga/3,email,pendente,Aguardando
-2026-10-20,Gmail,Empresa Delta,AI Dev,,email-helison,aplicada,Enviado

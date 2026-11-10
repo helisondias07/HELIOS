@@ -1,6 +1,6 @@
 "use strict";
 
-const { unsafeReason, tokens } = require("../server/memory");
+const { unsafeReason, tokens } = require("./text-safety");
 
 /**
  * Contexto da reunião para traduzir "passando o contexto":

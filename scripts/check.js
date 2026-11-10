@@ -22,12 +22,7 @@ const required = [
   "src/meeting-window.js",
   "src/meeting-host.js",
   "server/index.js",
-  "server/mcp-server.js",
-  "server/tasks.js",
-  "server/orchestration.js",
-  "server/delegation.js",
-  "server/context.js",
-  "server/summary.js",
+  "server/meetings-store.js",
   "renderer/index.html",
   "renderer/app.js",
   "renderer/meeting/index.html",
@@ -43,15 +38,25 @@ for (const file of required) {
 }
 
 const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
-if (pkg.version !== "0.1.0") fail("a versão do pacote precisa ser 0.1.0");
+if (pkg.version !== "0.2.0") fail("a versão do pacote precisa ser 0.2.0");
 for (const script of ["start", "test", "lint", "check", "dist:win"]) {
   if (!pkg.scripts[script]) fail(`falta o script ${script}`);
+}
+if (pkg.dependencies && pkg.dependencies["@cursor/sdk"]) fail("o @cursor/sdk não faz parte do assistente de reuniões");
+
+const banned = ["vagas", "livecoding", "ditado", "candidatura", "prova na tela"];
+const surfaces = ["src/main.js", "renderer/index.html", "renderer/app.js", "renderer/meeting/index.html", "README.md"];
+for (const file of surfaces) {
+  const text = fs.readFileSync(path.join(root, file), "utf8").toLowerCase();
+  for (const word of banned) {
+    if (text.includes(word)) fail(`${file} ainda cita "${word}"`);
+  }
 }
 
 function walk(dir, acc = []) {
   if (!fs.existsSync(dir)) return acc;
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (entry.name === "node_modules" || entry.name === "release") continue;
+    if (entry.name === "node_modules" || entry.name === "release" || entry.name === "work") continue;
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) walk(full, acc);
     else if (/\.(js|cjs|mjs)$/.test(entry.name)) acc.push(full);

@@ -1,8 +1,8 @@
 {
   "name": "helios",
   "productName": "HELIOS",
-  "version": "0.1.0",
-  "description": "HELIOS — assistente pessoal de desktop do Helison",
+  "version": "0.2.0",
+  "description": "HELIOS — assistente de reuniões para desktop",
   "author": "Helison",
   "private": true,
   "main": "src/main.js",
@@ -62,7 +62,6 @@
     }
   },
   "dependencies": {
-    "@cursor/sdk": "^1.0.31",
     "dotenv": "^17.2.3"
   },
   "devDependencies": {

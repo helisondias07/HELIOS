@@ -5,7 +5,6 @@ const path = require("node:path");
 const { readJson, writeJson } = require("../server/util");
 
 const DEFAULTS = {
-  port: 47331,
   closeToTray: true,
   provider: "groq",
   sttModel: "whisper-large-v3-turbo",
@@ -13,8 +12,10 @@ const DEFAULTS = {
   fastModel: "openai/gpt-oss-20b",
   geminiModel: "gemini-flash-lite-latest",
   chunkSeconds: 9,
-  translate: true,
+  translate: false,
   captureMic: true,
+  captureSystem: true,
+  captureScreen: false,
   meetingLang: "auto",
   myContext: "",
   meetingContext: "",
@@ -24,8 +25,8 @@ const DEFAULTS = {
   opacity: 1,
 };
 
-const NUMBER_KEYS = new Set(["port", "chunkSeconds", "opacity", "translateHistory", "translateContextChars"]);
-const BOOL_KEYS = new Set(["closeToTray", "translate", "captureMic"]);
+const NUMBER_KEYS = new Set(["chunkSeconds", "opacity", "translateHistory", "translateContextChars"]);
+const BOOL_KEYS = new Set(["closeToTray", "translate", "captureMic", "captureSystem", "captureScreen"]);
 
 function createSettings(dir) {
   const file = path.join(dir, "settings.json");
@@ -48,7 +49,6 @@ function createSettings(dir) {
       else if (BOOL_KEYS.has(key)) data[key] = Boolean(value);
       else data[key] = value;
     }
-    if (!Number.isInteger(data.port) || data.port < 1024 || data.port > 65535) data.port = DEFAULTS.port;
     data.chunkSeconds = Math.min(15, Math.max(3, Number(data.chunkSeconds) || 9));
     data.opacity = Math.min(1, Math.max(0.3, Number(data.opacity) || 1));
     if (!["groq", "gemini"].includes(data.provider)) data.provider = "groq";

@@ -27,7 +27,8 @@
   --n-0: #ffffff;   --n-50: #fafafa;  --n-100: #f5f5f5; --n-200: #e5e5e5;
   --n-300: #d4d4d4; --n-400: #a3a3a3; --n-500: #737373; --n-550: #666666; --n-600: #525252;
   --n-700: #404040; --n-800: #262626; --n-900: #171717; --n-950: #0a0a0a;
-  --gold-100: #f3e6bd; --gold-300: #e6c66a; --gold-400: #d9b04a; --gold-700: #86600f;
+  --gold-100: #f8e7c0; --gold-300: #f0d48a; --gold-400: #e0b44a; --gold-700: #8a5a12;
+  --amber-400: #e08a3c; --sunset-500: #c45c26;
   --red-50: #fef2f2; --red-400: #f87171; --red-700: #b91c1c; --red-950: #2a1212;
 
   /* ---------- Tipografia ---------- */
@@ -74,31 +75,31 @@
 /* ---------- Escuro (padrão) ---------- */
 :root, [data-theme="dark"] {
   color-scheme: dark;
-  --bg-canvas: var(--n-950);  --bg-panel: var(--n-950);
-  --bg-surface: var(--n-900); --bg-inset: var(--n-800);  --bg-active: var(--n-800); --bg-badge: var(--n-800);
+  --bg-canvas: #12100e;  --bg-panel: #100e0c;
+  --bg-surface: #1c1814; --bg-inset: #2a241c;  --bg-active: #2a241c; --bg-badge: #2a241c;
   --bg-inverse: var(--n-50);
   --border: var(--n-800);     --border-strong: var(--n-700);  --border-control: var(--n-500);
   --fg: var(--n-50); --fg-strong: var(--n-0); --fg-muted: var(--n-300); --fg-subtle: var(--n-400);
   --fg-inverse: var(--n-950); --fg-disabled: var(--n-400);
-  --accent: var(--gold-400);  --accent-soft: rgb(217 176 74 / 0.16);
+  --accent: var(--gold-400);  --accent-soft: rgb(224 180 74 / 0.16);
   --scroll-thumb: var(--n-500); --scroll-thumb-hover: var(--gold-400);   /* barra de rolagem: thumb neutro, dourado discreto só no hover */
-  --titlebar-bg: #0a0a0a; --titlebar-fg: #fafafa;   /* espelham --bg e --fg-strong; o processo principal usa os mesmos valores no titleBarOverlay */
+  --titlebar-bg: #0a0a0a; --titlebar-fg: #fafafa;   /* cromado fixo da barra de título; o canvas abaixo é mais quente */
   --focus: var(--n-50);
   --danger-fg: var(--red-400); --danger-bg: var(--red-950); --danger-border: var(--red-700);
   --skeleton: var(--n-800); --skeleton-shine: var(--n-700);
   --shadow-pop: 0 8px 24px -8px rgb(0 0 0 / 0.6);
 
   /* nomes antigos */
-  --bg: #0a0a0a; --bg-deep: #050505; --surface: #171717; --surface-2: #262626;
-  --ink: #fafafa; --muted: #d4d4d4; --faint: #a3a3a3;
-  --line: rgba(250, 250, 250, 0.1); --line-strong: rgba(250, 250, 250, 0.18);
-  --sun: #d9b04a; --sun-soft: rgba(217, 176, 74, 0.16); --sun-ink: #1c1408;
+  --bg: #12100e; --bg-deep: #0c0a08; --surface: #1c1814; --surface-2: #2a241c;
+  --ink: #faf6ee; --muted: #e4d7c4; --faint: #b7a890;
+  --line: rgba(248, 231, 192, 0.12); --line-strong: rgba(224, 180, 74, 0.28);
+  --sun: #e0b44a; --sun-soft: rgba(224, 180, 74, 0.16); --sun-ink: #1c1408;
   --teal: #0f766e; --teal-bright: #5eead4; --teal-soft: rgba(15, 118, 110, 0.38);
   --good: #3dbe7a; --bad: #f07167; --pt: #f0c36a; --en: #7ddec8;
-  --shadow: 0 8px 24px -8px rgba(0, 0, 0, 0.6);
-  --panel-solid: rgba(23, 23, 23, 0.98); --pill: rgba(10, 10, 10, 0.96);
-  --sidebar: #0a0a0a; --sidebar-ink: #fafafa; --sidebar-muted: #d4d4d4;
-  --input-bg: #0a0a0a; --bubble-user: #262626; --bubble-bot: #171717;
+  --shadow: 0 12px 32px -12px rgba(0, 0, 0, 0.62);
+  --panel-solid: rgba(28, 24, 20, 0.98); --pill: rgba(16, 12, 8, 0.96);
+  --sidebar: #100e0c; --sidebar-ink: #faf6ee; --sidebar-muted: #e4d7c4;
+  --input-bg: #100e0c; --bubble-user: #2a241c; --bubble-bot: #1c1814;
   --banner-bg: #3a1a1a; --banner-ink: #fecaca;
   --hover: rgba(250, 250, 250, 0.06);
   --live: #e85d4c; --live-ink: #1a0a08;
@@ -107,8 +108,8 @@
 /* ---------- Claro (só com data-theme="light" no <html>; a reunião nunca recebe) ---------- */
 [data-theme="light"] {
   color-scheme: light;
-  --bg-canvas: var(--n-50);   --bg-panel: var(--n-0);
-  --bg-surface: var(--n-0);   --bg-inset: var(--n-100);  --bg-active: var(--n-100); --bg-badge: var(--n-100);
+  --bg-canvas: #faf6f0;   --bg-panel: #fffdf8;
+  --bg-surface: #fffdf8;   --bg-inset: #f3ece3;  --bg-active: #f6f0e6; --bg-badge: #f3ece3;
   --bg-inverse: var(--n-950);
   --border: var(--n-200);     --border-strong: var(--n-300);  --border-control: var(--n-500);
   --fg: var(--n-950); --fg-strong: var(--n-900); --fg-muted: var(--n-600); --fg-subtle: var(--n-550);
@@ -122,16 +123,16 @@
   --shadow-pop: 0 8px 24px -8px rgb(10 10 10 / 0.24);
 
   /* nomes antigos */
-  --bg: #fafafa; --bg-deep: #f5f5f5; --surface: #ffffff; --surface-2: #f5f5f5;
-  --ink: #0a0a0a; --muted: #525252; --faint: #666666;
-  --line: rgba(10, 10, 10, 0.12); --line-strong: rgba(10, 10, 10, 0.22);
-  --sun: #86600f; --sun-soft: rgba(134, 96, 15, 0.12); --sun-ink: #ffffff;
+  --bg: #faf6f0; --bg-deep: #f3ece3; --surface: #fffdf8; --surface-2: #f6f0e6;
+  --ink: #1c1408; --muted: #5c4e3a; --faint: #7a6a56;
+  --line: rgba(28, 20, 8, 0.1); --line-strong: rgba(138, 90, 18, 0.28);
+  --sun: #8a5a12; --sun-soft: rgba(138, 90, 18, 0.12); --sun-ink: #fffaf3;
   --teal: #0f766e; --teal-bright: #0f766e; --teal-soft: rgba(15, 118, 110, 0.14);
   --good: #15803d; --bad: #b91c1c; --pt: #8a5a00; --en: #0f766e;
-  --shadow: 0 8px 24px -8px rgba(10, 10, 10, 0.24);
-  --panel-solid: rgba(255, 255, 255, 0.98); --pill: rgba(255, 255, 255, 0.96);
-  --sidebar: #ffffff; --sidebar-ink: #0a0a0a; --sidebar-muted: #525252;
-  --input-bg: #fafafa; --bubble-user: #f5f5f5; --bubble-bot: #ffffff;
+  --shadow: 0 12px 32px -14px rgba(88, 52, 8, 0.22);
+  --panel-solid: rgba(255, 253, 248, 0.98); --pill: rgba(255, 248, 239, 0.96);
+  --sidebar: #fffdf8; --sidebar-ink: #1c1408; --sidebar-muted: #5c4e3a;
+  --input-bg: #fffaf3; --bubble-user: #f6f0e6; --bubble-bot: #fffdf8;
   --banner-bg: #fef2f2; --banner-ink: #991b1b;
   --hover: rgba(10, 10, 10, 0.05);
   --live: #c62828; --live-ink: #ffffff;
@@ -167,3 +168,54 @@
 @media (prefers-reduced-motion: reduce) {
   :root { --dur-fast: 0.01ms; --dur-base: 0.01ms; --dur-slow: 0.01ms; --dur-loop: 0.01ms; --enter-shift: 0px; --press-scale: 1; }
 }
+
+/* =====================================================================================
+   LEVA J — kit de design do Helison (design/DESIGN.md). Fonte da verdade das cores.
+   Escuro = tokens do kit, exatos. Claro = tema PRINCIPAL, derivado do kit (contraste >= 4,5:1).
+   Os nomes antigos (--bg, --sun, --lf-*...) apontam para estes tokens em kit.css.
+   ===================================================================================== */
+:root, [data-theme="dark"] {
+  --helios-eclipse: #0B0B0D;   --helios-obsidiana: #131316; --helios-basalto: #1C1C21; --helios-brasa: #2A2A31;
+  --helios-nevoa: #9A968C;     --helios-marfim: #F4EEE2;
+  --helios-ouro: #E8B23A;      --helios-aurora: #FFD878;    --helios-ambar: #C98A22;   --helios-bronze: #6E4B16;
+  --helios-sucesso: #7BC47F;   --helios-alerta: #E8833A;    --helios-erro: #E5574F;
+  --helios-ouro-texto: #E8B23A;     /* ouro usado como cor de texto/ícone */
+  --helios-sobre-ouro: #0B0B0D;     /* texto sobre preenchimento ouro */
+  --helios-marca: #E8B23A;          /* cor do símbolo */
+  --helios-brilho: 0 0 0 3px rgba(232,178,58,.14), 0 0 24px rgba(232,178,58,.14);
+  --helios-brilho-forte: 0 0 0 3px rgba(232,178,58,.24), 0 0 32px rgba(232,178,58,.28);
+  --helios-glow-marca: drop-shadow(0 0 18px rgba(232,178,58,.5));
+  --helios-sombra: 0 12px 32px -12px rgba(0,0,0,.6);
+}
+[data-theme="light"] {
+  --helios-eclipse: #F7F3EA;   --helios-obsidiana: #FFFDF8; --helios-basalto: #EFE7D6; --helios-brasa: #DCD1BC;
+  --helios-nevoa: #6B5D45;     --helios-marfim: #2A1D08;
+  --helios-ouro: #9A6A14;      --helios-aurora: #C98A22;    --helios-ambar: #7E5510;   --helios-bronze: #6E4B16;
+  --helios-sucesso: #2E7D32;   --helios-alerta: #A8501A;    --helios-erro: #B3261E;
+  --helios-ouro-texto: #86590F;
+  --helios-sobre-ouro: #FFFDF8;
+  --helios-marca: #9A6A14;
+  --helios-brilho: 0 0 0 3px rgba(154,106,20,.16), 0 0 24px rgba(154,106,20,.12);
+  --helios-brilho-forte: 0 0 0 3px rgba(154,106,20,.26), 0 0 32px rgba(154,106,20,.22);
+  --helios-glow-marca: drop-shadow(0 0 18px rgba(154,106,20,.35));
+  --helios-sombra: 0 12px 32px -14px rgba(42,29,8,.22);
+}
+:root {
+  --helios-raio-controle: 10px; --helios-raio-campo: 12px; --helios-raio-cartao: 16px;
+  --helios-transicao: 180ms ease-out;
+  --helios-fonte-marca: "Cinzel", serif;
+  --helios-fonte-ui: "Inter", system-ui, sans-serif;
+  --font: var(--helios-fonte-ui);
+  --font-brand: var(--helios-fonte-marca);
+  --brand-tracking: 0.24em;
+  --ease: ease-out; --dur-fast: 180ms; --dur-base: 180ms; --dur-slow: 180ms;
+  --r-md: 10px; --r-lg: 12px; --radius: 10px; --radius-lg: 16px;
+}
+
+/* Símbolo do HELIOS: sempre carregado de assets/helios-mark.svg (máscara recolorida pela cor do tema, nunca redesenhado) */
+.hx-mark {
+  display: inline-block; flex: none; width: 22px; height: 22px; background-color: var(--helios-marca);
+  -webkit-mask: url("assets/helios-mark.svg") center / contain no-repeat; mask: url("assets/helios-mark.svg") center / contain no-repeat;
+}
+.hx-18 { width: 18px; height: 18px; } .hx-22 { width: 22px; height: 22px; } .hx-28 { width: 28px; height: 28px; } .hx-96 { width: 96px; height: 96px; }
+.hx-glow { display: inline-flex; filter: var(--helios-glow-marca); }

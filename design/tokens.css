@@ -1,0 +1,27 @@
+:root {
+  /* Superfícies e texto */
+  --helios-eclipse: #0B0B0D;      /* fundo */
+  --helios-obsidiana: #131316;    /* superfície */
+  --helios-basalto: #1C1C21;      /* elevado */
+  --helios-brasa: #2A2A31;        /* bordas */
+  --helios-nevoa: #9A968C;        /* texto secundário */
+  --helios-marfim: #F4EEE2;       /* texto principal */
+  /* Acentos */
+  --helios-ouro: #E8B23A;         /* primária */
+  --helios-aurora: #FFD878;       /* brilho/destaque */
+  --helios-ambar: #C98A22;        /* hover */
+  --helios-bronze: #6E4B16;       /* acento profundo */
+  /* Semânticas */
+  --helios-sucesso: #7BC47F;
+  --helios-alerta: #E8833A;
+  --helios-erro: #E5574F;
+  /* Forma e movimento */
+  --helios-raio-controle: 10px;
+  --helios-raio-campo: 12px;
+  --helios-raio-cartao: 16px;
+  --helios-brilho: 0 0 0 3px rgba(232,178,58,.14), 0 0 24px rgba(232,178,58,.14);
+  --helios-transicao: 180ms ease-out;
+  /* Tipografia */
+  --helios-fonte-marca: "Cinzel", serif;
+  --helios-fonte-ui: "Inter", system-ui, sans-serif;
+}

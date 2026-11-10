@@ -1,12 +1,12 @@
 "use strict";
 
-/** Janela do modo de reunião: a pílula do cluely, fora da barra e da captura. */
+/** Janela do modo de reuniÃ£o: a pÃ­lula do cluely, fora da barra e da captura. */
 function meetingBrowserOptions() {
   return {
-    width: 920,
-    height: 64,
-    minWidth: 720,
-    minHeight: 64,
+    width: 600,
+    height: 48,
+    minWidth: 480,
+    minHeight: 48,
     frame: false,
     transparent: true,
     resizable: true,
@@ -19,7 +19,7 @@ function meetingBrowserOptions() {
     hasShadow: false,
     show: false,
     backgroundColor: "#00000000",
-    title: "HELIOS — Modo de reunião",
+    title: "HELIOS — Reunião",
   };
 }
 
@@ -33,8 +33,8 @@ function applyMeetingProtection(win, env = process.env) {
 }
 
 /**
- * Fecha o modo de reunião: desliga o modo atravessar (senão a janela volta sem aceitar clique), avisa a página para
- * parar a captura de áudio (stop) e esconde a janela. Os atalhos globais continuam no app para reabrir com Ctrl+Shift+Espaço.
+ * Fecha o modo de reuniÃ£o: desliga o modo atravessar (senÃ£o a janela volta sem aceitar clique), avisa a pÃ¡gina para
+ * parar a captura de Ã¡udio (stop) e esconde a janela. Os atalhos globais continuam no app para reabrir com Ctrl+Shift+EspaÃ§o.
  */
 function closeMeetingWindow(win, { stop = true } = {}) {
   if (!win || (typeof win.isDestroyed === "function" && win.isDestroyed())) return false;
@@ -51,18 +51,18 @@ function closeMeetingWindow(win, { stop = true } = {}) {
 }
 
 /**
- * Barra de título integrada da janela principal (Windows/Linux): a barra nativa some e os botões de minimizar, maximizar
+ * Barra de tÃ­tulo integrada da janela principal (Windows/Linux): a barra nativa some e os botÃµes de minimizar, maximizar
  * e fechar ficam num overlay com as cores do tema. As cores espelham --titlebar-bg / --titlebar-fg de renderer/tokens.css
- * (escuro: #0a0a0a com símbolos claros; claro: #fafafa com símbolos escuros). A altura (44px) é a mesma da faixa do topo
- * da sidebar (--bar-h), então o conteúdo nunca fica embaixo dos botões.
+ * (escuro: #0a0a0a com sÃ­mbolos claros; claro: #fafafa com sÃ­mbolos escuros). A altura (44px) Ã© a mesma da faixa do topo
+ * da sidebar (--bar-h), entÃ£o o conteÃºdo nunca fica embaixo dos botÃµes.
  */
-const TITLEBAR_HEIGHT = 44;
+const TITLEBAR_HEIGHT = 48;
 const TITLEBAR_COLORS = {
-  dark: { color: "#0a0a0a", symbolColor: "#fafafa" },
-  light: { color: "#fafafa", symbolColor: "#171717" },
+  dark: { color: "#0B0B0D", symbolColor: "#F4EEE2" },
+  light: { color: "#F7F3EA", symbolColor: "#2A1D08" },
 };
 
-/** Só "light" e "dark" valem; qualquer outro valor (vindo do renderer) cai no escuro. */
+/** SÃ³ "light" e "dark" valem; qualquer outro valor (vindo do renderer) cai no escuro. */
 function normalizeTheme(theme) {
   return theme === "light" ? "light" : "dark";
 }
@@ -71,7 +71,7 @@ function titleBarOverlayFor(theme) {
   return { ...TITLEBAR_COLORS[normalizeTheme(theme)], height: TITLEBAR_HEIGHT };
 }
 
-/** Janela principal, normal e visível. */
+/** Janela principal, normal e visÃ­vel. */
 function mainBrowserOptions(theme = "dark") {
   return {
     width: 1180,
@@ -89,7 +89,7 @@ function mainBrowserOptions(theme = "dark") {
   };
 }
 
-/** Troca as cores da barra de título (e o fundo da janela) quando o tema muda. Não faz nada se a janela não existe mais. */
+/** Troca as cores da barra de tÃ­tulo (e o fundo da janela) quando o tema muda. NÃ£o faz nada se a janela nÃ£o existe mais. */
 function applyMainWindowTheme(win, theme) {
   if (!win || (typeof win.isDestroyed === "function" && win.isDestroyed())) return false;
   const overlay = titleBarOverlayFor(theme);

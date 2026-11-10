@@ -117,13 +117,20 @@ async function readSSE(res, onDelta) {
 }
 
 // ---------- Gemini ----------
-function toGemini(messages, imageBase64) {
+function toGemini(messages, imageBase64, { temperature, maxOutputTokens } = {}) {
   const sys = messages.filter((m) => m.role === 'system').map((m) => m.content).join('\n\n');
   const contents = messages.filter((m) => m.role !== 'system').map((m) => ({
-    role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }],
+    role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: typeof m.content === 'string' ? m.content : '' }],
   }));
   if (imageBase64 && contents.length) contents[contents.length - 1].parts.push({ inline_data: { mime_type: 'image/jpeg', data: imageBase64 } });
-  const body = { contents, generationConfig: { temperature: 0.4, maxOutputTokens: 800 } };
+  const hasImage = Boolean(imageBase64);
+  const body = {
+    contents,
+    generationConfig: {
+      temperature: temperature != null ? temperature : (hasImage ? 0.1 : 0.4),
+      maxOutputTokens: Math.min(4096, Math.max(hasImage ? 1600 : 800, Number(maxOutputTokens) || 0)),
+    },
+  };
   if (sys) body.system_instruction = { parts: [{ text: sys }] };
   return body;
 }
@@ -137,8 +144,8 @@ async function geminiGenerate({ key, model, body, signal }) {
   return (j.candidates?.[0]?.content?.parts || []).map((p) => p.text || '').join('').trim();
 }
 
-async function geminiChat({ key, model, messages, imageBase64, search = false, signal }) {
-  const body = toGemini(messages, imageBase64);
+async function geminiChat({ key, model, messages, imageBase64, search = false, signal, maxTokens, temperature }) {
+  const body = toGemini(messages, imageBase64, { temperature: temperature != null ? temperature : (imageBase64 ? 0.1 : undefined), maxOutputTokens: maxTokens });
   if (search) body.tools = [{ google_search: {} }]; // grounding com Google Search
   return geminiGenerate({ key, model, body, signal });
 }
@@ -201,4 +208,4 @@ function cleanHallucination(text) {
   return t;
 }
 
-module.exports = { stripCites, readSSE, getRate, fetchRetry, groqWarm, keepSpeech, groqTranscribe, groqChat, geminiChat, geminiTranscribe, geminiTts, cleanHallucination, normLang, guessLang, ApiError };
+module.exports = { stripCites, readSSE, getRate, fetchRetry, groqWarm, keepSpeech, groqTranscribe, groqChat, geminiChat, geminiTranscribe, geminiTts, toGemini, cleanHallucination, normLang, guessLang, ApiError };

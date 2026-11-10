@@ -8,19 +8,14 @@ const {
 } = require("electron");
 require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
 
-const { createVault, editorView } = require("./vault-store");
+const { createVault } = require("./vault-store");
 const { importKeyFile } = require("./import-keys");
-const { injectLogin } = require("./vault-inject");
 const { createSettings } = require("./settings-store");
 const { meetingBrowserOptions, applyMeetingProtection, closeMeetingWindow, mainBrowserOptions, applyMainWindowTheme } = require("./meeting-window");
-const { startServer } = require("../server/index");
+const { createMeetingsStore } = require("../server/index");
 const { registerMeeting } = require("./meeting-host");
-const { registerVoice } = require("./voice-host");
-const { createContextHost, protectedFolders } = require("./context-host");
-const { isLocalApiPath } = require("../server/util");
 const { createRendererGuard, guardIpcMain } = require("./ipc-guard");
 
-// Só a página do HELIOS (renderer/) fala com o processo principal. Vale para todos os canais registrados daqui para baixo.
 const rendererGuard = createRendererGuard(path.join(__dirname, "..", "renderer"));
 guardIpcMain(ipcMain, rendererGuard, (channel, url) => console.error(`[ipc] recusado ${channel} vindo de ${String(url).slice(0, 120) || "origem desconhecida"}`));
 
@@ -31,21 +26,17 @@ if (process.env.HELIOS_USER_DATA) app.setPath("userData", path.resolve(process.e
 else app.setPath("userData", path.join(app.getPath("appData"), "HELIOS"));
 
 const HOTKEYS = {
+  "CommandOrControl+\\": "toggle",
   "CommandOrControl+Shift+Space": "toggle",
-  "CommandOrControl+Shift+1": "sugEn",
-  "CommandOrControl+Shift+2": "sugPt",
-  "CommandOrControl+Shift+3": "translate",
   "CommandOrControl+Shift+Enter": "screen",
-  "CommandOrControl+Shift+A": "ask",
-  "CommandOrControl+Shift+E": "say",
   "CommandOrControl+Shift+R": "record",
   "CommandOrControl+Shift+T": "clickthrough",
-  "CommandOrControl+Shift+W": "close",
   "CommandOrControl+Shift+Up": "up",
   "CommandOrControl+Shift+Down": "down",
   "CommandOrControl+Shift+Left": "left",
   "CommandOrControl+Shift+Right": "right",
 };
+const SESSION_HOTKEYS = { "CommandOrControl+Enter": "assist" };
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
@@ -63,10 +54,10 @@ function bootstrap() {
   let mainWindow = null;
   let meetingWindow = null;
   let tray = null;
-  let server = null;
   let settings = null;
   let quitting = false;
   let failedHotkeys = [];
+  let meetingHost = null;
 
   function quitApp() {
     quitting = true;
@@ -80,9 +71,8 @@ function bootstrap() {
     mainWindow.focus();
   }
 
-  // Fechar a janela de reunião também cancela o que ainda estava indo para a nuvem (transcrição, tradução, respostas)
-  let meetingHost = null;
   const closeMeetingNow = () => {
+    setSessionHotkeys(false);
     if (meetingHost && typeof meetingHost.abortInflight === "function") meetingHost.abortInflight();
     return closeMeetingWindow(meetingWindow);
   };
@@ -115,8 +105,11 @@ function bootstrap() {
     applyMeetingProtection(meetingWindow);
     meetingWindow.setOpacity(Number(settings.get("opacity")) || 1);
     meetingWindow.loadFile(path.join(__dirname, "..", "renderer", "meeting", "index.html"));
+    const offscreen = process.env.HELIOS_TEST_OFFSCREEN === "1";
+    if (offscreen) meetingWindow.setPosition(-32000, -32000);
     meetingWindow.once("ready-to-show", () => {
-      if (focus) meetingWindow.show();
+      if (offscreen) meetingWindow.showInactive();
+      else if (focus) meetingWindow.show();
       else meetingWindow.showInactive();
     });
     meetingWindow.webContents.once("did-finish-load", () => {
@@ -136,7 +129,7 @@ function bootstrap() {
   }
 
   function createMainWindow() {
-    const base = mainBrowserOptions();
+    const base = mainBrowserOptions("light");
     mainWindow = new BrowserWindow({
       ...base,
       icon: process.platform === "win32" ? iconFile("icon.ico") : iconFile("icon.png"),
@@ -148,7 +141,10 @@ function bootstrap() {
       },
     });
     mainWindow.loadFile(path.join(__dirname, "..", "renderer", "index.html"));
-    mainWindow.once("ready-to-show", () => mainWindow.show());
+    if (process.env.HELIOS_TEST_OFFSCREEN === "1") {
+      mainWindow.setSkipTaskbar(true);
+      mainWindow.once("ready-to-show", () => { mainWindow.setPosition(-32000, -32000); mainWindow.showInactive(); });
+    } else mainWindow.once("ready-to-show", () => mainWindow.show());
     mainWindow.webContents.on("will-navigate", rendererGuard.blockNavigation);
     mainWindow.webContents.setWindowOpenHandler(({ url }) => {
       if (/^https?:\/\//i.test(url)) shell.openExternal(url);
@@ -171,7 +167,7 @@ function bootstrap() {
     tray.setToolTip(APP_NAME);
     const menu = Menu.buildFromTemplate([
       { label: "Abrir HELIOS", click: () => showMain() },
-      { label: "Modo de reunião", click: () => openMeeting() },
+      { label: "Painel de reunião", click: () => openMeeting() },
       { type: "separator" },
       { label: "Sair", click: () => quitApp() },
     ]);
@@ -185,11 +181,7 @@ function bootstrap() {
       else openMeeting({ focus: false });
       return;
     }
-    if (name === "close") {
-      if (meetingWindow && meetingWindow.isVisible()) closeMeetingNow();
-      return;
-    }
-    const target = openMeeting({ focus: name === "ask" || name === "say" });
+    const target = openMeeting({ focus: name === "assist" });
     if (!target) return;
     if (name === "up" || name === "down" || name === "left" || name === "right") {
       const [x, y] = target.getPosition();
@@ -217,65 +209,37 @@ function bootstrap() {
     return failed;
   }
 
-  function loadLooseKeys(vault) {
-    return importKeyFile(path.join(app.getPath("home"), ".helios-keys.json"), vault);
+  let sessionHotkeysOn = false;
+  function setSessionHotkeys(on) {
+    if (on === sessionHotkeysOn) return [];
+    sessionHotkeysOn = on;
+    const failed = [];
+    for (const [accel, name] of Object.entries(SESSION_HOTKEYS)) {
+      try {
+        if (on) { if (!globalShortcut.register(accel, () => onHotkey(name))) failed.push(accel); }
+        else if (globalShortcut.isRegistered(accel)) globalShortcut.unregister(accel);
+      } catch { failed.push(accel); }
+    }
+    if (failed.length && meetingWindow && !meetingWindow.isDestroyed()) meetingWindow.webContents.send("hotkeys-failed", failed);
+    return failed;
   }
+  ipcMain.on("hotkeys:session", (_event, on) => setSessionHotkeys(Boolean(on)));
 
   async function importEnvKeys(vault) {
     if (!vault.getKey("groq") && process.env.GROQ_API_KEY) await vault.setKey("groq", process.env.GROQ_API_KEY);
     if (!vault.getKey("gemini") && process.env.GEMINI_API_KEY) await vault.setKey("gemini", process.env.GEMINI_API_KEY);
-  }
-
-  async function fillLogin(vault, request) {
-    const entry = vault.getLogin(request.id) || vault.findLoginByName(request.nome);
-    if (!entry) return { ok: false };
-    try {
-      const result = await injectLogin(entry, { clipboard: require("electron").clipboard });
-      return { ok: Boolean(result.ok) };
-    } catch {
-      return { ok: false };
-    }
+    delete process.env.GROQ_API_KEY;
+    delete process.env.GEMINI_API_KEY;
+    delete process.env.CURSOR_API_KEY;
   }
 
   app.whenReady().then(async () => {
     const dir = app.getPath("userData");
-    // safeStorage assíncrono: abrir o cofre, os tokens e as chaves soltas acontece antes de o servidor subir.
     const vault = await createVault({ dir, safeStorage });
-    const contextHost = createContextHost({ dialog, shell, getWindow: () => mainWindow, documentsDir: app.getPath("documents"), mock: process.env.HELIOS_MOCK === "1" });
     settings = createSettings(dir);
-    await loadLooseKeys(vault);
+    const meetings = createMeetingsStore(dir);
+    await importKeyFile(path.join(app.getPath("home"), ".helios-keys.json"), vault);
     await importEnvKeys(vault);
-    await vault.apiAccess();
-    await vault.mcpAccess();
-    try {
-      server = await startServer({
-        dataDir: dir,
-        projectsDir: path.join(app.getPath("documents"), "HELIOS", "projetos"),
-        port: settings.get("port"),
-        mock: process.env.HELIOS_MOCK === "1",
-        getAccounts: () => vault.getAccounts(),
-        onAccountsChange: (snapshot) => vault.setAccounts(snapshot),
-        getVaultIndex: () => vault.index(),
-        getApiToken: () => vault.apiToken(),
-        getMcpToken: () => vault.mcpToken(),
-        secretSealer: vault.sealer,
-        pickFolder: contextHost.pickFolder,
-        trashItem: contextHost.trashItem,
-        blockedFolders: protectedFolders(),
-        onFillLogin: (request) => fillLogin(vault, request),
-        openExternal: (url) => shell.openExternal(url),
-        onLiveSession: (session) => {
-          const win = openMeeting();
-          const send = () => win.webContents.send("livecoding:session", session);
-          if (win.webContents.isLoading()) win.webContents.once("did-finish-load", send);
-          else send();
-        },
-      });
-    } catch (err) {
-      dialog.showErrorBox(APP_NAME, `Não consegui abrir o servidor local.\n${err.message || err}`);
-      quitApp();
-      return;
-    }
 
     session.defaultSession.setDisplayMediaRequestHandler((_request, callback) => {
       desktopCapturer.getSources({ types: ["screen"] })
@@ -288,98 +252,49 @@ function bootstrap() {
 
     meetingHost = registerMeeting({
       getWin: () => meetingWindow,
+      getMain: () => mainWindow,
       closeMeeting: () => closeMeetingNow(),
       settings,
       vault,
-      serverUrl: () => server.url,
-      getApiToken: () => vault.apiToken(),
+      meetings,
       quit: quitApp,
       mock: process.env.HELIOS_MOCK === "1",
     });
 
-    registerVoice({ ipcMain, vault });
-
-    ipcMain.handle("api", async (_event, { method, pathname, body }) => {
-      if (!isLocalApiPath(pathname) || !["GET", "POST", "DELETE"].includes(method)) {
-        return { ok: false, error: "Pedido inválido." };
-      }
-      try {
-        const res = await fetch(`${server.url}${pathname}`, {
-          method,
-          headers: {
-            "content-type": "application/json",
-            authorization: `Bearer ${vault.apiToken()}`,
-          },
-          body: method === "GET" || method === "DELETE" ? undefined : JSON.stringify(body || {}),
-        });
-        const data = await res.json();
-        return { ok: res.ok, status: res.status, data, error: data.error || "" };
-      } catch {
-        return { ok: false, error: "O servidor local não respondeu." };
-      }
+    ipcMain.handle("meeting:open", async (_event, sessionId) => {
+      if (sessionId && meetingHost) meetingHost.setActiveSession(sessionId);
+      const win = openMeeting({ focus: true });
+      return { ok: Boolean(win) };
     });
-    // Tema da interface -> cor da barra de título integrada. Só "light"/"dark" valem (normalizado em applyMainWindowTheme).
-    ipcMain.on("window:theme", (_event, theme) => {
-      applyMainWindowTheme(mainWindow, theme);
-    });
-    ipcMain.handle("meeting:open", () => {
-      openMeeting();
+    ipcMain.handle("shell:open", async (_event, url) => {
+      const parsed = new URL(String(url || ""));
+      if (parsed.protocol !== "https:" && parsed.protocol !== "http:") throw new Error("Só abro links http ou https.");
+      await shell.openExternal(parsed.toString());
       return { ok: true };
     });
-    ipcMain.handle("shell:open", (_event, url) => {
-      if (/^https?:\/\//i.test(String(url || ""))) return shell.openExternal(url);
-      return false;
-    });
-    ipcMain.handle("contexto:salvar", (_event, payload) => contextHost.saveFile(payload));
-    ipcMain.handle("vault:list", () => vault.list());
-    ipcMain.handle("vault:get", (_event, id) => editorView(vault.getLogin(id) || vault.getToken(id)));
-    // Cofre ilegível: a gravação é recusada com uma mensagem clara (nunca um erro cru do IPC).
-    const vaultGuard = async (fn) => {
-      try {
-        return await fn();
-      } catch (err) {
-        if (err && err.code === "VAULT_BLOCKED") return { ok: false, blocked: true, error: err.message };
-        throw err;
-      }
-    };
-    ipcMain.handle("vault:save", (_event, entry) => vaultGuard(() => (entry?.tipo === "token" ? vault.saveToken(entry) : vault.saveLogin(entry))));
-    ipcMain.handle("vault:remove", (_event, id) => vaultGuard(() => vault.remove(id)));
-    ipcMain.handle("vault:set-key", async (_event, payload) => {
-      const saved = await vault.setKey(payload?.name, payload?.value);
-      return { ...vault.list().keys, persisted: saved.persisted, blocked: Boolean(saved.blocked), error: saved.error || "" };
-    });
-    ipcMain.handle("vault:start-fresh", async () => {
-      try {
-        const out = await vault.startFresh();
-        return { ok: true, backup: out.backup };
-      } catch (err) {
-        return { ok: false, error: err.message || "Não consegui começar um cofre novo." };
-      }
-    });
-    const mcpView = (access) => ({ token: access.token, persisted: access.persisted, url: `${server.url}/mcp` });
-    ipcMain.handle("mcp:access", async () => mcpView(await vault.mcpAccess()));
-    ipcMain.handle("mcp:regenerate", async () => mcpView(await vault.regenerateMcpToken()));
+    ipcMain.on("window:theme", (_event, theme) => applyMainWindowTheme(mainWindow, theme));
+    ipcMain.handle("app:info", () => ({
+      version: app.getVersion(),
+      platform: process.platform,
+      mock: process.env.HELIOS_MOCK === "1",
+      dataDir: dir,
+      encryption: vault.encryptionAvailable(),
+      vaultBlocked: vault.isBlocked(),
+    }));
 
     createMainWindow();
-    if (vault.isBlocked()) {
-      dialog.showMessageBox({ type: "warning", title: APP_NAME, message: "O cofre não abriu", detail: vault.blockedMessage() }).catch(() => {});
-    }
-    createTray();
+    if (process.env.HELIOS_TEST_OFFSCREEN !== "1") createTray();
     failedHotkeys = registerHotkeys();
+    app.on("second-instance", () => showMain());
+    app.on("before-quit", () => {
+      quitting = true;
+      if (meetingHost) meetingHost.abortInflight();
+    });
+    app.on("window-all-closed", () => {
+      if (process.platform !== "darwin") quitApp();
+    });
   }).catch((err) => {
-    dialog.showErrorBox(APP_NAME, err.message || String(err));
+    dialog.showErrorBox(APP_NAME, `Não consegui abrir o HELIOS.\n${err.message || err}`);
     quitApp();
-  });
-
-  app.on("second-instance", () => showMain());
-  app.on("before-quit", () => {
-    quitting = true;
-  });
-  app.on("will-quit", () => {
-    globalShortcut.unregisterAll();
-    if (server) server.close();
-  });
-  app.on("window-all-closed", () => {
-    /* a bandeja mantém o processo */
   });
 }

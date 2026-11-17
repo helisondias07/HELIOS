@@ -12,3 +12,4 @@ uploads/
 
 .backup-*/
 build/*.tmp
+work/*.json

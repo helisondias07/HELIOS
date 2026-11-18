@@ -276,7 +276,8 @@ function registerMeeting({ getWin, getMain, closeMeeting, settings, vault, meeti
     if (interview && !imageBase64) {
       // Entrevista: o modelo bom primeiro; se bater limite, cai na hora (sem esperar retry) para Gemini e só depois o rápido.
       if (current.groq) plan.push({ p: "groq", m: current.llmModel, tries: 1 });
-      if (current.gemini) plan.push({ p: "gemini", m: VISION_MODEL });
+      // gemini-2.5-flash (VISION_MODEL) respondeu 404 em 18/11 para esta chave; o modelo configurado responde.
+      if (current.gemini) plan.push({ p: "gemini", m: current.geminiModel });
       if (current.groq) plan.push({ p: "groq", m: current.fastModel, tries: 2 });
     } else if (imageBase64) {
       if (!current.gemini) throw new Error("A análise de tela usa o Gemini. Cole a chave em Ajustes.");
@@ -572,7 +573,7 @@ function registerMeeting({ getWin, getMain, closeMeeting, settings, vault, meeti
     });
     // Entrevista: resposta vem do perfil, não da web. Sem busca = 1ª palavra bem mais rápida.
     if (interview) {
-      const result = await chat(messages, { fast: false, interview: true, maxTokens: more ? 1800 : 1300, temperature: 0.2, onDelta: stream(rid), search: false });
+      const result = await chat(messages, { fast: false, interview: true, maxTokens: more ? 1400 : 1000, temperature: 0.2, onDelta: stream(rid), search: false });
       const sources = [prompts.getPersonal(), meetingText(lines), (lines || []).map((l) => l && l.text).join(" ")].join(" ");
       const text = prompts.flagUnsupportedNumbers(result && result.text, sources);
       rememberSuggestion(session && session.id, prompts.latestQuestion(lines), text);

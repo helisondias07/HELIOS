@@ -197,6 +197,6 @@ test("entrevista: 429 no modelo principal cai na hora para o Gemini, sem esperar
   assert.equal(r.ok, true);
   assert.deepEqual(calls.map((c) => c.p), ["groq", "gemini"]);
   assert.equal(calls[0].tries, 1);
-  assert.equal(calls[1].m, "gemini-2.5-flash");
+  assert.equal(calls[1].m, "gemini-flash-lite-latest");
   assert.match(r.provider, /Gemini/);
 });

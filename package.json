@@ -1,8 +1,8 @@
 {
   "name": "helios",
   "productName": "HELIOS",
-  "version": "0.1.0",
-  "description": "HELIOS — assistente pessoal de desktop do Helison",
+  "version": "0.3.2",
+  "description": "HELIOS — assistente de reuniões para desktop",
   "author": "Helison",
   "private": true,
   "main": "src/main.js",
@@ -12,7 +12,8 @@
     "check": "node scripts/check.js",
     "test": "node --test test/*.test.js",
     "icons": "node scripts/make-icons.js",
-    "dist:win": "electron-builder --win nsis --publish never"
+    "dist:win": "electron-builder --win nsis --publish never",
+    "dist": "electron-builder --win nsis --publish never"
   },
   "build": {
     "appId": "br.helison.helios",
@@ -26,6 +27,7 @@
       "src/**/*",
       "server/**/*",
       "renderer/**/*",
+      "!renderer/assets/*.png",
       "package.json"
     ],
     "asar": true,
@@ -40,11 +42,22 @@
       {
         "from": "build",
         "to": "icons",
-        "filter": ["icon.ico", "icon.png", "tray.png"]
+        "filter": [
+          "icon.ico",
+          "icon.png",
+          "tray.png"
+        ]
       }
     ],
     "win": {
-      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
       "icon": "build/icon.ico",
       "artifactName": "HELIOS-Setup-${version}.${ext}"
     },
@@ -59,10 +72,13 @@
       "deleteAppDataOnUninstall": false,
       "installerIcon": "build/icon.ico",
       "uninstallerIcon": "build/icon.ico"
-    }
+    },
+    "electronLanguages": [
+      "pt-BR",
+      "en-US"
+    ]
   },
   "dependencies": {
-    "@cursor/sdk": "^1.0.31",
     "dotenv": "^17.2.3"
   },
   "devDependencies": {

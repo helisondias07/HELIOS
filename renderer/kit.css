@@ -1,0 +1,168 @@
+/* LEVA J — componentes do kit (design/DESIGN.md). Carregado por último na janela principal.
+   Ouro é o único acento; no máximo 1 preenchimento ouro por tela (só .send-btn e #agtGo).
+   Escala de 8px, raios 10/12/16, transições 180ms ease-out. */
+
+/* ---------- ponte: nomes antigos -> tokens do kit ---------- */
+:root, [data-theme="dark"], [data-theme="light"] {
+  --lf-bg: var(--helios-eclipse); --lf-side: var(--helios-obsidiana); --lf-card: var(--helios-obsidiana);
+  --lf-line: var(--helios-brasa); --lf-hover: var(--helios-basalto);
+  --lf-fg: var(--helios-marfim); --lf-mute: var(--helios-nevoa);
+  --lf-gold: var(--helios-ouro-texto); --lf-gold-soft: color-mix(in srgb, var(--helios-ouro) 14%, transparent);
+  --bg-canvas: var(--helios-eclipse); --bg-panel: var(--helios-obsidiana); --bg-surface: var(--helios-obsidiana);
+  --bg-inset: var(--helios-basalto); --bg-active: var(--helios-basalto); --bg-badge: var(--helios-basalto);
+  --border: var(--helios-brasa); --border-strong: var(--helios-brasa); --border-control: var(--helios-brasa);
+  --fg: var(--helios-marfim); --fg-strong: var(--helios-marfim); --fg-muted: var(--helios-nevoa); --fg-subtle: var(--helios-nevoa);
+  --fg-disabled: var(--helios-nevoa); --fg-inverse: var(--helios-eclipse); --bg-inverse: var(--helios-marfim);
+  --accent: var(--helios-ouro-texto); --accent-soft: color-mix(in srgb, var(--helios-ouro) 14%, transparent);
+  --scroll-thumb: var(--helios-brasa); --scroll-thumb-hover: var(--helios-ouro);
+  --titlebar-bg: var(--helios-eclipse); --titlebar-fg: var(--helios-marfim);
+  --focus: var(--helios-ouro);
+  --danger: var(--helios-erro); --danger-fg: var(--helios-erro); --danger-bg: color-mix(in srgb, var(--helios-erro) 14%, transparent); --danger-border: var(--helios-erro);
+  --skeleton: var(--helios-basalto); --skeleton-shine: var(--helios-brasa);
+  --shadow-pop: var(--helios-sombra); --shadow: var(--helios-sombra);
+  --bg: var(--helios-eclipse); --bg-deep: var(--helios-eclipse); --surface: var(--helios-obsidiana); --surface-2: var(--helios-basalto);
+  --ink: var(--helios-marfim); --muted: var(--helios-nevoa); --faint: var(--helios-nevoa);
+  --line: var(--helios-brasa); --line-strong: var(--helios-brasa);
+  --sun: var(--helios-ouro-texto); --sun-soft: color-mix(in srgb, var(--helios-ouro) 14%, transparent); --sun-ink: var(--helios-sobre-ouro);
+  --good: var(--helios-sucesso); --bad: var(--helios-erro); --pt: var(--helios-ouro-texto); --en: var(--helios-nevoa);
+  --teal: var(--helios-nevoa); --teal-bright: var(--helios-nevoa); --teal-soft: var(--helios-basalto);
+  --panel-solid: var(--helios-obsidiana); --pill: var(--helios-obsidiana);
+  --sidebar: var(--helios-obsidiana); --sidebar-ink: var(--helios-marfim); --sidebar-muted: var(--helios-nevoa);
+  --input-bg: var(--helios-obsidiana); --bubble-user: var(--helios-basalto); --bubble-bot: transparent;
+  --banner-bg: color-mix(in srgb, var(--helios-erro) 14%, var(--helios-obsidiana)); --banner-ink: var(--helios-marfim);
+  --hover: var(--helios-basalto);
+  --live: var(--helios-ouro); --live-ink: var(--helios-sobre-ouro);
+  --control-h-md: 44px; --control-h-lg: 44px;
+}
+
+body { font-family: var(--helios-fonte-ui); background: var(--helios-eclipse); color: var(--helios-marfim); }
+.lf .sb-ico { stroke-width: 1.5; }
+.sb-brand-name, .lf-brand .sb-brand-name { font-family: var(--helios-fonte-marca); font-weight: 600; letter-spacing: .24em; text-transform: uppercase; color: var(--helios-ouro-texto); }
+[data-theme="light"] .lf-brand .sb-brand-name { color: var(--helios-marfim); }
+.lf-brand { gap: 8px; padding: 8px; }
+
+/* ---------- foco sempre visível: borda ouro + brilho ---------- */
+:is(button, a, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--helios-ouro); outline-offset: 2px; box-shadow: var(--helios-brilho);
+}
+
+/* ---------- botões ---------- */
+.btn, .lf-modal .btn {
+  min-height: 44px; height: auto; border-radius: var(--helios-raio-controle); padding: 0 16px;
+  background: var(--helios-basalto); border: 1px solid var(--helios-brasa); color: var(--helios-marfim);
+  font-size: 14px; font-weight: 500; transition: background-color var(--helios-transicao), border-color var(--helios-transicao), color var(--helios-transicao), transform var(--helios-transicao);
+}
+.btn::before { display: none; }
+.btn:hover { border-color: var(--helios-ouro); color: var(--helios-ouro-texto); }
+/* primário "contorno" (ouro só na borda) — o preenchimento ouro fica só na ação principal da tela */
+.btn.primary, .lf .btn.primary, .lf-modal .btn.primary {
+  background: transparent; border: 1px solid var(--helios-ouro); color: var(--helios-ouro-texto); font-weight: 600;
+}
+.btn.primary:hover, .lf .btn.primary:hover, .lf-modal .btn.primary:hover { background: color-mix(in srgb, var(--helios-ouro) 14%, transparent); color: var(--helios-ouro-texto); opacity: 1; }
+.lf-viewhost .composer .send-btn, #agtGo, #chefeSend {
+  background: var(--helios-ouro); border-color: var(--helios-ouro); color: var(--helios-sobre-ouro); font-weight: 600;
+}
+.lf-viewhost .composer .send-btn:hover, #agtGo:hover, #chefeSend:hover { background: var(--helios-ambar); border-color: var(--helios-ambar); color: var(--helios-sobre-ouro); }
+.lf-viewhost .composer .send-btn, #chefeSend { width: 44px; min-height: 44px; border-radius: var(--helios-raio-controle); }
+.btn.danger { background: transparent; color: var(--helios-erro); border-color: var(--helios-brasa); }
+.btn.danger:hover { border-color: var(--helios-erro); color: var(--helios-erro); }
+.btn.mic, .btn-voice { background: transparent; border: 1px solid var(--helios-ouro); color: var(--helios-marfim); min-height: 44px; border-radius: var(--helios-raio-controle); }
+.btn.mic.on, #micBtn[aria-pressed="true"] { background: transparent; color: var(--helios-ouro-texto); border-color: var(--helios-ouro); animation: hx-voz 2.4s ease-in-out infinite; }
+@keyframes hx-voz { 0%, 100% { box-shadow: var(--helios-brilho); } 50% { box-shadow: var(--helios-brilho-forte); } }
+.voice-tip { display: none !important; }
+.lf-viewhost .composer .icon-btn { width: 44px; min-height: 44px; border-radius: var(--helios-raio-controle); color: var(--helios-nevoa); }
+.lf-viewhost .composer .icon-btn:hover { color: var(--helios-ouro-texto); background: var(--helios-basalto); }
+
+/* ---------- campos ---------- */
+input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]), select {
+  min-height: 48px; border-radius: var(--helios-raio-campo); background: var(--helios-obsidiana); border: 1px solid var(--helios-brasa); color: var(--helios-marfim); padding: 0 16px;
+  transition: border-color var(--helios-transicao), box-shadow var(--helios-transicao);
+}
+textarea { border-radius: var(--helios-raio-campo); background: var(--helios-obsidiana); border: 1px solid var(--helios-brasa); color: var(--helios-marfim); padding: 12px 16px; transition: border-color var(--helios-transicao), box-shadow var(--helios-transicao); }
+textarea:focus, input:focus, select:focus { border-color: var(--helios-ouro); background: var(--helios-obsidiana); box-shadow: var(--helios-brilho); outline: none; }
+::placeholder { color: var(--helios-nevoa); opacity: 1; }
+input[type=checkbox], input[type=radio], input[type=range] { accent-color: var(--helios-ouro); }
+.lf-mrow input, .lf-mrow select, .lf-mrow textarea, .lf-mrow button { border-radius: var(--helios-raio-campo); border-color: var(--helios-brasa); background: var(--helios-obsidiana); min-height: 44px; }
+.lf-mrow input:focus, .lf-mrow select:focus, .lf-mrow textarea:focus { border-color: var(--helios-ouro); box-shadow: var(--helios-brilho); color: var(--helios-marfim); }
+/* composer = campo do chat */
+.lf-viewhost .composer { border-radius: var(--helios-raio-cartao); background: var(--helios-obsidiana); border: 1px solid var(--helios-brasa); padding: 8px 8px 8px 16px; gap: 8px; transition: border-color var(--helios-transicao), box-shadow var(--helios-transicao); }
+.lf-viewhost .composer:focus-within { border-color: var(--helios-ouro); box-shadow: var(--helios-brilho); }
+.lf-viewhost .composer textarea, .lf-viewhost .composer textarea:focus { border: 0; background: none; box-shadow: none; padding: 8px 0; font-size: 15px; }
+.lf-search input { min-height: 40px; }
+
+/* ---------- chips e badges (cor a 14%) ---------- */
+.chip, .agt-chip { border-radius: 8px; padding: 6px 12px; font-size: 12px; font-weight: 600; border: 0; background: color-mix(in srgb, var(--helios-ouro) 14%, transparent); color: var(--helios-ouro-texto); }
+.agt-chip-working, .agt-chip-waiting { color: var(--helios-ouro-texto); background: color-mix(in srgb, var(--helios-ouro) 14%, transparent); }
+.agt-chip-done { color: var(--helios-sucesso); background: color-mix(in srgb, var(--helios-sucesso) 14%, transparent); }
+.agt-chip-error { color: var(--helios-erro); background: color-mix(in srgb, var(--helios-erro) 14%, transparent); }
+.agt-chip-paused { color: var(--helios-alerta); background: color-mix(in srgb, var(--helios-alerta) 14%, transparent); }
+.badge { border-radius: 8px; background: color-mix(in srgb, var(--helios-ouro) 14%, transparent); color: var(--helios-ouro-texto); font-weight: 600; font-size: 12px; }
+.lf-st-error { background: var(--helios-erro) !important; } .lf-st-paused { background: var(--helios-alerta) !important; }
+.lf-stopall { color: var(--helios-erro); }
+
+/* ---------- itens de menu: h40 r10; ativo = basalto + barra 3px ouro; inativo = névoa ---------- */
+.lf-it, .lf-mnav button, .lf-menu button { min-height: 40px; height: 40px; border-radius: var(--helios-raio-controle); padding: 0 8px; color: var(--helios-nevoa); font-size: 14px; font-weight: 500; transition: background-color var(--helios-transicao), color var(--helios-transicao); }
+.lf-it:hover, .lf-mnav button:hover, .lf-menu button:hover { background: var(--helios-basalto); color: var(--helios-marfim); }
+.lf-it.on, .lf-it.active, .lf-mnav button.on, .lf-conv.on { background: var(--helios-basalto); color: var(--helios-marfim); }
+.lf-it.on::before, .lf-it.active::before, .lf-mnav button.on::before { left: 0; top: 10px; bottom: 10px; width: 3px; border-radius: 3px; background: var(--helios-ouro); }
+.lf-it .sb-ico { color: var(--helios-nevoa); }
+.lf-it:hover .sb-ico, .lf-it.on .sb-ico, .lf-it.active .sb-ico { color: var(--helios-ouro-texto); }
+.lf-new { height: 44px; border-radius: var(--helios-raio-controle); background: var(--helios-basalto); border-color: var(--helios-brasa); color: var(--helios-marfim); font-size: 14px; font-weight: 500; }
+.lf-newmenu { width: 44px; border-radius: var(--helios-raio-controle); background: var(--helios-basalto); border-color: var(--helios-brasa); display: inline-flex; align-items: center; justify-content: center; }
+.lf-new:hover, .lf-newmenu:hover { border-color: var(--helios-ouro); color: var(--helios-marfim); }
+.lf-new .sb-ico { color: var(--helios-ouro-texto); }
+.lf-lbl { color: var(--helios-nevoa); font-size: 12px; font-weight: 500; letter-spacing: .04em; }
+.lf-side { padding: 8px; gap: 8px; background: var(--helios-obsidiana); border-right: 1px solid var(--helios-brasa); }
+.lf-del { width: 28px; height: 28px; border-radius: 8px; }
+.lf-del:hover { color: var(--helios-erro); background: var(--helios-obsidiana); }
+.lf-tabs button.on { box-shadow: inset 0 -3px 0 var(--helios-ouro); }
+.lf-tbtn { height: 40px; min-width: 40px; border-radius: var(--helios-raio-controle); justify-content: center; }
+.lf-tbtn:hover { color: var(--helios-ouro-texto); border-color: var(--helios-brasa); background: var(--helios-basalto); }
+
+/* ---------- cartões, modal, toast ---------- */
+.card, .agt-card, .connect-card { border-radius: var(--helios-raio-cartao); background: var(--helios-obsidiana); border: 1px solid var(--helios-brasa); }
+.lf-modal { border-radius: var(--helios-raio-cartao); background: var(--helios-obsidiana); border: 1px solid var(--helios-brasa); box-shadow: var(--helios-sombra); }
+.lf-menu, .lf-toast, .chat-pop { border-radius: 12px; background: var(--helios-obsidiana); border: 1px solid var(--helios-brasa); box-shadow: var(--helios-sombra); }
+.lf-toast button { color: var(--helios-ouro-texto); }
+.lf-theme:hover, .lf-theme.on { border-color: var(--helios-ouro); }
+.banner { border-radius: 12px; }
+
+/* ---------- mensagens ---------- */
+.bubble { font-size: 15px; line-height: 1.55; transition: none; }
+.bubble.user { background: var(--helios-basalto); color: var(--helios-marfim); border: 0; border-radius: 14px 14px 4px 14px; padding: 8px 16px; }
+.bubble.assistant { position: relative; background: none; border: 0; border-radius: 0; padding: 4px 0 4px 40px; max-width: 100%; color: var(--helios-marfim); }
+.bubble.assistant::before {
+  content: ""; position: absolute; left: 0; top: 4px; width: 28px; height: 28px; background-color: var(--helios-marca);
+  -webkit-mask: url("assets/helios-mark.svg") center / contain no-repeat; mask: url("assets/helios-mark.svg") center / contain no-repeat;
+}
+.bubble .meta { color: var(--helios-nevoa); font-size: 12px; }
+.agt-you { background: var(--helios-basalto); border-radius: 14px 14px 4px 14px; padding: 8px 16px; }
+.agt-task { background: var(--helios-basalto); border-radius: 12px; padding: 8px 16px; }
+.agt-done { border: 1px solid var(--helios-brasa); border-radius: 12px; padding: 8px 16px; }
+.agt-err { color: var(--helios-erro); }
+.agt-thumb { border-radius: 12px; border-color: var(--helios-brasa); background: var(--helios-basalto); }
+.agt-head { gap: 8px; }
+
+/* ---------- tela inicial ---------- */
+.lf-viewhost .lf-hello { gap: 24px; }
+.lf-hello-logo, [data-theme="light"] .lf-hello-logo { height: auto; width: auto; border-radius: 0; box-shadow: none; }
+.lf-hello p { font-family: var(--helios-fonte-ui); font-size: 26px; font-weight: 500; color: var(--helios-marfim); }
+.agt-mark { width: auto; height: auto; opacity: 1; margin-bottom: 8px; }
+.chat-opts-mark { display: inline-block; }
+
+/* ---------- movimento ---------- */
+.lf-st-working { background: var(--helios-ouro); }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; scroll-behavior: auto !important; }
+}
+
+/* ---------- ajustes pós-print ---------- */
+.lf-search { min-height: 40px; border-radius: var(--helios-raio-campo); border: 1px solid var(--helios-brasa); background: var(--helios-obsidiana); padding: 0 8px 0 16px; gap: 8px; transition: border-color var(--helios-transicao), box-shadow var(--helios-transicao); }
+.lf-search:focus-within { border-color: var(--helios-ouro); box-shadow: var(--helios-brilho); }
+.lf-search input, .lf-search input:focus { min-height: 38px !important; height: 38px !important; border: 0 !important; background: none !important; box-shadow: none !important; padding: 0 !important; border-radius: 0 !important; }
+/* estados vazios: o símbolo do kit no lugar do sol desenhado */
+.empty::before, .empty-hero::before {
+  content: "" !important; display: block; width: 28px; height: 28px; margin: 0 auto 8px; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; animation: none !important;
+  background: var(--helios-marca) !important;
+  -webkit-mask: url("assets/helios-mark.svg") center / contain no-repeat; mask: url("assets/helios-mark.svg") center / contain no-repeat;
+}

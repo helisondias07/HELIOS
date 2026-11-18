@@ -8,6 +8,9 @@ const { setSecretValues } = require("../server/secret-values");
 const { createVaultCrypto } = require("./vault-crypto");
 
 const FORMAT_ASYNC = 2;
+/** Leva G: chaves aceitas. As de PUBLIC_KEYS não são segredo (e-mail padrão, id do cliente Google). */
+const KEY_NAMES = new Set(["groq", "gemini", "telegram", "googleClientId", "googleClientSecret", "githubClientId", "plataformaEmail", "plataformaSenha", "cpf", "nvidia"]);
+const PUBLIC_KEYS = new Set(["plataformaEmail", "googleClientId", "githubClientId"]);
 const FORMAT_LEGACY = 1;
 
 const BLOCKED_MESSAGE = "O cofre não abriu (ou só abriu em parte), então o HELIOS não vai gravar nada para não apagar seus dados. "
@@ -98,7 +101,7 @@ async function createVault({ dir, safeStorage }) {
     const values = [];
     for (const entry of logins) if (entry && entry.senha) values.push(entry.senha);
     for (const entry of tokens) if (entry && entry.valor) values.push(entry.valor);
-    for (const value of Object.values(keys || {})) if (typeof value === "string") values.push(value);
+    for (const [name, value] of Object.entries(keys || {})) if (typeof value === "string" && !PUBLIC_KEYS.has(name)) values.push(value);
     for (const account of (accounts && Array.isArray(accounts.accounts) ? accounts.accounts : [])) if (account && account.apiKey) values.push(account.apiKey);
     setSecretValues(`vault:${file}`, values);
   }
@@ -169,7 +172,7 @@ async function createVault({ dir, safeStorage }) {
   }
 
   function publicLogin(entry) {
-    return { id: entry.id, tipo: "login", nome: entry.nome, usuario: entry.usuario || "", url: entry.url || "", notas: entry.notas || "", senhaDefinida: Boolean(entry.senha) };
+    return { id: entry.id, tipo: "login", nome: entry.nome, usuario: entry.usuario || "", url: entry.url || "", notas: entry.notas || "", categoria: entry.categoria || "", senhaDefinida: Boolean(entry.senha) };
   }
 
   function publicToken(entry) {
@@ -208,7 +211,7 @@ async function createVault({ dir, safeStorage }) {
       return {
         logins: logins.map(publicLogin),
         tokens: tokens.map(publicToken),
-        keys: { hasGroqKey: Boolean(keys.groq), hasGeminiKey: Boolean(keys.gemini) },
+        keys: { hasGroqKey: Boolean(keys.groq), hasGeminiKey: Boolean(keys.gemini), hasTelegramKey: Boolean(keys.telegram), hasGoogleClient: Boolean(keys.googleClientId && keys.googleClientSecret), hasGithubClient: Boolean(keys.githubClientId), hasPlatformPassword: Boolean(keys.plataformaSenha), plataformaEmail: keys.plataformaEmail || "", hasCpf: Boolean(keys.cpf), hasNvidiaKey: Boolean(keys.nvidia) },
         persisted,
         blocked: unreadable,
         blockedMessage: unreadable ? BLOCKED_MESSAGE : "",
@@ -237,6 +240,7 @@ async function createVault({ dir, safeStorage }) {
       const session = {};
       if (keys.mcp) session.mcp = keys.mcp;
       if (keys.api) session.api = keys.api;
+      if (keys.mcpRemote) session.mcpRemote = keys.mcpRemote;
       logins = [];
       tokens = [];
       keys = session;
@@ -282,6 +286,7 @@ async function createVault({ dir, safeStorage }) {
       if (input.senha) current.senha = String(input.senha);
       if (input.url !== undefined) current.url = String(input.url || "").slice(0, 300);
       if (input.notas !== undefined) current.notas = String(input.notas || "").slice(0, 500);
+      if (input.categoria !== undefined) current.categoria = input.categoria === "plataforma" ? "plataforma" : "";
       await save();
       return publicLogin(current);
     },
@@ -309,11 +314,36 @@ async function createVault({ dir, safeStorage }) {
       await save();
       return this.list();
     },
+    /**
+     * Leva G: plataformas de vagas (nome, link de login, login). Sem senha própria, usa a senha padrão das plataformas.
+     * Devolve a credencial completa só para o processo principal (navegador das vagas).
+     */
+    platforms() {
+      return logins.filter((entry) => entry.categoria === "plataforma").map((entry) => ({ ...publicLogin(entry), senhaDefinida: Boolean(entry.senha || keys.plataformaSenha), usuario: entry.usuario || keys.plataformaEmail || "" }));
+    },
+    platformCredential(entry) {
+      if (!entry) return null;
+      return { usuario: entry.usuario || keys.plataformaEmail || "", senha: entry.senha || (entry.categoria === "plataforma" ? keys.plataformaSenha || "" : "") };
+    },
+    async savePlatform(input = {}) {
+      const nome = String(input.nome || "").trim();
+      if (input.url && !/^https:\/\//i.test(String(input.url))) throw new Error("O link de login precisa começar com https://.");
+      const existing = logins.find((entry) => entry.nome.toLowerCase() === nome.toLowerCase());
+      const out = await this.saveLogin({ id: existing ? existing.id : undefined, nome, url: input.url !== undefined ? String(input.url || "") : undefined, usuario: input.usuario !== undefined ? String(input.usuario || "") : undefined, senha: input.senha, categoria: "plataforma" });
+      return { ...out, senhaDefinida: Boolean(out.senhaDefinida || keys.plataformaSenha) };
+    },
+    async removePlatform(nome) {
+      const wanted = String(nome || "").trim().toLowerCase();
+      const entry = logins.find((item) => item.categoria === "plataforma" && item.nome.toLowerCase() === wanted);
+      if (!entry) return false;
+      await this.remove(entry.id);
+      return true;
+    },
     getKey(name) {
       return keys[name] || "";
     },
     async setKey(name, value) {
-      if (name !== "groq" && name !== "gemini") throw new Error("chave desconhecida");
+      if (!KEY_NAMES.has(name)) throw new Error("chave desconhecida");
       const clean = String(value ?? "").trim();
       if (!clean) delete keys[name];
       else keys[name] = clean;
@@ -323,6 +353,12 @@ async function createVault({ dir, safeStorage }) {
     mcpToken: () => tokenOf("mcp"),
     /** Token da API local. Mesmo comportamento do mcpToken. */
     apiToken: () => tokenOf("api"),
+    /**
+     * LEVA O1: token do MCP remoto (túnel futuro). SEPARADO do local.
+     * Não nasce sozinho: só existe depois de gerar. Nunca é impresso em log.
+     */
+    mcpRemoteToken: () => (keys.mcpRemote ? String(keys.mcpRemote) : ""),
+    hasMcpRemoteToken: () => Boolean(keys.mcpRemote),
     async mcpAccess() {
       tokenOf("mcp");
       const saved = await save();
@@ -337,6 +373,31 @@ async function createVault({ dir, safeStorage }) {
       keys.mcp = crypto.randomBytes(32).toString("base64url");
       const saved = await save();
       return { token: keys.mcp, persisted: saved.persisted };
+    },
+    /** Gera (ou regenera) o token remoto. Devolve o valor só nesta resposta para copiar; a UI mostra "definido". */
+    async generateMcpRemoteToken() {
+      if (unreadable) throw blockedError();
+      keys.mcpRemote = crypto.randomBytes(32).toString("base64url");
+      const saved = await save();
+      return { token: keys.mcpRemote, definido: true, persisted: saved.persisted };
+    },
+    /** Revoga o token remoto (apaga do cofre). */
+    async revokeMcpRemoteToken() {
+      if (unreadable) throw blockedError();
+      delete keys.mcpRemote;
+      const saved = await save();
+      return { definido: false, persisted: saved.persisted };
+    },
+    /** Visão segura: nunca inclui o valor do token remoto. */
+    mcpRemoteView() {
+      return { definido: Boolean(keys.mcpRemote), persisted };
+    },
+    /**
+     * Copia o token remoto para a área de transferência via callback do main.
+     * Sem callback, devolve o token uma vez (só IPC interno — a UI não deve exibir em campo).
+     */
+    peekMcpRemoteToken() {
+      return keys.mcpRemote ? String(keys.mcpRemote) : "";
     },
     getAccounts() {
       return accounts || { version: 1, activeId: null, accounts: [] };
@@ -359,4 +420,4 @@ function editorView(entry) {
   return view;
 }
 
-module.exports = { createVault, editorView, FORMAT_ASYNC, FORMAT_LEGACY };
+module.exports = { createVault, editorView, FORMAT_ASYNC, FORMAT_LEGACY, KEY_NAMES };

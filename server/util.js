@@ -23,9 +23,19 @@ function readJson(file, fallback) {
 
 function writeJson(file, value) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  const tmp = `${file}.${process.pid}.tmp`;
+  const tmp = `${file}.${process.pid}.${crypto.randomBytes(4).toString("hex")}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(value, null, 2) + "\n", { encoding: "utf8", mode: 0o600 });
-  fs.renameSync(tmp, file);
+  try {
+    fs.renameSync(tmp, file);
+  } catch (err) {
+    if (err && (err.code === "EPERM" || err.code === "EBUSY" || err.code === "EACCES")) {
+      fs.copyFileSync(tmp, file);
+      try { fs.unlinkSync(tmp); } catch { /* ignore */ }
+      return;
+    }
+    try { fs.unlinkSync(tmp); } catch { /* ignore */ }
+    throw err;
+  }
 }
 
 const MASK = "[segredo]";
@@ -100,4 +110,23 @@ function isLocalApiPath(pathname) {
 const MAX_BODY_BYTES = 1_000_000;
 const MAX_MESSAGE_CHARS = 20_000;
 
-module.exports = { newId, nowIso, readJson, writeJson, redact, isLocalApiPath, MAX_BODY_BYTES, MAX_MESSAGE_CHARS };
+/** Diagnóstico local. No app instalado, dataDir é %APPDATA%\\HELIOS. Não grava URL de login nem segredo. */
+function appendHeliosLog(dataDir, line) {
+  if (!dataDir) return;
+  try {
+    const dir = path.join(dataDir, "logs");
+    fs.mkdirSync(dir, { recursive: true });
+    const text = redact(String(line ?? ""))
+      .replace(/https?:\/\/\S+/gi, "[url]")
+      .replace(/[\r\n]+/g, " ")
+      .slice(0, 500);
+    const file = path.join(dir, "helios.log");
+    const row = `${new Date().toISOString()} ${text}\n`;
+    try { fs.appendFileSync(file, row, { encoding: "utf8", mode: 0o600 }); }
+    catch { fs.appendFileSync(file, row, "utf8"); }
+  } catch {
+    /* o diagnóstico não pode derrubar o login */
+  }
+}
+
+module.exports = { newId, nowIso, readJson, writeJson, redact, appendHeliosLog, isLocalApiPath, MAX_BODY_BYTES, MAX_MESSAGE_CHARS };

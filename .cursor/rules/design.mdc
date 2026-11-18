@@ -1,0 +1,6 @@
+---
+description: Design do HELIOS (kit do Helison)
+globs: renderer/**
+alwaysApply: true
+---
+Siga `design/DESIGN.md` ao pé da letra em qualquer mudança visual (inclui a decisão final: tema claro é o principal). Detalhes e atalhos em `AGENTS.md`. Cores só dos tokens `--helios-*`; símbolo só de `renderer/assets/helios-mark.svg`; sem emojis; no máximo 1 preenchimento ouro por tela; rode o checklist do DESIGN.md antes de entregar.

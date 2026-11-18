@@ -165,5 +165,6 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--m-gold); ou
 .code-box { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; padding: 2px 4px; }
 .code-box .voice-hint { padding: 0; }
 .ans-h { font-size: 12px; font-weight: 600; color: var(--m-gold); margin: 6px 0 2px; text-transform: uppercase; letter-spacing: 0.03em; }
+.ans-pt { color: var(--m-muted); font-size: 13px; }
 .ib.armed { color: var(--m-gold); background: var(--m-gold-soft); box-shadow: inset 0 0 0 1px var(--m-gold); }
 .line .pt-sub { display: block; color: var(--m-muted); font-size: 12px; margin-left: 34px; }

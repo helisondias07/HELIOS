@@ -173,6 +173,8 @@ function renderFormattedAnswer(rawText) {
       .map((line) => {
         const hm = line.match(/^#{2,3}\s+(.+)$/);
         if (hm) return `<div class="ans-h">${esc(hm[1])}</div>`;
+        // Fala pronta (EN:) em destaque; tradução (PT:) discreta logo abaixo.
+        if (/^\s*PT:/.test(line)) return `<span class="ans-pt">${esc(line)}</span>`;
         return esc(line);
       })
       .join("\n");
@@ -240,13 +242,8 @@ function isInterviewSession() {
 }
 
 function effectiveReplyLang() {
-  const lang = currentLang();
-  if (lang === "en") return "en";
-  if (lang === "pt") return "pt";
-  const rev = [...state.lines].reverse();
   // Entrevista no viva-voz: a fala da recrutadora pode chegar pelo microfone.
-  const lastThem = rev.find((l) => l.who === "them") || (isInterviewSession() ? rev.find((l) => l.lang) : null);
-  return lastThem && lastThem.lang === "en" ? "en" : "pt";
+  return LineUtil.replyLang(state.lines, currentLang(), isInterviewSession());
 }
 
 function assist(more = false) {
@@ -355,13 +352,8 @@ async function runVoiceAsk(question) {
 
 // Tradução ao vivo em lote quando idioma = EN ou fala detectada em inglês
 function shouldTranslateLine(line) {
-  if (!line || line.pt) return false;
   // Em entrevista, traduz também o microfone (chamada no viva-voz / celular perto do PC).
-  if (line.who !== "them" && !(isInterviewSession() && line.lang === "en")) return false;
-  const lang = currentLang();
-  if (lang === "pt") return false;
-  if (lang === "en") return line.lang !== "pt";
-  return line.lang === "en";
+  return LineUtil.shouldTranslate(line, currentLang(), isInterviewSession());
 }
 function queueTranslate(line) {
   if (!shouldTranslateLine(line) || !api.translateBatch) return;

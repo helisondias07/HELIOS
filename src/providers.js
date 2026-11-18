@@ -79,19 +79,19 @@ function keepSpeech(segments) {
   return (segments || []).filter((s) => !(s.no_speech_prob > 0.6 && s.avg_logprob < -0.8) && !(s.no_speech_prob > 0.85));
 }
 
-async function groqChat({ key, model, messages, maxTokens = 600, temperature = 0.4, onDelta = null, search = false, timeoutMs = 45000, signal }) {
+async function groqChat({ key, model, messages, maxTokens = 600, temperature = 0.4, onDelta = null, search = false, timeoutMs = 45000, tries = 3, signal }) {
   const body = { model, messages, temperature, max_tokens: maxTokens };
   if (search && /gpt-oss/.test(model)) body.tools = [{ type: 'browser_search' }];
   if (onDelta) body.stream = true;
   if (/gpt-oss/.test(model)) { body.reasoning_effort = 'low'; body.include_reasoning = false; }
   let res = await fetchRetry(`${GROQ}/chat/completions`, {
     method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal,
-  }, { timeoutMs });
+  }, { timeoutMs, tries });
   if (res.status === 400 && (body.reasoning_effort || body.include_reasoning === false || body.tools)) {
     delete body.reasoning_effort; delete body.include_reasoning; delete body.tools;
     res = await fetchRetry(`${GROQ}/chat/completions`, {
       method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal,
-    }, { timeoutMs });
+    }, { timeoutMs, tries });
   }
   if (!res.ok) throw await readErr(res);
   if (onDelta) return stripCites(await readSSE(res, (t) => onDelta(stripCites(t))));

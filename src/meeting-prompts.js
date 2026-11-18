@@ -5,6 +5,7 @@ const { redact } = require("../server/util");
 let personal = "";
 const PERSONAL_MAX = 8000;
 function setPersonal(text) { personal = String(text || "").trim().slice(0, PERSONAL_MAX); }
+function getPersonal() { return personal; }
 
 function base(myContext, meeting) {
   return [
@@ -125,7 +126,8 @@ function isSmallTalk(q) {
 function interviewSuggest(lines, { myContext, lang, meeting, rollingSummary = "", more = false, previous = [] } = {}) {
   const english = lang !== "pt";
   const question = latestQuestion(lines);
-  const small = isSmallTalk(question);
+  const noise = Boolean(question) && !/\?/.test(question) && question.replace(/[^\p{L}\s]/gu, " ").split(/\s+/).filter((w) => w.length > 2 && !/^(uh+|um+|hm+|hmm+|ah+|eh+|oh+|mhm+|aham)$/i.test(w)).length < 3;
+  const small = noise || isSmallTalk(question);
   const prev = (previous || []).filter((p) => p && p.answer).slice(-3);
   const length = small
     ? "1 frase curta e simpática (é só conversa social, não é pergunta de entrevista)"
@@ -161,6 +163,7 @@ function interviewSuggest(lines, { myContext, lang, meeting, rollingSummary = ""
     "4. Pergunta comportamental (\"tell me about a time\", desafio, conflito, erro): estruture como situação, o que EU fiz e resultado, com um caso real do Perfil.",
     "5. Se a fala não for pergunta (comentário, explicação longa da vaga), sugira uma reação curta + 1 pergunta pertinente sobre o que foi dito.",
     "6. Se o perfil não comprovar algo, diga a verdade e mostre a experiência real mais próxima e como ela se transfere.",
+    "7. PROIBIDO inventar: número, percentual, tempo de carregamento, prazo (\"48 hours\"), quantidade de clientes, resultado, métrica, episódio específico ou tarefa que não esteja escrita no Perfil. Para exemplos, descreva COMO você costuma trabalhar (processo real) ou use os fatos do Perfil; resultado só de forma qualitativa. Os únicos números permitidos são os que aparecem no Perfil, nas notas ou na conversa.",
   ].join("\n");
   const prevBlock = prev.length
     ? `Respostas já sugeridas nesta entrevista (NÃO repetir):\n${prev.map((p, i) => `${i + 1}. Pergunta: ${String(p.question || "").slice(0, 160)}\n   Resposta: ${String(p.answer).replace(/\s+/g, " ").slice(0, 400)}`).join("\n")}`
@@ -183,11 +186,31 @@ function interviewSuggest(lines, { myContext, lang, meeting, rollingSummary = ""
         INTERVIEW_RULE,
         prevBlock,
         question ? `ÚLTIMA PERGUNTA a responder (detectada; pode ter erro de reconhecimento): """${question}"""` : "Ainda não há pergunta clara: sugira uma frase curta de abertura.",
-        small ? "Isto é conversa social: responda curto e natural, sem pitch." : "",
+        noise ? "A última fala parece ruído ou fala incompleta: sugira só uma frase curta e educada (ex.: pedir para repetir) e nada mais." : small ? "Isto é conversa social: responda curto e natural, sem pitch." : "",
+        small ? "" : "Lembrete final: só fatos do Perfil; nenhum número, métrica ou episódio inventado.",
         format,
       ].filter(Boolean).join("\n\n"),
     },
   ];
+}
+
+/** Marca números da sugestão que não aparecem no perfil, nas notas nem na conversa (rede de segurança contra métrica inventada). */
+function flagUnsupportedNumbers(text, sources) {
+  const out = String(text || "");
+  if (!out.trim()) return out;
+  const src = String(sources || "").replace(/\s+/g, " ");
+  const body = out.split(/\n##\s*Pergunta\s*\n/).length > 1 ? out.replace(/##\s*Pergunta\s*\n[^\n]*\n?/, "") : out;
+  const seen = new Set();
+  const bad = [];
+  for (const m of body.matchAll(/\d+(?:[.,]\d+)?/g)) {
+    const n = m[0];
+    if (seen.has(n)) continue;
+    seen.add(n);
+    const has = (v) => new RegExp(`(^|[^\\d.,])${v.replace(/[.,]/g, "[.,]")}(?![\\d]|[.,]\\d)`).test(src);
+    if (!has(n)) bad.push(n);
+  }
+  if (!bad.length) return out;
+  return `${out.trimEnd()}\n\n⚠ Confira antes de falar: ${bad.join(", ")} não está no seu perfil. Se não tiver certeza, não cite o número.`;
 }
 
 function suggest(lines, { myContext, lang, meeting, rollingSummary = "", more = false, withScreen = false, interview = false, previous = [] } = {}) {
@@ -349,7 +372,7 @@ function summary(lines, { myContext, meeting, rollingSummary = "" } = {}) {
 }
 
 module.exports = {
-  setPersonal, PERSONAL_MAX, MAX_CHARS, recent, transcriptBlock,
+  setPersonal, getPersonal, flagUnsupportedNumbers, PERSONAL_MAX, MAX_CHARS, recent, transcriptBlock,
   translateBatch, parseBatch, translate, suggest, interviewSuggest, latestQuestion, isSmallTalk, researchTopic, liveCoding,
   sayEn, followups, insights, explain, ask, summary, roteiro,
 };

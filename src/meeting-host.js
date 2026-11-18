@@ -265,7 +265,7 @@ function registerMeeting({ getWin, getMain, closeMeeting, settings, vault, meeti
     if (mock) return chatInner(messages, opts, null);
     return track((signal) => chatInner(messages, opts, signal));
   }
-  async function chatInner(messages, { fast = false, imageBase64 = null, maxTokens, onDelta = null, search = false, temperature } = {}, signal) {
+  async function chatInner(messages, { fast = false, imageBase64 = null, maxTokens, onDelta = null, search = false, temperature, interview = false } = {}, signal) {
     if (mock) {
       const text = mock_.mockChat(messages);
       if (onDelta) onDelta(text);
@@ -273,7 +273,12 @@ function registerMeeting({ getWin, getMain, closeMeeting, settings, vault, meeti
     }
     const current = cfg();
     const plan = [];
-    if (imageBase64) {
+    if (interview && !imageBase64) {
+      // Entrevista: o modelo bom primeiro; se bater limite, cai na hora (sem esperar retry) para Gemini e só depois o rápido.
+      if (current.groq) plan.push({ p: "groq", m: current.llmModel, tries: 1 });
+      if (current.gemini) plan.push({ p: "gemini", m: VISION_MODEL });
+      if (current.groq) plan.push({ p: "groq", m: current.fastModel, tries: 2 });
+    } else if (imageBase64) {
       if (!current.gemini) throw new Error("A análise de tela usa o Gemini. Cole a chave em Ajustes.");
       const models = [VISION_MODEL, current.geminiModel].filter((name, i, all) => name && all.indexOf(name) === i);
       for (const name of models) plan.push({ p: "gemini", m: name });
@@ -289,7 +294,7 @@ function registerMeeting({ getWin, getMain, closeMeeting, settings, vault, meeti
     for (const step of plan) {
       try {
         if (step.p === "groq") {
-          const text = await providers.groqChat({ key: current.groq, model: step.m, messages, maxTokens, temperature, onDelta, search, signal });
+          const text = await providers.groqChat({ key: current.groq, model: step.m, messages, maxTokens, temperature, onDelta, search, signal, ...(step.tries ? { tries: step.tries } : {}) });
           return { text, provider: tag(`Groq · ${step.m.replace("openai/", "")}`) };
         }
         const text = await providers.geminiChat({
@@ -567,9 +572,11 @@ function registerMeeting({ getWin, getMain, closeMeeting, settings, vault, meeti
     });
     // Entrevista: resposta vem do perfil, não da web. Sem busca = 1ª palavra bem mais rápida.
     if (interview) {
-      const result = await chat(messages, { fast: false, maxTokens: more ? 1800 : 1300, temperature: 0.3, onDelta: stream(rid), search: false });
-      rememberSuggestion(session && session.id, prompts.latestQuestion(lines), result && result.text);
-      return result;
+      const result = await chat(messages, { fast: false, interview: true, maxTokens: more ? 1800 : 1300, temperature: 0.2, onDelta: stream(rid), search: false });
+      const sources = [prompts.getPersonal(), meetingText(lines), (lines || []).map((l) => l && l.text).join(" ")].join(" ");
+      const text = prompts.flagUnsupportedNumbers(result && result.text, sources);
+      rememberSuggestion(session && session.id, prompts.latestQuestion(lines), text);
+      return { ...result, text };
     }
     return chat(messages, { fast: !more && !image, maxTokens: more ? 900 : 550, imageBase64: image, onDelta: stream(rid), search: true });
   }));

@@ -146,6 +146,57 @@ test("host: entrevista não usa busca, usa o modelo principal e lembra a última
 test("renderer: entrevista traduz o microfone em inglês e tem atalho EN: para dizer em inglês", () => {
   const app = read("renderer", "meeting", "app.js");
   assert.match(app, /function isInterviewSession\(\)/);
-  assert.match(app, /isInterviewSession\(\) && line\.lang === "en"/);
+  assert.match(app, /LineUtil\.shouldTranslate\(line, currentLang\(\), isInterviewSession\(\)\)/);
+  assert.match(app, /LineUtil\.replyLang\(state\.lines, currentLang\(\), isInterviewSession\(\)\)/);
+  assert.match(app, /class="ans-pt"/);
   assert.match(app, /api\.sayEn\(sayMatch\[1\]\.trim\(\), rid\)/);
+});
+
+test("rede de segurança: número que não está no perfil vira aviso", () => {
+  const src = "Mais de 10 lojas na Wake desde abr/2024. Estácio dez/2027.";
+  const ok = prompts.flagUnsupportedNumbers("## Pergunta\nPT: x\n## Responda\nEN: I maintain more than 10 stores since 2024.", src);
+  assert.doesNotMatch(ok, /Confira antes de falar/);
+  const bad = prompts.flagUnsupportedNumbers("## Responda\nEN: Load time dropped from 4.2 to 2.1 seconds, about 20 % faster.", src);
+  assert.match(bad, /Confira antes de falar: 4\.2, 2\.1, 20/);
+});
+
+test("ruído / fala incompleta não vira resposta longa", () => {
+  const blob = prompts.suggest(L([["them", "uh... hmm"]]), { lang: "en", interview: true }).map((m) => m.content).join("\n");
+  assert.match(blob, /parece ruído/);
+  assert.doesNotMatch(blob, /## Pontos de apoio/);
+  const real = prompts.suggest(L([["them", "Why Shopify?"]]), { lang: "en", interview: true }).map((m) => m.content).join("\n");
+  assert.doesNotMatch(real, /parece ruído/);
+  assert.match(real, /PROIBIDO inventar/);
+});
+
+test("entrevista: 429 no modelo principal cai na hora para o Gemini, sem esperar retry", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "helios-interview-429-"));
+  const { meetings, vault, handlers } = await setupHost(dir);
+  await vault.setKey("groq", "gsk-test-interview");
+  await vault.setKey("gemini", "gm-test-interview");
+  const created = meetings.create({ title: "Entrevista", playbook: "entrevista-rh", consented: true });
+  await handlers.get("meetings:start")(null, created.id);
+  const calls = [];
+  const og = providers.groqChat;
+  const ogm = providers.geminiChat;
+  providers.groqChat = async (opts) => {
+    calls.push({ p: "groq", m: opts.model, tries: opts.tries });
+    throw Object.assign(new Error("HTTP 429"), { status: 429 });
+  };
+  providers.geminiChat = async (opts) => {
+    calls.push({ p: "gemini", m: opts.model });
+    return "## Pergunta\nPT: x\n## Responda\nEN: I maintain more than ten stores.\nPT: y";
+  };
+  let r;
+  try {
+    r = await handlers.get("ai:suggest")(null, L([["them", "Tell me about yourself."]]), "en", 0, false);
+  } finally {
+    providers.groqChat = og;
+    providers.geminiChat = ogm;
+  }
+  assert.equal(r.ok, true);
+  assert.deepEqual(calls.map((c) => c.p), ["groq", "gemini"]);
+  assert.equal(calls[0].tries, 1);
+  assert.equal(calls[1].m, "gemini-2.5-flash");
+  assert.match(r.provider, /Gemini/);
 });

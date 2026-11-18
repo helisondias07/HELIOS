@@ -86,6 +86,6 @@ npm run check
 
 Não precisa de chave. `npm test` cobre preparação/consentimento, encerrar, wrapup sem inventar responsável, descarte da captura, prompts sem cola de tela e ausência dos fluxos antigos fora de reunião.
 
-Instalador Windows: `npm run dist:win` → `release/HELIOS-Setup-0.3.1.exe`.
+Instalador Windows: `npm run dist:win` → `release/HELIOS-Setup-0.3.2.exe`.
 
 Este agente rodou testes em Linux. A captura de áudio do sistema e o `safeStorage` real só se confirmam no Windows.

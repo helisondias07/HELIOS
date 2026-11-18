@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.2 — reunião mista PT/EN blindada + modo entrevista
+
+- **Auto misto garantido (testado):** no idioma Auto, a fala do interlocutor em inglês ganha tradução PT na hora e o `Alt+S` responde em inglês (fala pronta + até 3 dados pesquisados); fala em português mantém sugestão em português. Roteiro dedicado em `test/mixed-language.test.js` cobre misto, só EN e só PT sem disparo automático.
+- **Modo entrevista (RH/recrutador):** playbooks `entrevista` e `entrevista-rh` respondem só a última pergunta, sem repetir respostas anteriores, sem busca web (mais rápido) e traduzem o viva-voz EN que chega pelo microfone; atalho `EN: <texto>` no campo pergunta devolve como falar em inglês; failover imediato para o Gemini em limite 429 e marcação de números que não constam no perfil.
+- **Perguntas típicas da vaga cobertas em teste:** Shopify, loja, prazo, pretensão salarial e inglês (EN e PT) viram fala pronta curta em 1ª pessoa, sem inventar emprego, salário ou anos de experiência.
+
 ## 0.3.1 — silêncio total na escuta, 2 abas focadas e guia VS Code mastigado
 
 - **Silêncio total durante a reunião:** o HELIOS apenas escuta e transcreve; removidos o auto-disparo do detector de perguntas e o wake-word de voz. Pergunta por voz só quando o microfone é armado manualmente (`#btnVoiceAsk`).

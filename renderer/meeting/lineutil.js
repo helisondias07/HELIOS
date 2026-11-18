@@ -137,10 +137,36 @@
     return Boolean(extractVoiceQuestion(text));
   }
 
+  /**
+   * Idioma da reunião (pt | en | auto) → a fala do interlocutor deve ganhar tradução PT na hora?
+   * Auto (misto): traduz só o que foi falado em inglês; PT puro nunca traduz; EN traduz tudo que não for PT.
+   * Entrevista no viva-voz: a fala EN do entrevistador pode chegar pelo microfone ("me") e também traduz.
+   */
+  function shouldTranslate(line, mode, interview = false) {
+    if (!line || line.pt) return false;
+    if (line.who !== 'them' && !(interview && line.lang === 'en')) return false;
+    if (mode === 'pt') return false;
+    if (mode === 'en') return line.lang !== 'pt';
+    return line.lang === 'en';
+  }
+
+  /**
+   * Idioma da resposta do copiloto: EN/PT fixos mandam direto; no Auto, a última fala
+   * do interlocutor decide (misto: responde em inglês quando eles falaram inglês).
+   * Entrevista no viva-voz: sem fala "them", qualquer fala com idioma detectado decide.
+   */
+  function replyLang(lines, mode, interview = false) {
+    if (mode === 'en') return 'en';
+    if (mode === 'pt') return 'pt';
+    const rev = [...(lines || [])].reverse();
+    const lastThem = rev.find((l) => l && l.who === 'them') || (interview ? rev.find((l) => l && l.lang) : null);
+    return lastThem && lastThem.lang === 'en' ? 'en' : 'pt';
+  }
+
   const exported = {
     SILENCE_MS, OVERLAP_MS, norm, isDuplicate, trimOverlap, newSince, shownCursor, claimTranslate,
     isNoise, shouldCut, shouldCutVoice, shouldStartOverlap, extractVoiceQuestion, isVoiceQuestion,
-    enqueueStt, toProse, proseParts,
+    enqueueStt, toProse, proseParts, shouldTranslate, replyLang,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = exported;
   else root.LineUtil = exported;

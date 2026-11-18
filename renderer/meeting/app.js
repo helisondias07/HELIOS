@@ -6,7 +6,7 @@ const state = {
   recs: [], streams: [], ctx: null, settings: {}, clickThrough: false,
   session: null, chat: [], pendingTr: [], trBusy: false, trTimer: null, chunkAuto: 0, rateWaitMs: 5000,
   rid: 0, startedAt: 0, elapsedMs: 0, timerIv: null,
-  view: "insights", last: null, lastCode: "", question: "", cardOpen: false, transcriptOpen: false, notesOpen: false,
+  view: "insights", last: null, lastCode: "", codeBlocks: [], cardOpen: false, transcriptOpen: false, notesOpen: false, codeOpen: false,
   voiceBusy: false, voiceQueued: "", armVoiceAsk: false, hearingMic: false, screenIv: null, screenBusy: false, sttBusy: 0,
   ended: false, notesDirtyTimer: null,
 };
@@ -97,11 +97,14 @@ async function copyText(text) {
 function setActivePanel(which) {
   state.transcriptOpen = which === "transcript";
   state.notesOpen = which === "notes";
+  state.codeOpen = which === "code";
   $("transcript").classList.toggle("hidden", !state.transcriptOpen);
   $("notesBox").classList.toggle("hidden", !state.notesOpen);
+  $("codeBox").classList.toggle("hidden", !state.codeOpen);
   $("answer").classList.toggle("hidden", which !== "answer");
   $("chipTranscript").classList.toggle("on", state.transcriptOpen);
   $("chipNotes").classList.toggle("on", state.notesOpen);
+  $("chipCode").classList.toggle("on", state.codeOpen);
   $("chipInsights").classList.toggle("on", which === "answer" && state.view === "insights");
   if (state.transcriptOpen) {
     const b = $("transcript");
@@ -119,6 +122,10 @@ function showNotes(on) {
 function showInsights() {
   state.view = "insights";
   setActivePanel("answer");
+  openCard(true);
+}
+function showCode() {
+  setActivePanel("code");
   openCard(true);
 }
 
@@ -153,11 +160,13 @@ function renderFormattedAnswer(rawText) {
     return;
   }
   $("ansSub").textContent = "";
+  state.codeBlocks = [];
   const segments = raw.split(/(```[\s\S]*?```)/g);
   const html = segments.map((seg) => {
     if (seg.startsWith("```") && seg.endsWith("```")) {
-      const inner = seg.replace(/^```[^\n]*\n?/, "").replace(/```$/, "");
-      return `<pre class="code-block">${esc(inner.trim())}</pre>`;
+      const inner = seg.replace(/^```[^\n]*\n?/, "").replace(/```$/, "").trim();
+      const idx = state.codeBlocks.push(inner) - 1;
+      return `<div class="code-wrap"><pre class="code-block">${esc(inner)}</pre><button type="button" class="mini copy-blk" data-idx="${idx}">Copiar</button></div>`;
     }
     return seg
       .split(/\r?\n/)
@@ -173,6 +182,7 @@ function renderFormattedAnswer(rawText) {
 
 function paintAnswer(text, streaming = false) {
   const raw = String(text || "");
+  state.codeBlocks = [];
   state.lastCode = extractCodeBlock(raw);
   $("btnCopyCode").classList.toggle("hidden", !state.lastCode);
   if (!raw) {
@@ -230,7 +240,6 @@ function effectiveReplyLang() {
 }
 
 function assist(more = false) {
-  hideQuestion();
   const lang = effectiveReplyLang();
   return runAI("O que falar agora", (rid) => api.suggest(linesForAI(), lang, rid, more), {
     asked: "O que falar agora",
@@ -275,7 +284,7 @@ function syncVoiceHint() {
   }
   el.textContent = state.armVoiceAsk
     ? "Pergunta por voz armada: fale sua dúvida agora."
-    : "Ouvindo. Diga 'Helios, …' ou clique no microfone do campo abaixo para perguntar por voz.";
+    : "Ouvindo em silêncio. Clique no microfone do campo abaixo para perguntar por voz.";
 }
 
 function syncScreenHint() {
@@ -308,15 +317,12 @@ function stopScreenWatch(clear = true) {
 }
 
 function maybeVoiceAsk(text) {
-  if (!state.recording || state.discard || !state.hearingMic) return;
-  let question = "";
-  if (state.armVoiceAsk) {
-    state.armVoiceAsk = false;
-    syncVoiceHint();
-    question = String(text || "").trim();
-  } else {
-    question = LineUtil.extractVoiceQuestion(text);
-  }
+  // v0.3.1 — silêncio total na escuta: a pergunta por voz só existe quando o usuário
+  // arma o microfone manualmente em #btnVoiceAsk. Nenhum wake-word automático.
+  if (!state.recording || state.discard || !state.hearingMic || !state.armVoiceAsk) return;
+  state.armVoiceAsk = false;
+  syncVoiceHint();
+  const question = String(text || "").trim();
   if (!question) return;
   if (state.voiceBusy) { state.voiceQueued = question; return; }
   runVoiceAsk(question);
@@ -336,18 +342,6 @@ async function runVoiceAsk(question) {
     if (next && state.recording && !state.discard) runVoiceAsk(next);
   }
 }
-
-async function detectQuestion(line) {
-  if (!api.detect || line.who !== "them") return;
-  if (!/\?/.test(line.text) && line.text.split(/\s+/).length < 5) return;
-  const r = await api.detect(line.text);
-  if (!r || !r.ok || !r.question || state.discard) return;
-  state.question = r.question;
-  $("chipQText").textContent = r.question;
-  $("chipQ").classList.remove("hidden");
-  openCard(true);
-}
-function hideQuestion() { state.question = ""; $("chipQ").classList.add("hidden"); }
 
 // Tradução ao vivo em lote quando idioma = EN ou fala detectada em inglês
 function shouldTranslateLine(line) {
@@ -599,8 +593,9 @@ async function handleChunk(blob, who = "them", retried = false, forcedId = 0) {
   renderLine(line);
   persistLinesNow();
   queueTranslate(line);
-  if (who === "me") maybeVoiceAsk(line.text);
-  if (who === "them") detectQuestion(line);
+  // v0.3.1 — silêncio total: a escuta apenas transcreve; nada de cards automáticos.
+  // Pergunta por voz só quando o microfone foi armado manualmente (#btnVoiceAsk).
+  if (who === "me" && state.armVoiceAsk) maybeVoiceAsk(line.text);
 }
 
 function hydrateSession(session) {
@@ -731,7 +726,6 @@ function stopCapture(discard = true) {
   state.trTimer = null;
   if (discard) deltaHandlers.clear();
   shotDrop();
-  hideQuestion();
   if (api.setHotkeysActive) api.setHotkeysActive(false);
 }
 
@@ -859,7 +853,8 @@ function bind() {
 
   $("chipSay").onclick = () => assist();
   $("chipResearch").onclick = () => researchTopic();
-  $("chipCode").onclick = () => runLiveCode();
+  $("chipCode").onclick = () => { openCard(true); showCode(); };
+  $("btnGenGuide").onclick = () => runLiveCode();
   $("chipInsights").onclick = () => {
     if (!state.last) runAI("Ajuda", (rid) => api.insights(linesForAI(), rid));
     else showInsights();
@@ -867,7 +862,13 @@ function bind() {
   $("chipNotes").onclick = () => { openCard(true); showNotes(!state.notesOpen); };
   $("chipTranscript").onclick = () => { openCard(true); showTranscript(!state.transcriptOpen); };
   $("chipShot").onclick = screenAsk;
-  $("chipQ").onclick = () => assist();
+
+  $("ansMain").addEventListener("click", async (e) => {
+    const btn = e.target.closest(".copy-blk");
+    if (!btn) return;
+    const code = state.codeBlocks[Number(btn.dataset.idx)] || "";
+    toast((await copyText(code)) ? "Bloco copiado." : "Não copiei.", 1500);
+  });
 
   $("btnMore").onclick = () => { if (state.last && state.last.more) state.last.more(); };
   $("btnCopy").onclick = async () => { if (state.last) toast((await copyText(state.last.text)) ? "Copiado." : "Não copiei.", 1500); };
@@ -944,7 +945,6 @@ function bind() {
     const el = document.activeElement;
     const typing = el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName);
     if (e.key === "Enter" && state.shotPending && !typing) { e.preventDefault(); shotSend(); return; }
-    if (e.key === "Tab" && state.question && !typing) { e.preventDefault(); assist(); return; }
     if (e.altKey && (e.key === "s" || e.key === "S")) { e.preventDefault(); assist(); return; }
     if (e.altKey && (e.key === "p" || e.key === "P")) { e.preventDefault(); researchTopic(); return; }
     if (e.altKey && (e.key === "c" || e.key === "C")) { e.preventDefault(); runLiveCode(); return; }

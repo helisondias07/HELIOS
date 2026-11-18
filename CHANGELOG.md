@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.1 — silêncio total na escuta, 2 abas focadas e guia VS Code mastigado
+
+- **Silêncio total durante a reunião:** o HELIOS apenas escuta e transcreve; removidos o auto-disparo do detector de perguntas e o wake-word de voz. Pergunta por voz só quando o microfone é armado manualmente (`#btnVoiceAsk`).
+- **Duas abas principais no overlay:** **Respostas** (`Alt+S`) e **Live Coding** (`Alt+C`), com Consultar (`Alt+P`), Ajuda, Notas e Falas como apoio.
+- **Busca em tempo real obrigatória:** `ai:suggest`, `ai:ask`, `ai:research` e `ai:livecode` passam `search: true` (Google Search no Gemini / browser_search no Groq gpt-oss).
+- **Respostas com dados reais:** formato fixo em 2 seções — *O que falar agora* (fala pronta em 1ª pessoa) + *Dados reais pesquisados* (até 3 fatos, números ou regras concretas).
+- **Live Coding vira tutorial mastigado para o VS Code:** só sob demanda (botão **Gerar Guia** ou `Alt+C`); entrega **1. Preparar no VS Code** (pasta, arquivo e comando exatos), **2. Passo a passo do que digitar** (micro-passos numerados na ordem de digitação, código limpo por bloco com botão Copiar e complexidade `O(...)`) e **3. O que falar enquanto digita** (1 frase natural por passo).
+- **Bateria de estresse anti-reembolso** (`test/stress-cluely-parity.test.js`): 120 linhas contínuas sem card automático e com filas/cache limitados, alternância de abas, garantia de `search: true`, formato do guia e persistência sem perda em erro 429.
+
 ## 0.3.0 — baixa latência, copiloto ao vivo, modo código e zero perda
 
 - **Zero perda de transcrição:** gravação incremental (`syncLines`) a cada fala, persistência em disco antes do LLM ao encerrar, escrita atômica resistente a `EPERM` no Windows e botão **Regenerar ata** no histórico.

@@ -547,7 +547,7 @@ function registerMeeting({ getWin, getMain, closeMeeting, settings, vault, meeti
         rollingSummary: rollingFor(lines),
         withScreen: !!image,
       }),
-      { fast: !more && !image, maxTokens: more ? 900 : 550, imageBase64: image, onDelta: stream(rid) }
+      { fast: !more && !image, maxTokens: more ? 900 : 550, imageBase64: image, onDelta: stream(rid), search: true }
     );
   }));
 
@@ -596,17 +596,11 @@ function registerMeeting({ getWin, getMain, closeMeeting, settings, vault, meeti
         lang,
         withScreen: !!image,
       }),
-      { imageBase64: image, maxTokens: 2200, temperature: 0.15, onDelta: stream(rid) }
+      { imageBase64: image, maxTokens: 2200, temperature: 0.15, onDelta: stream(rid), search: true }
     );
     return warn ? { ...result, warn } : result;
   }));
 
-  ipcMain.handle("ai:detect", wrap(async (text) => {
-    const clean = String(text || "").trim();
-    if (clean.length < 8) return { question: "" };
-    const r = await chat(prompts.detectQuestion(clean), { fast: true, maxTokens: 30 });
-    return { question: prompts.parseDetect(r.text), provider: r.provider };
-  }));
   ipcMain.handle("ai:insights", wrap(async (lines, rid) => chat(prompts.insights(lines, { myContext: settings.get("myContext"), meeting: meetingText(lines), rollingSummary: rollingFor(lines) }), { maxTokens: 500, onDelta: stream(rid) })));
   ipcMain.handle("ai:followups", wrap(async (lines, rid) => chat(prompts.followups(lines, { myContext: settings.get("myContext"), meeting: meetingText(lines), rollingSummary: rollingFor(lines) }), { maxTokens: 400, onDelta: stream(rid) })));
   ipcMain.handle("ai:explain", wrap(async (lines, term, rid) => chat(prompts.explain(lines, { myContext: settings.get("myContext"), term, meeting: meetingText(lines), rollingSummary: rollingFor(lines) }), { maxTokens: 400, onDelta: stream(rid) })));
@@ -797,7 +791,7 @@ function registerMeeting({ getWin, getMain, closeMeeting, settings, vault, meeti
         meeting: meetingText(lines),
         rollingSummary: rollingFor(lines),
       }),
-      { imageBase64: image, onDelta: stream(rid), maxTokens: image ? 900 : 500 }
+      { imageBase64: image, onDelta: stream(rid), maxTokens: image ? 900 : 500, search: true }
     );
     return warn ? { ...result, warn } : result;
   }));

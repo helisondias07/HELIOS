@@ -38,7 +38,7 @@ for (const file of required) {
 }
 
 const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
-if (pkg.version !== "0.3.0") fail("a versão do pacote precisa ser 0.3.0");
+if (pkg.version !== "0.3.1") fail("a versão do pacote precisa ser 0.3.1");
 for (const script of ["start", "test", "lint", "check", "dist:win"]) {
   if (!pkg.scripts[script]) fail(`falta o script ${script}`);
 }

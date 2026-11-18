@@ -2,6 +2,6 @@
 
 const { createMeetingsStore } = require("./meetings-store");
 
-const VERSION = "0.3.0";
+const VERSION = "0.3.1";
 
 module.exports = { VERSION, createMeetingsStore };

@@ -77,15 +77,30 @@ const SCREEN_NOTE = "Um print da janela/tela da reunião está anexado, só porq
 function suggest(lines, { myContext, lang, meeting, rollingSummary = "", more = false, withScreen = false } = {}) {
   const english = lang === "en" || lang === "both";
   const style = english
-    ? "Inglês natural, direto e conversacional em 1ª pessoa, pronto para falar em voz alta na call."
+    ? "Fala natural, direta e conversacional em 1ª pessoa, pronta para falar em voz alta na call."
     : "Português do Brasil natural em 1ª pessoa, direto ao ponto, pronto para falar em voz alta (sem 'Claro!' nem preâmbulo).";
   const format = english
-    ? "Formato exato:\nEN: <fala pronta em 1ª pessoa + 1 pergunta curta de gancho se couber>\nPT: <tradução fiel em português>"
-    : "Formato: 1 parágrafo curto de fala pronta em 1ª pessoa + na linha seguinte 'Gancho: <1 pergunta inteligente e curta para avançar a conversa>'. Sem markdown pesado.";
+    ? [
+        "Formato exato (só estas 2 seções):",
+        "## O que falar agora",
+        "EN: <fala pronta em 1ª pessoa>",
+        "PT: <tradução fiel em português>",
+        "## Dados reais pesquisados",
+        "- <fato, métrica, número ou regra concreta que sustenta a resposta>",
+        "- <até 3 itens, um por linha>",
+      ].join("\n")
+    : [
+        "Formato exato (só estas 2 seções):",
+        "## O que falar agora",
+        "<fala pronta em 1ª pessoa + 1 pergunta curta de gancho se couber>",
+        "## Dados reais pesquisados",
+        "- <fato, métrica, número ou regra concreta que sustenta a resposta>",
+        "- <até 3 itens, um por linha>",
+      ].join("\n");
   return [
     {
       role: "system",
-      content: `${base(myContext, meeting)}\nVocê entrega uma Sugestão imediata do que a pessoa pode falar AGORA na reunião. Seja específico à transcrição e às notas. Proibido frase genérica. Não invente.`,
+      content: `${base(myContext, meeting)}\nVocê entrega uma Sugestão imediata do que a pessoa pode falar AGORA na reunião. Use a busca em tempo real para trazer dados concretos de mercado, técnicos ou de negócio que sustentem a fala quando fizer sentido. Proibido frase genérica. Não invente números, prazos, fontes ou empresas: se a busca não trouxer o dado, escreva só o que a transcrição e as notas sustentarem.`,
     },
     {
       role: "user",
@@ -134,16 +149,22 @@ function liveCoding(lines, { myContext, meeting, rollingSummary = "", clipboardC
     {
       role: "system",
       content: [
-        "Você é o modo Código / Pair Programming do HELIOS: assistente técnico para programação em par, code review e depuração ao vivo.",
-        "Analise o trecho de código ou erro visível no monitor selecionado, o conteúdo da área de transferência (se houver) e o contexto técnico falado na conversa.",
-        "Entregue a resposta SEMPRE estruturada exatamente nestes 3 blocos curtos e escaneáveis:",
-        english
-          ? "### 1. O que falar agora\nEN: <2 a 3 frases naturais em 1ª pessoa explicando a abordagem antes de codar>\nPT: <resumo em português>"
-          : "### 1. O que falar agora\n<2 a 3 frases naturais em 1ª pessoa explicando o raciocínio e a abordagem em voz alta>",
-        "### 2. Código limpo & Complexidade\n<bloco de código com crases triplas, idiomático, limpo, SEM comentários robóticos óbvios>\nTempo: O(...) · Espaço: O(...) — <1 frase curta justificando>",
-        "### 3. Debug / Edge cases\n<se houver erro, teste quebrado ou stacktrace visível, aponte a linha/causa exata e a correção; senão, liste 2 a 3 casos de borda essenciais>",
+        "Você é o modo Live Coding do HELIOS: gera um guia extremamente mastigado para o usuário bater o olho e digitar manualmente no VS Code enquanto compartilha a tela numa call.",
+        "A resposta aparece numa telinha discreta e invisível no compartilhamento de tela — seja curto, denso e escaneável; o usuário digita acompanhando o guia em tempo real.",
+        "Entregue SEMPRE exatamente estas 3 seções numeradas, nesta ordem:",
+        "### 1. Preparar no VS Code",
+        "- Pasta: <caminho exato onde entrar>",
+        "- Arquivo: <nome exato do arquivo a criar ou editar, ex.: src/services/api.ts>",
+        "- Terminal: <comando para instalar dependência, se precisar; senão 'nenhuma'>",
+        "### 2. Passo a passo do que digitar",
+        "Divida a solução em micro-passos numerados na ordem exata de digitação (Passo 2.1: Imports e URL base, Passo 2.2: Função principal, Passo 2.3: Onde chamar no componente…). Cada passo tem 1 bloco de código curto com crases triplas, limpo e idiomático, SEM comentários artificiais de IA. Se houver erro ou stacktrace visível na tela, inclua um passo final apontando a linha exata e a correção. Feche a seção com uma linha 'Tempo: O(...) · Espaço: O(...) — <justificativa curta>'.",
+        "### 3. O que falar enquanto digita",
+        "- No Passo 2.1: \"<1 frase curta e natural para explicar ao cliente/entrevistador o que está fazendo>\"",
+        "- repita uma frase para cada passo da seção 2",
         myContext ? `Preferências técnicas: ${myContext}` : "",
         meeting ? `Contexto da sessão:\n${meeting}` : "",
+        "Use a busca em tempo real para checar APIs, libs, assinaturas e versões citadas; não invente APIs, parâmetros nem comandos.",
+        english ? "Escreva as falas da seção 3 em inglês natural." : "",
       ].filter(Boolean).join("\n\n"),
     },
     {
@@ -156,19 +177,6 @@ function liveCoding(lines, { myContext, meeting, rollingSummary = "", clipboardC
       ].filter(Boolean).join("\n\n"),
     },
   ];
-}
-
-function detectQuestion(text) {
-  return [
-    { role: "system", content: "Detecte se a fala contém uma pergunta dirigida a quem você está ajudando. Se sim, devolva só a pergunta em português, até 8 palavras. Se não, devolva exatamente NONE." },
-    { role: "user", content: String(text || "").slice(0, 600) },
-  ];
-}
-
-function parseDetect(text) {
-  const t = String(text || "").trim().split(/\r?\n/)[0].replace(/^["'“]|["'”]$/g, "").trim();
-  if (!t || /^none\.?$/i.test(t)) return "";
-  return t.split(/\s+/).slice(0, 8).join(" ");
 }
 
 function sayEn(text, { myContext, meeting } = {}) {
@@ -226,5 +234,5 @@ function summary(lines, { myContext, meeting, rollingSummary = "" } = {}) {
 module.exports = {
   setPersonal, PERSONAL_MAX, MAX_CHARS, recent, transcriptBlock,
   translateBatch, parseBatch, translate, suggest, researchTopic, liveCoding,
-  detectQuestion, parseDetect, sayEn, followups, insights, explain, ask, summary, roteiro,
+  sayEn, followups, insights, explain, ask, summary, roteiro,
 };

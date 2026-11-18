@@ -1,7 +1,7 @@
 {
   "name": "helios",
   "productName": "HELIOS",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "HELIOS — assistente de reuniões para desktop",
   "author": "Helison",
   "private": true,

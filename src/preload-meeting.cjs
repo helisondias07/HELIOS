@@ -20,7 +20,6 @@ contextBridge.exposeInMainWorld("api", {
   suggest: (lines, lang, rid, more) => ipcRenderer.invoke("ai:suggest", lines, lang, rid, more),
   research: (lines, topic, rid) => ipcRenderer.invoke("ai:research", lines, topic, rid),
   livecode: (lines, opts, rid) => ipcRenderer.invoke("ai:livecode", lines, opts, rid),
-  detect: (text) => ipcRenderer.invoke("ai:detect", text),
   insights: (lines, rid) => ipcRenderer.invoke("ai:insights", lines, rid),
   followups: (lines, rid) => ipcRenderer.invoke("ai:followups", lines, rid),
   setHotkeysActive: (on) => ipcRenderer.send("hotkeys:session", Boolean(on)),

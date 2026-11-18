@@ -58,11 +58,18 @@ function mockChat(messages) {
     const said = (user.match(/"""([\s\S]*?)"""/) || ["", user])[1].trim();
     return `EN: (demo) ${said}\nPT: ${said}`;
   }
-  if (/Detecte se a fala contém uma pergunta/.test(system)) {
-    return /\?\s*$/.test(user.trim()) ? user.replace(/^\(demonstração\)\s*/, "").split(/\s+/).slice(0, 8).join(" ") : "NONE";
-  }
   if (/Sugestão de fala AGORA/.test(user) || /sugere o que a pessoa pode falar/.test(system)) {
-    return "Sugestão: Posso resumir o recorte desta semana e o que ainda está aberto. Se fizer sentido, eu fico com o rascunho e devolvo na data que vocês citarem.";
+    return [
+      "## O que falar agora",
+      "Posso resumir o recorte desta semana e o que ainda está aberto. Se fizer sentido, eu fico com o rascunho e devolvo na data que vocês citarem.",
+      "",
+      "## Dados reais pesquisados",
+      "- (demonstração) Sem busca real neste modo; em produção o HELIOS pesquisa fatos, números e regras na hora.",
+      "- (demonstração) Os dados citados viriam da busca em tempo real ou da transcrição.",
+    ].join("\n");
+  }
+  if (/pesquisa rapidamente um assunto/.test(system)) {
+    return "- O que é: (demonstração) Conceito técnico citado na conversa.\n- Ponto-chave: Reduz latência evitando reprocessamento desnecessário.\n- Como falar agora: Podemos validar esse ponto no escopo antes de fechar o prazo.";
   }
   if (/três parágrafos curtos: Fato/.test(user)) {
     return "Fato: o grupo quer fechar o recorte da semana.\nAberto: dono e prazo do rascunho, se alguém citar.\nSugestão: pergunte quem escreve o próximo texto e até quando.";
@@ -70,17 +77,39 @@ function mockChat(messages) {
   if (/Até 4 perguntas curtas/.test(user)) {
     return "- Qual é o recorte que já está fechado?\n- O que ainda impede o envio?\n- Quem escreve o próximo rascunho, se já foi dito?\n- Quando vocês querem olhar de novo?";
   }
-  if (/Pair Programming do HELIOS|Live Coding do HELIOS/.test(system)) {
+  if (/Live Coding do HELIOS/.test(system)) {
     return [
-      "### 1. O que falar agora",
-      "Vou usar um mapa de hash em passagem única para localizar o complemento em tempo linear sem ordenar o vetor.",
+      "### 1. Preparar no VS Code",
+      "- Pasta: `src/hooks`",
+      "- Arquivo: `useDebounce.ts`",
+      "- Terminal: nenhuma",
       "",
-      "### 2. Código limpo & Complexidade",
-      "```js\nfunction twoSum(nums, target) {\n  const seen = new Map();\n  for (let i = 0; i < nums.length; i++) {\n    const need = target - nums[i];\n    if (seen.has(need)) return [seen.get(need), i];\n    seen.set(nums[i], i);\n  }\n  return [];\n}\n```",
-      "Tempo: O(n) · Espaço: O(n) — percorre a lista uma vez guardando índices já vistos.",
+      "### 2. Passo a passo do que digitar",
+      "Passo 2.1: Imports e tipagem",
+      "```ts",
+      "import { useEffect, useState } from \"react\";",
+      "```",
+      "Passo 2.2: Função principal",
+      "```ts",
+      "export function useDebounce<T>(value: T, delayMs = 300) {",
+      "  const [debounced, setDebounced] = useState(value);",
+      "  useEffect(() => {",
+      "    const t = setTimeout(() => setDebounced(value), delayMs);",
+      "    return () => clearTimeout(t);",
+      "  }, [value, delayMs]);",
+      "  return debounced;",
+      "}",
+      "```",
+      "Passo 2.3: Onde chamar no componente",
+      "```ts",
+      "const debouncedQuery = useDebounce(query, 300);",
+      "```",
+      "Tempo: O(1) por render · Espaço: O(1) — um timer e um estado por instância do hook.",
       "",
-      "### 3. Debug / Edge cases",
-      "- Elementos duplicados que somam o alvo (guardar depois de checar evita usar o mesmo índice duas vezes).\n- Números negativos ou zero.",
+      "### 3. O que falar enquanto digita",
+      "- No Passo 2.1: \"Vou isolar o debounce num hook reutilizável.\"",
+      "- No Passo 2.2: \"O useEffect limpa o timer a cada mudança, então só o último valor passa adiante.\"",
+      "- No Passo 2.3: \"Agora só consumo o valor estabilizado na busca.\"",
     ].join("\n");
   }
   if (/pesquisa rapidamente um assunto/.test(system)) {

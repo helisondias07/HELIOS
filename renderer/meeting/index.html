@@ -57,21 +57,20 @@
     <label class="mrow"><span>Contexto de tela</span><input id="mScreen" type="checkbox"></label>
     <label class="mrow mcol"><span>Monitor / Janela</span><select id="mScreenSource"><option value="">Tela principal</option></select></label>
     <label class="mrow"><span>Área de transferência (Código)</span><input id="mClip" type="checkbox"></label>
-    <p class="mnote">Ctrl+Shift+Espaço oculta sem parar o áudio. Alt+S sugere fala, Alt+P consulta termo, Alt+C analisa código.</p>
+    <p class="mnote">Ctrl+Shift+Espaço oculta sem parar o áudio. Alt+S sugere fala com dados pesquisados, Alt+P consulta termo, Alt+C gera o guia de código.</p>
   </div>
 
   <div id="card" class="card hidden">
     <div id="chips" class="chips">
-      <button id="chipSay" class="chip" type="button" title="O que falar agora (Alt+S)"><svg><use href="#i-say"/></svg>Falar</button>
+      <button id="chipSay" class="chip" type="button" title="O que falar agora, com dados pesquisados em tempo real (Alt+S)"><svg><use href="#i-say"/></svg>Respostas</button>
       <button id="chipResearch" class="chip" type="button" title="Consultar assunto/conceito ao vivo (Alt+P)"><svg><use href="#i-ask"/></svg>Consultar</button>
-      <button id="chipCode" class="chip" type="button" title="Analisar código/erro na tela e clipboard (Alt+C)"><svg><use href="#i-code"/></svg>Código</button>
+      <button id="chipCode" class="chip" type="button" title="Guia passo a passo para digitar no VS Code (Alt+C)"><svg><use href="#i-code"/></svg>Live Coding</button>
       <button id="chipInsights" class="chip on" type="button" title="Resumo de fatos e pontos em aberto"><svg><use href="#i-spark"/></svg>Ajuda</button>
       <button id="chipNotes" class="chip" type="button" title="Notas rápidas com horário"><svg><use href="#i-note"/></svg>Notas</button>
       <button id="chipTranscript" class="chip" type="button" title="Transcrição ao vivo"><svg><use href="#i-lines"/></svg>Falas</button>
       <span class="grow"></span>
       <button id="chipShot" class="chip ic" type="button" aria-label="Capturar prévia da tela" title="Capturar prévia da tela (Ctrl+Shift+Enter)"><svg><use href="#i-screen"/></svg></button>
     </div>
-    <button id="chipQ" class="chip q hidden" type="button"><kbd>Tab</kbd><span id="chipQText"></span></button>
     <p id="voiceHint" class="voice-hint hidden" aria-live="polite"></p>
     <p id="screenHint" class="voice-hint hidden">Contexto de tela ativo nesta sessão.</p>
 
@@ -84,6 +83,11 @@
         <button id="btnMore" class="mini hidden" type="button">Mais</button>
         <button id="btnCopy" class="ib sm" type="button" aria-label="Copiar"><svg><use href="#i-copy"/></svg></button>
       </div>
+    </div>
+
+    <div id="codeBox" class="code-box hidden">
+      <p class="voice-hint">Guia mastigado para digitar no VS Code enquanto compartilha a tela: pasta e arquivo exatos, micro-passos numerados na ordem de digitação e a frase pronta para falar em cada passo. Nada roda sozinho — só quando você pedir.</p>
+      <button id="btnGenGuide" class="chip" type="button"><svg><use href="#i-code"/></svg>Gerar Guia (Alt+C)</button>
     </div>
 
     <div id="shotBox" class="shot hidden">
@@ -104,7 +108,7 @@
     <div id="transcript" class="transcript hidden"></div>
 
     <form id="askForm" class="ask">
-      <button id="btnVoiceAsk" class="ib sm" type="button" title="Armar pergunta por voz na próxima fala (ou diga 'Helios, …')" aria-label="Perguntar por voz"><svg><use href="#i-mic"/></svg></button>
+      <button id="btnVoiceAsk" class="ib sm" type="button" title="Armar pergunta por voz: a próxima fala sua vira pergunta (clique de novo para cancelar)" aria-label="Perguntar por voz"><svg><use href="#i-mic"/></svg></button>
       <input id="askInput" autocomplete="off" placeholder="Pergunte, digite um termo para Alt+P ou instrução…">
       <button type="submit" class="ib" aria-label="Enviar"><svg><use href="#i-send"/></svg></button>
     </form>

@@ -169,9 +169,9 @@ test("prompts de Consulta de Assunto (Alt+P) e Modo Código (Alt+C) seguem estru
     { clipboardCode: "function findDup(arr) { return arr; }", promptHint: "usar Set", lang: "en", withScreen: true }
   );
   const blob = codeMsgs.map((m) => m.content).join("\n");
-  assert.ok(blob.includes("### 1. O que falar agora"));
-  assert.ok(blob.includes("### 2. Código limpo & Complexidade"));
-  assert.ok(blob.includes("### 3. Debug / Edge cases"));
+  assert.ok(blob.includes("### 1. Preparar no VS Code"));
+  assert.ok(blob.includes("### 2. Passo a passo do que digitar"));
+  assert.ok(blob.includes("### 3. O que falar enquanto digita"));
   assert.match(blob, /findDup/);
 });
 
@@ -263,5 +263,5 @@ test("persistência Zero-Perda: syncLines incremental + wrapup salva transcriç�
 
   const livecode = await handlersMock.get("ai:livecode")(null, savedAfterFailure.lines, { promptHint: "two sum" }, 0);
   assert.equal(livecode.ok, true);
-  assert.ok(livecode.text.includes("### 2. Código limpo & Complexidade"));
+  assert.ok(livecode.text.includes("### 2. Passo a passo do que digitar"));
 });

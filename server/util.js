@@ -23,9 +23,19 @@ function readJson(file, fallback) {
 
 function writeJson(file, value) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  const tmp = `${file}.${process.pid}.tmp`;
+  const tmp = `${file}.${process.pid}.${crypto.randomBytes(4).toString("hex")}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(value, null, 2) + "\n", { encoding: "utf8", mode: 0o600 });
-  fs.renameSync(tmp, file);
+  try {
+    fs.renameSync(tmp, file);
+  } catch (err) {
+    if (err && (err.code === "EPERM" || err.code === "EBUSY" || err.code === "EACCES")) {
+      fs.copyFileSync(tmp, file);
+      try { fs.unlinkSync(tmp); } catch { /* ignore */ }
+      return;
+    }
+    try { fs.unlinkSync(tmp); } catch { /* ignore */ }
+    throw err;
+  }
 }
 
 const MASK = "[segredo]";

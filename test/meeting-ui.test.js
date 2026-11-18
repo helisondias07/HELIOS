@@ -66,9 +66,10 @@ test("overlay encerra captura no X e no stop da janela", () => {
   assert.match(app, /if \(state\.recording\) return;/);
   assert.match(preload, /onMeetingStop/);
   assert.match(main, /closeMeetingNow\(\)/);
-  assert.doesNotMatch(html, /Livecoding/);
-  assert.doesNotMatch(html, /chipLive/);
-  assert.doesNotMatch(app, /livecoding/i);
+  assert.match(html, /id="modeSeg"/);
+  assert.match(html, /id="langSeg"/);
+  assert.match(html, /id="protBadge"/);
+  assert.doesNotMatch(app, /vagas|ditado|candidatura/i);
 });
 
 test("janela principal é só reunião: preparação, histórico e ajustes", () => {
@@ -79,7 +80,7 @@ test("janela principal é só reunião: preparação, histórico e ajustes", () 
   assert.match(html, /Nova reunião/);
   assert.match(app, /Avisei as outras pessoas/);
   assert.match(app, /Contexto de tela desta reunião/);
-  assert.doesNotMatch(html + app + mainPreload, /vagas|livecoding|ditado|caixa de entrada|Montar time/i);
+  assert.doesNotMatch(html + app + mainPreload, /vagas|ditado|candidatura|caixa de entrada|Montar time/i);
   assert.doesNotMatch(mainPreload, /vagas:/);
 });
 
@@ -124,6 +125,6 @@ test("código e docs não reintroduzem fluxos genéricos", () => {
   const files = [
     "src/main.js", "server/index.js", "README.md", "renderer/app.js", "renderer/meeting/app.js",
   ].map((f) => read(f)).join("\n");
-  assert.doesNotMatch(files, /createJobs|registerJobs|livecoding:start|helios_enviar_mensagem|agent-vagas/);
+  assert.doesNotMatch(files, /createJobs|registerJobs|helios_enviar_mensagem|agent-vagas/);
   assert.match(read("README.md"), /assistente de reuniões/i);
 });

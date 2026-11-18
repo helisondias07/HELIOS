@@ -36,7 +36,12 @@ const HOTKEYS = {
   "CommandOrControl+Shift+Left": "left",
   "CommandOrControl+Shift+Right": "right",
 };
-const SESSION_HOTKEYS = { "CommandOrControl+Enter": "assist" };
+const SESSION_HOTKEYS = {
+  "Alt+S": "assist",
+  "Alt+P": "research",
+  "Alt+C": "code",
+  "CommandOrControl+Shift+S": "smart",
+};
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
@@ -177,11 +182,14 @@ function bootstrap() {
 
   function onHotkey(name) {
     if (name === "toggle") {
-      if (meetingWindow && meetingWindow.isVisible()) closeMeetingNow();
-      else openMeeting({ focus: false });
+      if (meetingWindow && !meetingWindow.isDestroyed() && meetingWindow.isVisible()) {
+        closeMeetingWindow(meetingWindow, { stop: false });
+      } else {
+        openMeeting({ focus: false });
+      }
       return;
     }
-    const target = openMeeting({ focus: name === "assist" });
+    const target = openMeeting({ focus: false });
     if (!target) return;
     if (name === "up" || name === "down" || name === "left" || name === "right") {
       const [x, y] = target.getPosition();

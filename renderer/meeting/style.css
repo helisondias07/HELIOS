@@ -146,3 +146,18 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--m-gold); ou
 .ask:focus-within { border-color: var(--m-gold); box-shadow: var(--m-glow); }
 .card { border-radius: 16px; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+
+.ib.prot { color: var(--m-gold); width: 24px; opacity: 0.85; cursor: default; }
+.mrow.mcol { flex-direction: column; align-items: stretch; gap: 4px; }
+.mrow select { width: 100%; height: 32px; border-radius: 8px; border: 1px solid var(--m-line); background: var(--m-hover); color: var(--m-fg); padding: 0 8px; font-size: 12px; }
+.seg-b { padding: 3px 7px; font-size: 11px; }
+.phase { min-width: 58px; font-size: 11px; }
+.chips { flex-wrap: wrap; row-gap: 4px; }
+.notes-box { display: flex; flex-direction: column; gap: 6px; }
+.notes-area { width: 100%; min-height: 84px; max-height: 180px; resize: vertical; border-radius: 10px; border: 1px solid var(--m-line); background: var(--m-hover); color: var(--m-fg); padding: 8px 10px; font-size: 12px; line-height: 1.45; outline: none; }
+.notes-area:focus-visible { border-color: var(--m-gold); box-shadow: var(--m-glow); }
+.ans-main .code-block { margin: 6px 0; padding: 8px 10px; border-radius: 10px; background: rgba(0, 0, 0, 0.35); border: 1px solid var(--m-line); font: 12px/1.45 "Cascadia Code", Consolas, monospace; white-space: pre-wrap; word-break: break-word; overflow-x: auto; }
+:root[data-mtheme="light"] .ans-main .code-block { background: rgba(0, 0, 0, 0.05); }
+.ans-h { font-size: 12px; font-weight: 600; color: var(--m-gold); margin: 6px 0 2px; text-transform: uppercase; letter-spacing: 0.03em; }
+.ib.armed { color: var(--m-gold); background: var(--m-gold-soft); box-shadow: inset 0 0 0 1px var(--m-gold); }
+.line .pt-sub { display: block; color: var(--m-muted); font-size: 12px; margin-left: 34px; }

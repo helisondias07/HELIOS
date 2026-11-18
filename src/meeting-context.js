@@ -10,14 +10,14 @@ const { unsafeReason, tokens } = require("./text-safety");
  */
 
 const LIMITS = {
-  context: 800,
+  context: 1400,
   glossaryTerm: 60,
   glossaryMeaning: 120,
   glossaryEntries: 80,
   glossaryPerPrompt: 12,
   historyLine: 160,
 };
-const DEFAULT_MAX_CHARS = 1200;
+const DEFAULT_MAX_CHARS = 1800;
 const FORMALITY = ["neutro", "formal", "informal"];
 
 function clampInt(value, min, max, fallback) {
@@ -159,4 +159,19 @@ function searchUrl(query) {
   return `https://www.google.com/search?q=${encodeURIComponent(clean)}`;
 }
 
-module.exports = { LIMITS, DEFAULT_MAX_CHARS, FORMALITY, clampInt, problem, parseGlossary, relevantTerms, buildBlock, formalityLine, keywords, termFromLine, buildSearch, searchUrl };
+/** Lista enxuta de termos do glossário para o campo prompt do Whisper (sem segredos). */
+function whisperPrompt(entries, maxChars = 400) {
+  const out = [];
+  let len = 0;
+  for (const entry of Array.isArray(entries) ? entries : []) {
+    const term = oneLine(entry && entry.term, 50);
+    if (!term || problem(term)) continue;
+    const add = out.length ? `, ${term}` : term;
+    if (len + add.length > maxChars) break;
+    out.push(term);
+    len += add.length;
+  }
+  return out.join(", ");
+}
+
+module.exports = { whisperPrompt,  LIMITS, DEFAULT_MAX_CHARS, FORMALITY, clampInt, problem, parseGlossary, relevantTerms, buildBlock, formalityLine, keywords, termFromLine, buildSearch, searchUrl };

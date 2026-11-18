@@ -53,3 +53,17 @@ pre.tr { white-space: pre-wrap; font: 13px var(--helios-fonte-ui); background: v
 .err { color: var(--helios-erro); font-size: 13px; }
 .ok { color: var(--helios-sucesso); font-size: 13px; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 720px) { .grid2 { grid-template-columns: 1fr; } }
+.pb-bar { display: flex; gap: 8px; flex-wrap: wrap; }
+.pb-chip { height: 36px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--helios-brasa); background: var(--helios-basalto); color: var(--helios-nevoa); font: 500 13px var(--helios-fonte-ui); cursor: pointer; }
+.pb-chip.on, .pb-chip:hover { color: var(--helios-ouro-texto); border-color: var(--helios-ouro); }
+.checklist { list-style: none; padding: 0 !important; display: flex; flex-direction: column; gap: 8px; }
+.checklist li { display: flex; align-items: flex-start; gap: 10px; font-size: 14px; }
+.checklist li input[type="checkbox"] { width: 18px; height: 18px; margin-top: 2px; padding: 0; accent-color: var(--helios-ouro); flex: none; cursor: pointer; }
+.checklist li.done span { text-decoration: line-through; color: var(--helios-nevoa); }
+.meta-pills { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 16px; }
+.meta-pill { font-size: 12px; font-weight: 500; padding: 4px 10px; border-radius: 8px; border: 1px solid var(--helios-brasa); background: var(--helios-obsidiana); color: var(--helios-nevoa); }
+.warn-box { padding: 12px 14px; border-radius: 12px; border: 1px solid var(--helios-alerta); color: var(--helios-alerta); font-size: 13px; margin: 12px 0; }
+.banner.ok-banner { background: color-mix(in srgb, var(--helios-sucesso) 14%, var(--helios-obsidiana)); }

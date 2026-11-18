@@ -27,13 +27,12 @@ function recordRate(url, res) {
 function getRate() { return JSON.parse(JSON.stringify(rate)); }
 
 // fetch com nova tentativa em 429/503 (limite do plano gratuito), respeitando retry-after
-// opts.signal (opcional) cancela a chamada e a espera entre tentativas (usado ao fechar a janela de reunião)
-async function fetchRetry(url, opts, { tries = 3, maxWait = 8000, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
+async function fetchRetry(url, opts, { tries = 3, maxWait = 8000, timeoutMs = 60000, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
   let res;
   const user = opts && opts.signal;
   for (let i = 0; i < tries; i++) {
     if (user && user.aborted) throw user.reason || new Error('cancelado');
-    const signal = user ? AbortSignal.any([AbortSignal.timeout(60000), user]) : AbortSignal.timeout(60000);
+    const signal = user ? AbortSignal.any([AbortSignal.timeout(timeoutMs), user]) : AbortSignal.timeout(timeoutMs);
     res = await fetch(url, { ...opts, signal });
     recordRate(url, res);
     if (res.status !== 429 && res.status !== 503) return res;
@@ -54,7 +53,7 @@ async function groqWarm({ key, signal }) {
 }
 
 // ---------- Groq ----------
-async function groqTranscribe({ key, model, audio, mime, language, signal }) {
+async function groqTranscribe({ key, model, audio, mime, language, prompt = '', timeoutMs = 12000, signal }) {
   const fd = new FormData();
   const ext = (mime || '').includes('ogg') ? 'ogg' : 'webm';
   fd.append('file', new Blob([audio], { type: mime || 'audio/webm' }), `chunk.${ext}`);
@@ -62,34 +61,37 @@ async function groqTranscribe({ key, model, audio, mime, language, signal }) {
   fd.append('response_format', 'verbose_json');
   fd.append('temperature', '0');
   if (language && language !== 'auto') fd.append('language', language);
-  // áudio: no máximo 2 tentativas e espera curta; se a cota acabou, quem chamou decide (aumentar o bloco e tentar de novo)
-  const res = await fetchRetry(`${GROQ}/audio/transcriptions`, { method: 'POST', headers: { Authorization: `Bearer ${key}` }, body: fd, signal }, { tries: 2, maxWait: 3000 });
+  const cleanPrompt = String(prompt || '').trim().slice(0, 500);
+  if (cleanPrompt) fd.append('prompt', cleanPrompt);
+  const res = await fetchRetry(`${GROQ}/audio/transcriptions`, { method: 'POST', headers: { Authorization: `Bearer ${key}` }, body: fd, signal }, { tries: 2, maxWait: 3000, timeoutMs });
   if (!res.ok) throw await readErr(res);
   const j = await res.json();
-  // descarta segmentos com alta probabilidade de silêncio (alucinações do Whisper)
   let text = j.text || '';
   if (Array.isArray(j.segments) && j.segments.length) text = keepSpeech(j.segments).map((s) => s.text).join(' ');
-  return { text: cleanHallucination(text.trim()), language: normLang(j.language) };
+  const cleaned = cleanHallucination(text.trim());
+  if (cleanPrompt && cleaned && cleaned.toLowerCase() === cleanPrompt.toLowerCase()) {
+    return { text: '', language: normLang(j.language) };
+  }
+  return { text: cleaned, language: normLang(j.language) };
 }
 
-// Mantém só os trechos com fala: descarta os que o Whisper marcou como silêncio (alucinação típica)
 function keepSpeech(segments) {
   return (segments || []).filter((s) => !(s.no_speech_prob > 0.6 && s.avg_logprob < -0.8) && !(s.no_speech_prob > 0.85));
 }
 
-async function groqChat({ key, model, messages, maxTokens = 600, temperature = 0.4, onDelta = null, search = false, signal }) {
+async function groqChat({ key, model, messages, maxTokens = 600, temperature = 0.4, onDelta = null, search = false, timeoutMs = 45000, signal }) {
   const body = { model, messages, temperature, max_tokens: maxTokens };
-  if (search && /gpt-oss/.test(model)) body.tools = [{ type: 'browser_search' }]; // o modelo decide quando pesquisar
+  if (search && /gpt-oss/.test(model)) body.tools = [{ type: 'browser_search' }];
   if (onDelta) body.stream = true;
   if (/gpt-oss/.test(model)) { body.reasoning_effort = 'low'; body.include_reasoning = false; }
   let res = await fetchRetry(`${GROQ}/chat/completions`, {
     method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal,
-  });
-  if (res.status === 400 && (body.reasoning_effort || body.include_reasoning === false)) {
-    delete body.reasoning_effort; delete body.include_reasoning;
+  }, { timeoutMs });
+  if (res.status === 400 && (body.reasoning_effort || body.include_reasoning === false || body.tools)) {
+    delete body.reasoning_effort; delete body.include_reasoning; delete body.tools;
     res = await fetchRetry(`${GROQ}/chat/completions`, {
       method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal,
-    });
+    }, { timeoutMs });
   }
   if (!res.ok) throw await readErr(res);
   if (onDelta) return stripCites(await readSSE(res, (t) => onDelta(stripCites(t))));
@@ -99,7 +101,7 @@ async function groqChat({ key, model, messages, maxTokens = 600, temperature = 0
 
 const stripCites = (t) => String(t).replace(/【[^】]*】/g, '').replace(/[ \t]+\n/g, '\n');
 
-// Lê stream SSE (formato OpenAI) chamando onDelta(textoAcumulado)
+// Lê stream SSE (formato OpenAI/Groq) chamando onDelta(textoAcumulado)
 async function readSSE(res, onDelta) {
   const dec = new TextDecoder(); let buf = ''; let full = '';
   for await (const chunk of res.body) {
@@ -116,6 +118,33 @@ async function readSSE(res, onDelta) {
   return full.trim();
 }
 
+// Lê stream SSE real do Gemini (:streamGenerateContent?alt=sse)
+async function readGeminiSSE(res, onDelta) {
+  const dec = new TextDecoder(); let buf = ''; let full = '';
+  const consumeLine = (raw) => {
+    const line = raw.trim();
+    if (!line.startsWith('data:')) return;
+    const data = line.slice(5).trim();
+    if (!data || data === '[DONE]') return;
+    try {
+      const j = JSON.parse(data);
+      const piece = (j.candidates?.[0]?.content?.parts || []).map((p) => p.text || '').join('');
+      if (piece) { full += piece; onDelta(full); }
+    } catch { /* linha parcial */ }
+  };
+  for await (const chunk of res.body) {
+    buf += dec.decode(chunk, { stream: true });
+    let i;
+    while ((i = buf.indexOf('\n')) >= 0) {
+      const line = buf.slice(0, i);
+      buf = buf.slice(i + 1);
+      consumeLine(line);
+    }
+  }
+  if (buf.trim()) consumeLine(buf);
+  return full.trim();
+}
+
 // ---------- Gemini ----------
 function toGemini(messages, imageBase64, { temperature, maxOutputTokens } = {}) {
   const sys = messages.filter((m) => m.role === 'system').map((m) => m.content).join('\n\n');
@@ -127,30 +156,32 @@ function toGemini(messages, imageBase64, { temperature, maxOutputTokens } = {}) 
   const body = {
     contents,
     generationConfig: {
-      temperature: temperature != null ? temperature : (hasImage ? 0.1 : 0.4),
-      maxOutputTokens: Math.min(4096, Math.max(hasImage ? 1600 : 800, Number(maxOutputTokens) || 0)),
+      temperature: temperature != null ? temperature : (hasImage ? 0.15 : 0.4),
+      maxOutputTokens: Math.min(4096, Math.max(hasImage ? 1800 : 800, Number(maxOutputTokens) || 0)),
     },
   };
   if (sys) body.system_instruction = { parts: [{ text: sys }] };
   return body;
 }
 
-async function geminiGenerate({ key, model, body, signal }) {
-  const res = await fetchRetry(`${GEMINI}/models/${encodeURIComponent(model)}:generateContent`, {
+async function geminiGenerate({ key, model, body, onDelta = null, timeoutMs = 45000, signal }) {
+  const action = onDelta ? 'streamGenerateContent?alt=sse' : 'generateContent';
+  const res = await fetchRetry(`${GEMINI}/models/${encodeURIComponent(model)}:${action}`, {
     method: 'POST', headers: { 'x-goog-api-key': key, 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal,
-  });
+  }, { timeoutMs });
   if (!res.ok) throw await readErr(res);
+  if (onDelta) return stripCites(await readGeminiSSE(res, (t) => onDelta(stripCites(t))));
   const j = await res.json();
-  return (j.candidates?.[0]?.content?.parts || []).map((p) => p.text || '').join('').trim();
+  return stripCites((j.candidates?.[0]?.content?.parts || []).map((p) => p.text || '').join('').trim());
 }
 
-async function geminiChat({ key, model, messages, imageBase64, search = false, signal, maxTokens, temperature }) {
-  const body = toGemini(messages, imageBase64, { temperature: temperature != null ? temperature : (imageBase64 ? 0.1 : undefined), maxOutputTokens: maxTokens });
-  if (search) body.tools = [{ google_search: {} }]; // grounding com Google Search
-  return geminiGenerate({ key, model, body, signal });
+async function geminiChat({ key, model, messages, imageBase64, search = false, onDelta = null, signal, maxTokens, temperature, timeoutMs = 45000 }) {
+  const body = toGemini(messages, imageBase64, { temperature: temperature != null ? temperature : (imageBase64 ? 0.15 : undefined), maxOutputTokens: maxTokens });
+  if (search) body.tools = [{ google_search: {} }];
+  return geminiGenerate({ key, model, body, onDelta, timeoutMs, signal });
 }
 
-async function geminiTranscribe({ key, model, audio, mime, signal }) {
+async function geminiTranscribe({ key, model, audio, mime, timeoutMs = 12000, signal }) {
   const body = {
     contents: [{ role: 'user', parts: [
       { text: 'Transcreva literalmente a fala deste áudio, no idioma original. Responda só com a transcrição, sem comentários. Se não houver fala, responda vazio.' },
@@ -158,11 +189,10 @@ async function geminiTranscribe({ key, model, audio, mime, signal }) {
     ] }],
     generationConfig: { temperature: 0 },
   };
-  const text = await geminiGenerate({ key, model, body, signal });
+  const text = await geminiGenerate({ key, model, body, timeoutMs, signal });
   return { text: cleanHallucination(text), language: guessLang(text) };
 }
 
-// TTS do Gemini: devolve PCM 16 bits, mono, em base64 (24 kHz por padrão). Sem nova tentativa, para cair logo na voz do Windows.
 async function geminiTts({ key, model, text, voice }) {
   const body = {
     contents: [{ parts: [{ text }] }],
@@ -176,8 +206,8 @@ async function geminiTts({ key, model, text, voice }) {
   const part = (j.candidates?.[0]?.content?.parts || []).find((p) => p.inlineData || p.inline_data);
   const data = part && (part.inlineData || part.inline_data);
   if (!data || !data.data) throw new ApiError('O Gemini não devolveu áudio.', 502);
-  const rate = /rate=(\d+)/.exec(data.mimeType || data.mime_type || '');
-  return { audio: data.data, sampleRate: rate ? Number(rate[1]) : 24000 };
+  const rateMatch = /rate=(\d+)/.exec(data.mimeType || data.mime_type || '');
+  return { audio: data.data, sampleRate: rateMatch ? Number(rateMatch[1]) : 24000 };
 }
 
 // ---------- utilidades ----------
@@ -208,4 +238,4 @@ function cleanHallucination(text) {
   return t;
 }
 
-module.exports = { stripCites, readSSE, getRate, fetchRetry, groqWarm, keepSpeech, groqTranscribe, groqChat, geminiChat, geminiTranscribe, geminiTts, toGemini, cleanHallucination, normLang, guessLang, ApiError };
+module.exports = { stripCites, readSSE, readGeminiSSE, getRate, fetchRetry, groqWarm, keepSpeech, groqTranscribe, groqChat, geminiGenerate, geminiChat, geminiTranscribe, geminiTts, toGemini, cleanHallucination, normLang, guessLang, ApiError };

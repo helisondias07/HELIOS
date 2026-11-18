@@ -3,9 +3,9 @@
 /** Janela do modo de reuniÃ£o: a pÃ­lula do cluely, fora da barra e da captura. */
 function meetingBrowserOptions() {
   return {
-    width: 600,
+    width: 680,
     height: 48,
-    minWidth: 480,
+    minWidth: 540,
     minHeight: 48,
     frame: false,
     transparent: true,

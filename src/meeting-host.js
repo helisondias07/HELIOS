@@ -1,12 +1,15 @@
 "use strict";
 
 const fs = require("node:fs");
-const wrapupLib = require("./meeting-wrapup");
 const path = require("node:path");
+const wrapupLib = require("./meeting-wrapup");
 const providers = require("./providers");
 const prompts = require("./meeting-prompts");
 const mctx = require("./meeting-context");
+const rolling = require("./rolling-summary");
+const { PLAYBOOKS, getPlaybook } = require("./playbooks");
 const { friendlyError } = require("./meeting-errors");
+const { redact } = require("../server/util");
 const mock_ = require("./meeting-mock");
 
 function roteiroOffline(topic) {
@@ -24,10 +27,11 @@ function roteiroOffline(topic) {
 }
 
 function transcribeLang(setting, who, mode) {
-  if (mode === "pt") return "pt";
+  const chosen = mode && ["pt", "en", "auto"].includes(mode) ? mode : (setting || "auto");
+  if (chosen === "pt") return "pt";
   if (who === "me") return "auto";
-  if (mode === "en" && (!setting || setting === "auto")) return "en";
-  return setting;
+  if (chosen === "en") return "en";
+  return "auto";
 }
 
 const MIN_AUDIO_BYTES = 2000;
@@ -62,16 +66,33 @@ function makeCache(max = 300) {
 }
 const cacheText = (text) => String(text || "").toLowerCase().replace(/\s+/g, " ").trim();
 
-function registerMeeting({ getWin, getMain, closeMeeting, settings, vault, meetings, quit, mock = false }) {
-  const { ipcMain, shell, desktopCapturer, screen } = require("electron");
+function slugify(text) {
+  return String(text || "reuniao")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48) || "reuniao";
+}
+
+function registerMeeting({ getWin, getMain, closeMeeting, settings, vault, meetings, quit, mock = false, electron = null }) {
+  const el = electron || require("electron");
+  const { ipcMain, shell, desktopCapturer, screen, dialog, clipboard, app } = el;
   const cfg = () => ({ ...settings.publicView(), groq: vault.getKey("groq"), gemini: vault.getKey("gemini") });
 
+  function docsDir() {
+    return app && typeof app.getPath === "function" ? app.getPath("documents") : path.join(require("node:os").tmpdir(), "helios-docs");
+  }
+
   function personalPath() {
-    return path.join(require("electron").app.getPath("documents"), "HELIOS", "contexto.md");
+    return path.join(docsDir(), "HELIOS", "contexto.md");
   }
 
   let personalInfo = { path: personalPath(), chars: 0, truncated: false };
   let activeSessionId = "";
+  let rollingBusy = false;
+  const memRolling = { sessionId: "", summary: "", count: 0 };
 
   function loadPersonal() {
     const file = personalPath();
@@ -87,26 +108,27 @@ function registerMeeting({ getWin, getMain, closeMeeting, settings, vault, meeti
       personalInfo = { path: file, chars: 0, truncated: false, error: String(err.message || err) };
     }
     const win = getWin();
-    if (win) win.webContents.send("personal", personalInfo);
+    if (win && win.webContents && !win.isDestroyed?.()) win.webContents.send("personal", personalInfo);
     return personalInfo;
   }
 
   function watchPersonal() {
     let timer = null;
     try {
-      fs.watch(path.dirname(personalPath()), (_event, name) => {
+      const w = fs.watch(path.dirname(personalPath()), (_event, name) => {
         if (name === "contexto.md") {
           clearTimeout(timer);
           timer = setTimeout(loadPersonal, 300);
         }
       });
+      if (w && typeof w.unref === "function") w.unref();
     } catch {
       /* pasta ainda não existe */
     }
   }
 
-  const glossaryPath = () => path.join(require("electron").app.getPath("documents"), "HELIOS", "glossario.md");
-  let glossary = { mtime: 0, text: "", entries: [], skipped: 0 };
+  const glossaryPath = () => path.join(docsDir(), "HELIOS", "glossario.md");
+  let glossary = { mtime: 0, text: "", entries: [], skipped: 0, whisper: "" };
   let glossaryCheckedAt = 0;
   function loadGlossary(force = false) {
     if (!force && glossary.mtime && Date.now() - glossaryCheckedAt < 2000) return glossary;
@@ -120,10 +142,11 @@ function registerMeeting({ getWin, getMain, closeMeeting, settings, vault, meeti
       const stat = fs.statSync(file);
       if (stat.mtimeMs !== glossary.mtime) {
         const text = fs.readFileSync(file, "utf8");
-        glossary = { mtime: stat.mtimeMs, text, ...mctx.parseGlossary(text) };
+        const parsed = mctx.parseGlossary(text);
+        glossary = { mtime: stat.mtimeMs, text, ...parsed, whisper: mctx.whisperPrompt(parsed.entries) };
       }
     } catch (err) {
-      glossary = { mtime: 0, text: "", entries: [], skipped: 0, error: String(err.message || err) };
+      glossary = { mtime: 0, text: "", entries: [], skipped: 0, whisper: "", error: String(err.message || err) };
     }
     return glossary;
   }
@@ -134,7 +157,16 @@ function registerMeeting({ getWin, getMain, closeMeeting, settings, vault, meeti
     const past = current.translateHistory > 0 ? history.slice(-current.translateHistory) : [];
     const gloss = loadGlossary();
     const session = activeSessionId ? meetings.get(activeSessionId) : null;
-    const ctx = [current.meetingContext, session && session.title, session && session.objective, session && session.agenda].filter(Boolean).join("\n");
+    const pb = getPlaybook(session && session.playbook);
+    const notesSnippet = session && session.notes ? `Notas ao vivo: ${redact(session.notes).slice(-900)}` : "";
+    const ctx = [
+      current.meetingContext,
+      session && session.title,
+      session && session.objective,
+      session && session.agenda,
+      pb && pb.liveHint,
+      notesSnippet,
+    ].filter(Boolean).join("\n");
     const key = JSON.stringify([ctx, current.formality, current.translateContextChars, gloss.mtime, haystack, past]);
     if (extrasMemo.key === key) return extrasMemo.value;
     const value = {
@@ -144,15 +176,73 @@ function registerMeeting({ getWin, getMain, closeMeeting, settings, vault, meeti
     extrasMemo = { key, value };
     return value;
   }
+
   const meetingText = (lines) => {
+    const session = activeSessionId ? meetings.get(activeSessionId) : null;
+    const pb = getPlaybook(session && session.playbook);
     const extras = meetingExtras({ haystack: (lines || []).slice(-8).map((line) => line.text).join(" ") });
-    return [extras.formality, extras.block].filter(Boolean).join("\n");
+    const notesBlock = session && session.notes && String(session.notes).trim()
+      ? `Notas humanas da sessão:\n${redact(String(session.notes).trim()).slice(-1200)}`
+      : "";
+    return [extras.formality, pb && pb.liveHint, extras.block, notesBlock].filter(Boolean).join("\n");
   };
+
+  function getRollingState() {
+    const session = activeSessionId ? meetings.get(activeSessionId) : null;
+    if (session) {
+      return { summary: session.rollingSummary || "", count: session.rollingCount || 0 };
+    }
+    if (memRolling.sessionId !== activeSessionId) {
+      memRolling.sessionId = activeSessionId;
+      memRolling.summary = "";
+      memRolling.count = 0;
+    }
+    return { summary: memRolling.summary, count: memRolling.count };
+  }
+
+  function maybeRefreshRolling(lines) {
+    if (rollingBusy || !Array.isArray(lines) || lines.length < 6) return;
+    const rec = prompts.recent(lines);
+    if (rec.length >= lines.length) return;
+    const st = getRollingState();
+    const sid = activeSessionId;
+    rollingBusy = true;
+    rolling.advanceRollingState({
+      lines,
+      recentCount: rec.length,
+      savedSummary: st.summary,
+      summarizedCount: st.count,
+      chatFn: (msgs, opts) => chat(msgs, opts),
+    }).then((res) => {
+      if (!res || !res.updated) return;
+      if (sid && meetings.get(sid)) {
+        meetings.update(sid, { rollingSummary: res.summary, rollingCount: res.count });
+      } else {
+        memRolling.sessionId = sid;
+        memRolling.summary = res.summary;
+        memRolling.count = res.count;
+      }
+    }).catch(() => { /* fallback determinístico permanece ativo */ })
+      .finally(() => { rollingBusy = false; });
+  }
+
+  function rollingFor(lines) {
+    const list = Array.isArray(lines) ? lines : [];
+    const rec = prompts.recent(list);
+    const st = getRollingState();
+    maybeRefreshRolling(list);
+    return rolling.effectiveRollingSummary({
+      lines: list,
+      recentLines: rec,
+      savedSummary: st.summary,
+      summarizedCount: st.count,
+    });
+  }
 
   function sessionAllowsScreen() {
     const session = activeSessionId ? meetings.get(activeSessionId) : null;
-    if (session) return Boolean(session.captureScreen);
-    return Boolean(settings.get("captureScreen"));
+    if (session) return Boolean(session.captureScreen || session.mode === "livecoding");
+    return Boolean(settings.get("captureScreen") || settings.get("meetingMode") === "livecoding");
   }
 
   const inflight = new Set();
@@ -175,7 +265,7 @@ function registerMeeting({ getWin, getMain, closeMeeting, settings, vault, meeti
     if (mock) return chatInner(messages, opts, null);
     return track((signal) => chatInner(messages, opts, signal));
   }
-  async function chatInner(messages, { fast = false, imageBase64 = null, maxTokens, onDelta = null, search = false } = {}, signal) {
+  async function chatInner(messages, { fast = false, imageBase64 = null, maxTokens, onDelta = null, search = false, temperature } = {}, signal) {
     if (mock) {
       const text = mock_.mockChat(messages);
       if (onDelta) onDelta(text);
@@ -189,7 +279,7 @@ function registerMeeting({ getWin, getMain, closeMeeting, settings, vault, meeti
       for (const name of models) plan.push({ p: "gemini", m: name });
     } else {
       const groq = current.groq ? (fast ? [current.fastModel, current.llmModel] : [current.llmModel, current.fastModel]).map((model) => ({ p: "groq", m: model })) : [];
-      const gem = current.gemini ? [{ p: "gemini" }] : [];
+      const gem = current.gemini ? [{ p: "gemini", m: search ? VISION_MODEL : current.geminiModel }] : [];
       plan.push(...(current.provider === "gemini" ? [...gem, ...groq] : [...groq, ...gem]));
     }
     if (!plan.length) throw new Error("Nenhuma chave de API no cofre. Abra Ajustes e cole a chave da Groq.");
@@ -199,7 +289,7 @@ function registerMeeting({ getWin, getMain, closeMeeting, settings, vault, meeti
     for (const step of plan) {
       try {
         if (step.p === "groq") {
-          const text = await providers.groqChat({ key: current.groq, model: step.m, messages, maxTokens, onDelta, search, signal });
+          const text = await providers.groqChat({ key: current.groq, model: step.m, messages, maxTokens, temperature, onDelta, search, signal });
           return { text, provider: tag(`Groq · ${step.m.replace("openai/", "")}`) };
         }
         const text = await providers.geminiChat({
@@ -208,11 +298,11 @@ function registerMeeting({ getWin, getMain, closeMeeting, settings, vault, meeti
           messages,
           imageBase64,
           search,
+          onDelta,
           signal,
           maxTokens,
-          temperature: imageBase64 ? 0.1 : undefined,
+          temperature: temperature != null ? temperature : (imageBase64 ? 0.15 : undefined),
         });
-        if (onDelta) onDelta(text);
         return { text, provider: tag("Gemini") };
       } catch (err) {
         lastErr = err;
@@ -231,11 +321,23 @@ function registerMeeting({ getWin, getMain, closeMeeting, settings, vault, meeti
     const current = cfg();
     const order = (current.provider === "gemini" ? ["gemini", "groq"] : ["groq", "gemini"]).filter((name) => current[name]);
     if (!order.length) throw new Error("Nenhuma chave de API no cofre. Cole a chave da Groq para transcrever.");
+    const gloss = loadGlossary();
     let lastErr;
     for (const name of order) {
       try {
-        if (name === "groq") return await providers.groqTranscribe({ key: current.groq, model: current.sttModel, audio, mime, language: transcribeLang(current.meetingLang, who, mode), signal });
-        return await providers.geminiTranscribe({ key: current.gemini, model: current.geminiModel, audio, mime, signal });
+        if (name === "groq") {
+          return await providers.groqTranscribe({
+            key: current.groq,
+            model: current.sttModel,
+            audio,
+            mime,
+            language: transcribeLang(current.meetingLang, who, mode),
+            prompt: gloss.whisper,
+            timeoutMs: 12000,
+            signal,
+          });
+        }
+        return await providers.geminiTranscribe({ key: current.gemini, model: current.geminiModel, audio, mime, timeoutMs: 12000, signal });
       } catch (err) {
         lastErr = err;
         if (signal && signal.aborted) break;
@@ -253,22 +355,38 @@ function registerMeeting({ getWin, getMain, closeMeeting, settings, vault, meeti
     captureTail = run.then(() => {}, () => {});
     return run;
   }
-  function captureScreen() {
+  function preferredSourceId() {
+    const session = activeSessionId ? meetings.get(activeSessionId) : null;
+    return (session && session.screenSourceId) || settings.get("screenSourceId") || "";
+  }
+  function captureScreen({ codeMode = false } = {}) {
     return enqueueCapture(async () => {
+      const targetId = preferredSourceId();
+      const wantWindow = targetId.startsWith("window:");
+      const maxW = codeMode ? 1440 : 1280;
+      const maxH = codeMode ? 900 : 800;
+      const quality = codeMode ? 82 : 76;
       const display = screen.getPrimaryDisplay();
       const sources = await Promise.race([
         desktopCapturer.getSources({
-          types: ["screen"],
+          types: wantWindow ? ["window", "screen"] : ["screen", "window"],
           thumbnailSize: {
-            width: Math.min(1920, display.size.width * display.scaleFactor),
-            height: Math.min(1440, display.size.height * display.scaleFactor),
+            width: Math.min(maxW, Math.round(display.size.width * (display.scaleFactor || 1))),
+            height: Math.min(maxH, Math.round(display.size.height * (display.scaleFactor || 1))),
           },
         }),
         new Promise((_, reject) => setTimeout(() => reject(Object.assign(new Error("A captura da tela demorou demais."), { name: "TimeoutError" })), 8000)),
       ]);
-      if (!sources.length) throw new Error("Não foi possível capturar a tela.");
-      const thumb = sources[0].thumbnail;
-      return { base64: thumb.toJPEG(88).toString("base64"), preview: thumb.resize({ width: 320 }).toDataURL() };
+      const usable = sources.filter((s) => !/^HELIOS/i.test(s.name));
+      const pool = usable.length ? usable : sources;
+      if (!pool.length) throw new Error("Não foi possível capturar a tela.");
+      const chosen = (targetId && pool.find((s) => s.id === targetId)) || pool.find((s) => s.id.startsWith("screen:")) || pool[0];
+      const thumb = chosen.thumbnail;
+      return {
+        base64: thumb.toJPEG(quality).toString("base64"),
+        preview: thumb.resize({ width: 320 }).toDataURL(),
+        sourceName: chosen.name,
+      };
     });
   }
   async function shotForSuggest() {
@@ -308,20 +426,26 @@ function registerMeeting({ getWin, getMain, closeMeeting, settings, vault, meeti
 
   const stream = (rid) => (rid ? (text) => {
     const win = getWin();
-    if (win) win.webContents.send("ai:delta", rid, text);
+    if (win && win.webContents && !win.isDestroyed?.()) win.webContents.send("ai:delta", rid, text);
   } : null);
 
   function publicSettings() {
     const view = settings.publicView();
     const keys = vault.list().keys;
     const session = activeSessionId ? meetings.get(activeSessionId) : null;
-    if (mock) return { ...view, hasGroqKey: true, hasGeminiKey: true, mock: true, session };
-    return { ...view, hasGroqKey: keys.hasGroqKey, hasGeminiKey: keys.hasGeminiKey, session, vaultBlocked: vault.isBlocked(), vaultBlockedMessage: vault.blockedMessage() };
+    const common = {
+      ...view,
+      session,
+      protected: process.env.HELIOS_NO_PROTECT !== "1",
+      playbooks: PLAYBOOKS.map(({ id, label, defaultLang, objectivePlaceholder, agendaTemplate }) => ({ id, label, defaultLang, objectivePlaceholder, agendaTemplate })),
+    };
+    if (mock) return { ...common, hasGroqKey: true, hasGeminiKey: true, mock: true };
+    return { ...common, hasGroqKey: keys.hasGroqKey, hasGeminiKey: keys.hasGeminiKey, vaultBlocked: vault.isBlocked(), vaultBlockedMessage: vault.blockedMessage() };
   }
 
   function notifyMain(channel, payload) {
     const main = typeof getMain === "function" ? getMain() : null;
-    if (main && !main.isDestroyed()) main.webContents.send(channel, payload);
+    if (main && !main.isDestroyed?.()) main.webContents.send(channel, payload);
   }
 
   ipcMain.handle("settings:get", () => publicSettings());
@@ -340,6 +464,20 @@ function registerMeeting({ getWin, getMain, closeMeeting, settings, vault, meeti
       delete next.geminiKey;
     }
     settings.update(next);
+    if (activeSessionId && meetings.get(activeSessionId)) {
+      const sessionPatch = {};
+      if (typeof next.meetingMode === "string") sessionPatch.mode = next.meetingMode;
+      if (typeof next.captureMic === "boolean") sessionPatch.captureMic = next.captureMic;
+      if (typeof next.captureScreen === "boolean") sessionPatch.captureScreen = next.captureScreen;
+      if (typeof next.micDeviceId === "string") sessionPatch.micDeviceId = next.micDeviceId;
+      if (typeof next.screenSourceId === "string") sessionPatch.screenSourceId = next.screenSourceId;
+      if (Object.keys(sessionPatch).length) {
+        const updated = meetings.update(activeSessionId, sessionPatch);
+        const win = getWin();
+        if (win && win.webContents && !win.isDestroyed?.()) win.webContents.send("meeting:session", updated);
+        notifyMain("meetings:changed", { id: activeSessionId });
+      }
+    }
     const win = getWin();
     if (win && patch && Object.prototype.hasOwnProperty.call(patch, "opacity")) {
       win.setOpacity(Math.min(1, Math.max(0.3, Number(patch.opacity) || 1)));
@@ -347,6 +485,7 @@ function registerMeeting({ getWin, getMain, closeMeeting, settings, vault, meeti
     if (vaultError) throw new Error(vaultError);
     return publicSettings();
   });
+
   ipcMain.handle("settings:test", wrap(async () => {
     if (mock) return { result: { groq: "demonstração (nenhuma chamada real)" } };
     const current = cfg();
@@ -370,6 +509,7 @@ function registerMeeting({ getWin, getMain, closeMeeting, settings, vault, meeti
     }
     return { result: out };
   }));
+
   ipcMain.handle("audio:transcribe", wrap(async (buf, mime, who, mode) => transcribe(Buffer.from(buf), mime, who, mode)));
   ipcMain.handle("ai:translate", wrap(async (text) => chat(prompts.translate(text), { fast: true, maxTokens: 400 })));
   const trCache = makeCache(300);
@@ -394,47 +534,208 @@ function registerMeeting({ getWin, getMain, closeMeeting, settings, vault, meeti
     }
     return { items: [...hits, ...parsed], provider: result.provider, cached: hits.length };
   }));
+
   ipcMain.handle("rate:get", () => providers.getRate());
   ipcMain.handle("ai:suggest", wrap(async (lines, lang, rid, more) => {
     const image = await shotForSuggest();
-    return chat(prompts.suggest(lines, { myContext: settings.get("myContext"), lang, more: !!more, meeting: meetingText(lines), withScreen: !!image }), { maxTokens: more ? 900 : 700, imageBase64: image, onDelta: stream(rid) });
+    return chat(
+      prompts.suggest(lines, {
+        myContext: settings.get("myContext"),
+        lang,
+        more: !!more,
+        meeting: meetingText(lines),
+        rollingSummary: rollingFor(lines),
+        withScreen: !!image,
+      }),
+      { fast: !more && !image, maxTokens: more ? 900 : 550, imageBase64: image, onDelta: stream(rid) }
+    );
   }));
+
+  ipcMain.handle("ai:research", wrap(async (lines, topic, rid) => {
+    return chat(
+      prompts.researchTopic(lines, topic, {
+        myContext: settings.get("myContext"),
+        meeting: meetingText(lines),
+        rollingSummary: rollingFor(lines),
+      }),
+      { fast: true, search: true, maxTokens: 450, onDelta: stream(rid) }
+    );
+  }));
+
+  ipcMain.handle("ai:livecode", wrap(async (lines, opts = {}, rid) => {
+    const session = activeSessionId ? meetings.get(activeSessionId) : null;
+    const useClip = opts.useClipboard !== false && settings.get("includeClipboard") !== false;
+    let clipboardCode = "";
+    if (useClip && clipboard && typeof clipboard.readText === "function") {
+      try { clipboardCode = String(clipboard.readText() || "").slice(0, 6000); } catch { /* ignore */ }
+    }
+    let image = null;
+    let warn = "";
+    const wantScreen = opts.useScreen !== false && (sessionAllowsScreen() || (session && session.mode === "livecoding") || settings.get("meetingMode") === "livecoding");
+    if (wantScreen) {
+      if (mock) image = "mock";
+      else if (cfg().gemini) {
+        try {
+          const shot = await captureScreen({ codeMode: true });
+          image = shot.base64;
+        } catch (err) {
+          warn = `Não consegui capturar a tela (${friendlyError(err)}). Seguindo com áudio e clipboard.`;
+        }
+      } else {
+        warn = "Sem chave Gemini para ler a tela da IDE — analisando áudio e área de transferência.";
+      }
+    }
+    const lang = opts.lang || settings.get("meetingLang") || "auto";
+    const result = await chat(
+      prompts.liveCoding(lines, {
+        myContext: settings.get("myContext"),
+        meeting: meetingText(lines),
+        rollingSummary: rollingFor(lines),
+        clipboardCode,
+        promptHint: opts.promptHint || "",
+        lang,
+        withScreen: !!image,
+      }),
+      { imageBase64: image, maxTokens: 2200, temperature: 0.15, onDelta: stream(rid) }
+    );
+    return warn ? { ...result, warn } : result;
+  }));
+
   ipcMain.handle("ai:detect", wrap(async (text) => {
     const clean = String(text || "").trim();
     if (clean.length < 8) return { question: "" };
     const r = await chat(prompts.detectQuestion(clean), { fast: true, maxTokens: 30 });
     return { question: prompts.parseDetect(r.text), provider: r.provider };
   }));
-  ipcMain.handle("ai:insights", wrap(async (lines, rid) => chat(prompts.insights(lines, { myContext: settings.get("myContext"), meeting: meetingText(lines) }), { maxTokens: 500, onDelta: stream(rid) })));
-  ipcMain.handle("ai:followups", wrap(async (lines, rid) => chat(prompts.followups(lines, { myContext: settings.get("myContext"), meeting: meetingText(lines) }), { maxTokens: 400, onDelta: stream(rid) })));
-  ipcMain.handle("ai:explain", wrap(async (lines, term, rid) => chat(prompts.explain(lines, { myContext: settings.get("myContext"), term, meeting: meetingText(lines) }), { maxTokens: 400, onDelta: stream(rid) })));
+  ipcMain.handle("ai:insights", wrap(async (lines, rid) => chat(prompts.insights(lines, { myContext: settings.get("myContext"), meeting: meetingText(lines), rollingSummary: rollingFor(lines) }), { maxTokens: 500, onDelta: stream(rid) })));
+  ipcMain.handle("ai:followups", wrap(async (lines, rid) => chat(prompts.followups(lines, { myContext: settings.get("myContext"), meeting: meetingText(lines), rollingSummary: rollingFor(lines) }), { maxTokens: 400, onDelta: stream(rid) })));
+  ipcMain.handle("ai:explain", wrap(async (lines, term, rid) => chat(prompts.explain(lines, { myContext: settings.get("myContext"), term, meeting: meetingText(lines), rollingSummary: rollingFor(lines) }), { maxTokens: 400, onDelta: stream(rid) })));
+
   ipcMain.handle("meeting:wrapup", wrap(async (lines, rid, durationMs) => {
-    const session = activeSessionId ? meetings.get(activeSessionId) : null;
-    const meetingContext = [settings.get("meetingContext"), session && session.objective, session && session.agenda].filter(Boolean).join("\n");
-    if (!Array.isArray(lines) || !lines.some((line) => line && String(line.text || "").trim())) {
-      const empty = { resumo: "Não há transcrição para resumir. Nada foi inventado.", decisoes: [], pendencias: [], proximosPassos: [], rascunho: "", edited: false };
-      if (activeSessionId) meetings.end(activeSessionId, { lines: [], wrapup: empty, durationMs });
-      notifyMain("meetings:changed", { id: activeSessionId });
+    const sid = activeSessionId;
+    const incoming = Array.isArray(lines) ? lines : [];
+    // P0.1: Persistir lines + sessão encerrada em disco ANTES de chamar o LLM!
+    if (sid && meetings.get(sid)) {
+      meetings.end(sid, { lines: incoming, durationMs, warn: "" });
+      notifyMain("meetings:changed", { id: sid });
+    }
+    const session = sid ? meetings.get(sid) : null;
+    const allLines = session && Array.isArray(session.lines) && session.lines.length >= incoming.length ? session.lines : incoming;
+    const hasSpeech = allLines.some((line) => line && String(line.text || "").trim());
+    const hasNotes = Boolean(session && String(session.notes || "").trim());
+    if (!hasSpeech && !hasNotes) {
+      const empty = { resumo: "Não há transcrição nem notas para resumir. Nada foi inventado.", decisoes: [], pendencias: [], proximosPassos: [], rascunho: "", edited: false };
+      if (sid && meetings.get(sid)) meetings.end(sid, { lines: [], wrapup: empty, durationMs, warn: "" });
+      notifyMain("meetings:changed", { id: sid });
       return { text: empty.resumo, provider: "local", wrapup: empty, note: "" };
     }
-    const result = mock
-      ? { text: wrapupLib.mockWrapupText(), provider: "demonstração" }
-      : await chat(wrapupLib.wrapupPrompt(lines, { meetingContext, title: session && session.title, objective: session && session.objective, agenda: session && session.agenda }), { maxTokens: 1400, onDelta: stream(rid) });
-    const parsed = wrapupLib.parseWrapup(result.text);
-    if (activeSessionId) meetings.end(activeSessionId, { lines, wrapup: parsed, durationMs, warn: result.provider === "demonstração" ? "Fechamento de demonstração: não é uma reunião real." : "" });
-    notifyMain("meetings:changed", { id: activeSessionId });
-    return { text: result.text, provider: result.provider, wrapup: parsed };
+    const meta = {
+      meetingContext: [settings.get("meetingContext"), session && session.objective, session && session.agenda].filter(Boolean).join("\n"),
+      title: session && session.title,
+      objective: session && session.objective,
+      agenda: session && session.agenda,
+      notes: session && session.notes,
+      playbook: session && session.playbook,
+    };
+    try {
+      const result = await wrapupLib.generateWrapup(allLines, meta, (msgs, opts) => chat(msgs, opts), stream(rid), { mock });
+      const parsed = wrapupLib.parseWrapup(result.text);
+      const demoWarn = result.provider === "demonstração" ? "Fechamento de demonstração: não é uma reunião real." : "";
+      if (sid && meetings.get(sid)) meetings.end(sid, { lines: allLines, wrapup: parsed, durationMs, warn: demoWarn });
+      notifyMain("meetings:changed", { id: sid });
+      return { text: result.text, provider: result.provider, wrapup: parsed };
+    } catch (err) {
+      if (sid && meetings.get(sid)) {
+        meetings.update(sid, { warn: `Transcrição salva com segurança, mas a ata falhou (${friendlyError(err)}). Clique em "Regenerar ata".` });
+        notifyMain("meetings:changed", { id: sid });
+      }
+      throw err;
+    }
   }));
-  ipcMain.handle("ai:summary", wrap(async (lines, rid) => chat(prompts.summary(lines, { myContext: settings.get("myContext"), meeting: meetingText(lines) }), { maxTokens: 1200, onDelta: stream(rid) })));
+
+  ipcMain.handle("meetings:regenerate", wrap(async (id) => {
+    const targetId = id || activeSessionId;
+    const session = targetId ? meetings.get(targetId) : null;
+    if (!session) throw new Error("Reunião não encontrada.");
+    const hasSpeech = Array.isArray(session.lines) && session.lines.some((l) => l && String(l.text || "").trim());
+    const hasNotes = Boolean(String(session.notes || "").trim());
+    if (!hasSpeech && !hasNotes) throw new Error("Esta sessão não tem transcrição nem notas para gerar ata.");
+    const meta = {
+      meetingContext: [settings.get("meetingContext"), session.objective, session.agenda].filter(Boolean).join("\n"),
+      title: session.title,
+      objective: session.objective,
+      agenda: session.agenda,
+      notes: session.notes,
+      playbook: session.playbook,
+    };
+    const result = await wrapupLib.generateWrapup(session.lines || [], meta, (msgs, opts) => chat(msgs, opts), null, { mock });
+    const parsed = wrapupLib.parseWrapup(result.text);
+    const updated = meetings.update(targetId, { wrapup: { ...parsed, edited: false }, warn: "" });
+    notifyMain("meetings:changed", { id: targetId });
+    return { meeting: meetings.get(targetId) || updated, provider: result.provider };
+  }));
+
+  ipcMain.handle("meetings:markdown", (_event, id) => {
+    const session = meetings.get(id || activeSessionId);
+    if (!session) throw new Error("Reunião não encontrada.");
+    return { markdown: wrapupLib.formatMeetingMarkdown(session) };
+  });
+
+  ipcMain.handle("meetings:export-md", wrap(async (id) => {
+    const session = meetings.get(id || activeSessionId);
+    if (!session) throw new Error("Reunião não encontrada.");
+    const md = wrapupLib.formatMeetingMarkdown(session);
+    const dir = path.join(docsDir(), "HELIOS", "atas");
+    fs.mkdirSync(dir, { recursive: true });
+    const datePrefix = (session.startedAt || session.createdAt || new Date().toISOString()).slice(0, 10);
+    const defaultPath = path.join(dir, `${datePrefix}-${slugify(session.title)}.md`);
+    const main = typeof getMain === "function" ? getMain() : null;
+    const picked = await dialog.showSaveDialog(main || undefined, {
+      title: "Exportar ata em Markdown",
+      defaultPath,
+      filters: [{ name: "Markdown", extensions: ["md"] }],
+    });
+    if (picked.canceled || !picked.filePath) return { saved: false, filePath: "" };
+    fs.writeFileSync(picked.filePath, md, "utf8");
+    return { saved: true, filePath: picked.filePath };
+  }));
+
+  ipcMain.handle("ai:summary", wrap(async (lines, rid) => chat(prompts.summary(lines, { myContext: settings.get("myContext"), meeting: meetingText(lines), rollingSummary: rollingFor(lines) }), { maxTokens: 1200, onDelta: stream(rid) })));
+
+  ipcMain.handle("screen:sources", wrap(async () => {
+    if (mock) {
+      return {
+        sources: [
+          { id: "screen:0:0", name: "Monitor 1 (Principal)", kind: "screen" },
+          { id: "screen:1:0", name: "Monitor 2", kind: "screen" },
+          { id: "window:100:0", name: "Visual Studio Code", kind: "window" },
+        ],
+      };
+    }
+    const raw = await desktopCapturer.getSources({
+      types: ["screen", "window"],
+      thumbnailSize: { width: 160, height: 90 },
+    });
+    const sources = raw
+      .filter((s) => s && s.name && !/^HELIOS/i.test(s.name))
+      .slice(0, 24)
+      .map((s) => ({
+        id: s.id,
+        name: s.id.startsWith("screen:") ? `Tela: ${s.name}` : `Janela: ${s.name.slice(0, 60)}`,
+        kind: s.id.startsWith("screen:") ? "screen" : "window",
+      }));
+    return { sources };
+  }));
+
   ipcMain.handle("screen:preview", wrap(async () => {
-    if (!sessionAllowsScreen()) throw new Error("O contexto de tela desta reunião está desligado. Ligue-o na preparação, com um propósito explícito.");
+    if (!sessionAllowsScreen()) throw new Error("O contexto de tela desta reunião está desligado. Ligue-o no menu ou na preparação.");
     if (mock) {
       pendingShot = { base64: "mock", preview: mock_.MOCK_PREVIEW };
       return { preview: pendingShot.preview };
     }
     if (!cfg().gemini) throw new Error("A análise de tela usa o Gemini. Cole a chave em Ajustes.");
     pendingShot = await captureScreen();
-    return { preview: pendingShot.preview };
+    return { preview: pendingShot.preview, sourceName: pendingShot.sourceName };
   }));
   ipcMain.handle("screen:cancel", () => {
     pendingShot = null;
@@ -445,6 +746,7 @@ function registerMeeting({ getWin, getMain, closeMeeting, settings, vault, meeti
     clearLiveShot();
     return { ok: true };
   });
+
   const sayCache = makeCache(100);
   ipcMain.handle("ai:sayEn", wrap(async (text, rid) => {
     const said = String(text || "").trim();
@@ -488,44 +790,73 @@ function registerMeeting({ getWin, getMain, closeMeeting, settings, vault, meeti
         image = shot.base64;
       } else if (plan.image) image = plan.image;
     }
-    const result = await chat(prompts.ask(lines, question, { myContext: settings.get("myContext"), withScreen: !!image, meeting: meetingText(lines) }), { imageBase64: image, onDelta: stream(rid), maxTokens: image ? 900 : 500 });
+    const result = await chat(
+      prompts.ask(lines, question, {
+        myContext: settings.get("myContext"),
+        withScreen: !!image,
+        meeting: meetingText(lines),
+        rollingSummary: rollingFor(lines),
+      }),
+      { imageBase64: image, onDelta: stream(rid), maxTokens: image ? 900 : 500 }
+    );
     return warn ? { ...result, warn } : result;
   }));
   ipcMain.handle("ai:roteiro", wrap(async (lines, topic, rid) => {
     const current = cfg();
     if (!current.groq && !current.gemini) return { text: roteiroOffline(topic), provider: "local" };
-    return chat(prompts.roteiro(lines, topic), { maxTokens: 700, onDelta: stream(rid) });
+    return chat(prompts.roteiro(lines, topic, { rollingSummary: rollingFor(lines) }), { maxTokens: 700, onDelta: stream(rid) });
   }));
 
   ipcMain.handle("meetings:list", () => meetings.list());
   ipcMain.handle("meetings:get", (_event, id) => meetings.get(id));
   ipcMain.handle("meetings:create", (_event, input) => meetings.create(input || {}));
-  ipcMain.handle("meetings:update", (_event, id, patch) => meetings.update(id, patch || {}));
+  ipcMain.handle("meetings:update", (_event, id, patch) => {
+    const targetId = id || activeSessionId;
+    const updated = meetings.update(targetId, patch || {});
+    if (targetId === activeSessionId) {
+      const win = getWin();
+      if (win && win.webContents && !win.isDestroyed?.()) win.webContents.send("meeting:session", meetings.get(targetId));
+    }
+    notifyMain("meetings:changed", { id: targetId });
+    return updated;
+  });
   ipcMain.handle("meetings:delete", (_event, id) => meetings.remove(id));
   ipcMain.handle("meetings:active", () => (activeSessionId ? meetings.get(activeSessionId) : null));
   ipcMain.handle("meetings:use", (_event, id) => {
     activeSessionId = String(id || "");
     const session = activeSessionId ? meetings.get(activeSessionId) : null;
     const win = getWin();
-    if (win) win.webContents.send("meeting:session", session);
+    if (win && win.webContents && !win.isDestroyed?.()) win.webContents.send("meeting:session", session);
     return session;
   });
   ipcMain.handle("meetings:start", (_event, id) => {
     const session = meetings.start(id);
     activeSessionId = session.id;
-    settings.update({
-      meetingContext: [session.title, session.objective, session.agenda].filter(Boolean).join("\n").slice(0, 800),
+    const pb = getPlaybook(session.playbook);
+    const patch = {
+      meetingContext: [session.title, session.objective, session.agenda].filter(Boolean).join("\n").slice(0, 1200),
+      meetingMode: session.mode,
       captureMic: session.captureMic,
       captureSystem: session.captureSystem,
       captureScreen: session.captureScreen,
-    });
+      micDeviceId: session.micDeviceId || settings.get("micDeviceId"),
+      screenSourceId: session.screenSourceId || settings.get("screenSourceId"),
+    };
+    if (pb && pb.id === "entrevista" && settings.get("meetingLang") === "pt") patch.meetingLang = "auto";
+    settings.update(patch);
     const win = getWin();
-    if (win) win.webContents.send("meeting:session", session);
+    if (win && win.webContents && !win.isDestroyed?.()) win.webContents.send("meeting:session", meetings.get(session.id));
     return session;
   });
   ipcMain.handle("meetings:pause", (_event, id) => meetings.pause(id || activeSessionId));
   ipcMain.handle("meetings:resume", (_event, id) => meetings.resume(id || activeSessionId));
-  ipcMain.handle("meetings:sync-lines", (_event, id, lines) => meetings.appendLines(id || activeSessionId, lines));
+  ipcMain.handle("meetings:sync-lines", (_event, id, lines) => {
+    const targetId = id || activeSessionId;
+    if (!targetId || !meetings.get(targetId)) return null;
+    const res = meetings.syncLines(targetId, lines);
+    maybeRefreshRolling(meetings.get(targetId)?.lines || lines);
+    return res;
+  });
 
   ipcMain.on("win:height", (_event, height) => {
     const win = getWin();

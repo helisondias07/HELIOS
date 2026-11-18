@@ -70,6 +70,22 @@ function mockChat(messages) {
   if (/Até 4 perguntas curtas/.test(user)) {
     return "- Qual é o recorte que já está fechado?\n- O que ainda impede o envio?\n- Quem escreve o próximo rascunho, se já foi dito?\n- Quando vocês querem olhar de novo?";
   }
+  if (/Pair Programming do HELIOS|Live Coding do HELIOS/.test(system)) {
+    return [
+      "### 1. O que falar agora",
+      "Vou usar um mapa de hash em passagem única para localizar o complemento em tempo linear sem ordenar o vetor.",
+      "",
+      "### 2. Código limpo & Complexidade",
+      "```js\nfunction twoSum(nums, target) {\n  const seen = new Map();\n  for (let i = 0; i < nums.length; i++) {\n    const need = target - nums[i];\n    if (seen.has(need)) return [seen.get(need), i];\n    seen.set(nums[i], i);\n  }\n  return [];\n}\n```",
+      "Tempo: O(n) · Espaço: O(n) — percorre a lista uma vez guardando índices já vistos.",
+      "",
+      "### 3. Debug / Edge cases",
+      "- Elementos duplicados que somam o alvo (guardar depois de checar evita usar o mesmo índice duas vezes).\n- Números negativos ou zero.",
+    ].join("\n");
+  }
+  if (/pesquisa rapidamente um assunto/.test(system)) {
+    return "- O que é: (demonstração) Conceito técnico citado na conversa.\n- Ponto-chave: Reduz latência evitando reprocessamento desnecessário.\n- Como falar agora: Podemos validar esse ponto no escopo antes de fechar o prazo.";
+  }
   if (/Use exatamente quatro seções/.test(system)) {
     return "## Resumo\nExemplo de demonstração (não é uma reunião real): o time falou em fechar o recorte da semana.\n\n## Decisões\n- Manter o recorte atual até a próxima conversa.\n\n## Pendências\n- Você: enviar o rascunho até sexta\n\n## Próximos passos\n- Outro(s): devolver comentários depois do rascunho";
   }

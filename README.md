@@ -60,10 +60,12 @@ Cole de novo em **Ajustes** se preferir não usar arquivo.
 
 | Atalho | Ação |
 | --- | --- |
-| Ctrl+Shift+Espaço ou Ctrl+\\ | Mostrar ou ocultar o painel |
+| Ctrl+Shift+Espaço ou Ctrl+\\ | Mostrar ou ocultar o painel (mantém a escuta ativa) |
 | Ctrl+Shift+R | Ouvir ou pausar |
-| Ctrl+Enter | Sugestão de fala (só com a sessão ouvindo) |
-| Ctrl+Shift+Enter | Print da reunião (se o contexto de tela estiver ligado; pede confirmação) |
+| Alt+S ou Ctrl+Shift+S | Sugestão de fala imediata sem roubar foco |
+| Alt+P | Consultar conceito/assunto mencionado ao vivo |
+| Alt+C | Analisar código/erro no Modo Código (tela + clipboard) |
+| Ctrl+Shift+Enter | Prévia manual da tela selecionada (Enter envia) |
 | Ctrl+Shift+T | Clique atravessa o painel |
 | Ctrl+Shift+setas | Mover o painel |
 | Esc | Fecha o painel se não estiver ouvindo |
@@ -84,6 +86,6 @@ npm run check
 
 Não precisa de chave. `npm test` cobre preparação/consentimento, encerrar, wrapup sem inventar responsável, descarte da captura, prompts sem cola de tela e ausência dos fluxos antigos fora de reunião.
 
-Instalador Windows: `npm run dist:win` → `release/HELIOS-Setup-0.2.0.exe`.
+Instalador Windows: `npm run dist:win` → `release/HELIOS-Setup-0.3.0.exe`.
 
 Este agente rodou testes em Linux. A captura de áudio do sistema e o `safeStorage` real só se confirmam no Windows.

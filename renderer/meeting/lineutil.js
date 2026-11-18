@@ -1,10 +1,13 @@
 'use strict';
-// Utilitarios de falas (usados no renderer e nos testes)
+// Utilitários de falas (usados no renderer e nos testes)
 (function (root) {
+  const SILENCE_MS = 550;
+  const OVERLAP_MS = 400;
+  const LAST_N = 8;
+
   const norm = (t) => String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
   const tokens = (t) => norm(t).split(' ').filter((word) => word.length > 1);
-  const LAST_N = 8;
-  // frases curtas demais não entram na comparação aproximada (hello × olá continua diferente)
+
   function nearDuplicate(a, b) {
     const left = tokens(a);
     const right = tokens(b);
@@ -16,7 +19,7 @@
     const denom = Math.min(sa.size, sb.size);
     return denom > 0 && shared / denom >= 0.82;
   }
-  // true se o bloco novo repete alguma das últimas falas (igual ou quase igual)
+
   function isDuplicate(prev, text) {
     const current = norm(text);
     if (!current) return false;
@@ -26,9 +29,27 @@
       return !!other && (other === current || nearDuplicate(item, text));
     });
   }
-  // falas novas desde a ultima traducao mostrada
+
+  /** Remove palavras repetidas na borda entre dois blocos com sobreposição de ~400 ms. */
+  function trimOverlap(prevText, nextText) {
+    const nextRaw = String(nextText || '').trim();
+    const prevRaw = String(prevText || '').trim();
+    if (!prevRaw || !nextRaw) return nextRaw;
+    const prevWords = prevRaw.split(/\s+/);
+    const nextWords = nextRaw.split(/\s+/);
+    const maxK = Math.min(6, prevWords.length, nextWords.length);
+    for (let k = maxK; k >= 1; k--) {
+      const tail = norm(prevWords.slice(prevWords.length - k).join(' '));
+      const head = norm(nextWords.slice(0, k).join(' '));
+      if (tail && tail.length >= 3 && tail === head) {
+        return nextWords.slice(k).join(' ').replace(/^[,.;:!?\s-]+/, '').trim();
+      }
+    }
+    return nextRaw;
+  }
+
   const newSince = (lines, lastId) => (lines || []).filter((l) => l.id > (lastId || 0));
-  // avança só pelo prefixo que já está em português; para no primeiro buraco
+
   function shownCursor(lines, fromId) {
     let cursor = fromId || 0;
     for (const line of lines || []) {
@@ -38,16 +59,16 @@
     }
     return cursor;
   }
-  // avança o cursor antes do await e recusa um segundo clique enquanto traduz
+
   function claimTranslate(lines, shownId, translating) {
     const current = shownId || 0;
-    if (translating) return { claimed: false, reason: "ocupado", shownId: current };
+    if (translating) return { claimed: false, reason: 'ocupado', shownId: current };
     const fresh = newSince(lines, current);
-    if (!fresh.length) return { claimed: false, reason: "nada", shownId: current };
+    if (!fresh.length) return { claimed: false, reason: 'nada', shownId: current };
     const upTo = fresh[fresh.length - 1].id;
-    return { claimed: true, reason: "", previous: current, upTo, shownId: upTo, fresh };
+    return { claimed: true, reason: '', previous: current, upTo, shownId: upTo, fresh };
   }
-  // lixo de transcrição: só pontuação, 1 letra, legendas de vídeo que o Whisper inventa no silêncio ou palavra repetida várias vezes
+
   const NOISE = /amara\.org|legendas? (pela|por|de)\b|subtitles? (by|from)|thanks? for watching|obrigad[oa] por assistir|inscreva-se|subscribe to/i;
   function isNoise(text) {
     const t = String(text || '').trim();
@@ -56,19 +77,23 @@
     if (NOISE.test(t)) return true;
     return /^(\S+)(\s+\1){4,}[.!?]*$/i.test(t);
   }
-  // Corta o bloco de áudio mais cedo quando há uma pausa na fala (menos espera até a legenda): precisa de pelo menos
-  // metade do bloco (mínimo 3 s), ter fala no bloco e ~0,8 s de silêncio seguido (8 medições de 100 ms).
-  function shouldCut({ elapsedMs = 0, maxMs = 6000, voiced = 0, silentTicks = 0 } = {}) {
-    return elapsedMs >= Math.max(3000, maxMs * 0.5) && voiced >= 5 && silentTicks >= 8;
+
+  function shouldCut({ elapsedMs = 0, maxMs = 5000, voicedMs, voiced = 0, silentMs, silentTicks = 0 } = {}) {
+    const vMs = voicedMs != null ? voicedMs : voiced * 100;
+    const sMs = silentMs != null ? silentMs : silentTicks * 100;
+    return elapsedMs >= Math.min(1300, maxMs * 0.4) && vMs >= 200 && sMs >= SILENCE_MS;
   }
-  // Microfone da pergunta por voz: fecha na pausa, sem esperar metade do bloco.
-  // 5 medições com fala (~0,5 s) e 8 de silêncio (~0,8 s) — o mesmo fim de fala do modo conversa.
-  function shouldCutVoice({ elapsedMs = 0, voiced = 0, silentTicks = 0 } = {}) {
-    // ~1 s de fala e ~1,2 s de silêncio: a frase vai junta, sem cortar no meio nem esperar o bloco do PC.
-    return elapsedMs >= 1000 && voiced >= 6 && silentTicks >= 12;
+
+  function shouldCutVoice({ elapsedMs = 0, voicedMs, voiced = 0, silentMs, silentTicks = 0 } = {}) {
+    const vMs = voicedMs != null ? voicedMs : voiced * 100;
+    const sMs = silentMs != null ? silentMs : silentTicks * 100;
+    return elapsedMs >= 700 && vMs >= 200 && sMs >= SILENCE_MS;
   }
-  // Fila de transcrição: guarda só os últimos blocos. O mais antigo sai para a escuta não ficar minutos atrás.
-  // Tira marcador, número e título para a sugestão aparecer como fala, não como lista.
+
+  function shouldStartOverlap({ elapsedMs = 0, maxMs = 5000, overlapMs = OVERLAP_MS } = {}) {
+    return elapsedMs >= Math.max(1200, maxMs - overlapMs);
+  }
+
   function toProse(text) {
     const lines = String(text || '').replace(/\r\n/g, '\n').split('\n').map((line) => {
       let s = line.trim();
@@ -80,6 +105,7 @@
     });
     return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
   }
+
   function proseParts(text) {
     const body = toProse(text);
     const rows = body.split('\n').map((s) => s.trim()).filter(Boolean);
@@ -90,38 +116,32 @@
     const main = [en.replace(/^EN:\s*/i, '').trim(), rest].filter(Boolean).join('\n\n');
     return { main, sub: pt ? pt.replace(/^PT:\s*/i, '').trim() : '' };
   }
+
   function enqueueStt(queue, item, max = 2) {
     const list = (Array.isArray(queue) ? queue : []).concat([item]);
     const dropped = list.length > max;
     return { queue: dropped ? list.slice(list.length - max) : list, dropped };
   }
-  // "como que eu respondo isso" / "como eu digo" — pedido natural para o HELIOS.
-  function asksHowToAnswer(n) {
-    return /\bcomo (?:que )?eu (?:respondo|responder|falo|digo)\b/.test(n)
-      || /\bo que (?:que )?eu (?:respondo|falo|digo)\b/.test(n);
-  }
-  // Pergunta do Helison para o HELIOS (não um "sim" nem um relato). Fala natural conta, com ou sem "?".
-  function isVoiceQuestion(text) {
-    if (isNoise(text)) return false;
+
+  /** Extrai a pergunta somente quando o usuário chama explicitamente "Helios, ..." (zero falso positivo em perguntas ao cliente). */
+  function extractVoiceQuestion(text) {
+    if (isNoise(text)) return '';
     const raw = String(text || '').trim();
-    const n = norm(raw);
-    if (n.length < 6) return false;
-    if (/^(oi|ola|obrigado|obrigada|valeu|ta bom|ok|beleza|entendi|perfeito|sim|nao|yes|yeah|thanks|thank you)$/.test(n)) return false;
-    const words = n.split(' ').filter(Boolean);
-    const head = words.slice(0, 10).join(' ');
-    if (/\b(?:helios|helio)\b/.test(n)) return true;
-    if (/\b(?:ve|veja|olha|olhe|mostra)\b/.test(n) && /\btela\b/.test(n)) return true;
-    if (asksHowToAnswer(n)) return true;
-    // No começo da fala (com um "e", "então", "por favor" ou "Helios" na frente). "ele explica a..." não conta.
-    const directed = /^(?:(?:e|entao|por favor|helios|helio) )?(?:nao entendi|me ajuda|me explica|explica|o que (?:e|tem|significa|aparece)|o que eu (?:digo|falo|respondo)|como eu (?:digo|falo|respondo|faco)|como (?:faco|fazer)|what is|what s on|how do i|can you (?:explain|see))\b/.test(n);
-    if (directed) return true;
-    if (raw.includes('?')) return true;
-    if (/^como vai\b/.test(n)) return false;
-    const shape = /^(qual|quais|quem|onde|aonde|quando|por que|porque|pra que|para que|quanto|cade|why|where|who|when)\b/.test(head)
-      || /\b(por que|porque)\b/.test(head);
-    if (!shape) return false;
-    return words.length >= 3 && words.length <= 18;
+    const match = raw.match(/^(?:(?:ei|oi|ol[aá]|hey|ok|e|ent[aã]o|por favor)[,\s]+)?h[eé]lios?\b[,:\s-]*(.+)$/iu);
+    if (!match) return '';
+    const body = match[1].trim();
+    return norm(body).length >= 3 ? body : '';
   }
-  const api = { norm, isDuplicate, newSince, shownCursor, claimTranslate, isNoise, shouldCut, shouldCutVoice, isVoiceQuestion, enqueueStt, toProse, proseParts };
-  if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.LineUtil = api;
+
+  function isVoiceQuestion(text) {
+    return Boolean(extractVoiceQuestion(text));
+  }
+
+  const exported = {
+    SILENCE_MS, OVERLAP_MS, norm, isDuplicate, trimOverlap, newSince, shownCursor, claimTranslate,
+    isNoise, shouldCut, shouldCutVoice, shouldStartOverlap, extractVoiceQuestion, isVoiceQuestion,
+    enqueueStt, toProse, proseParts,
+  };
+  if (typeof module !== 'undefined' && module.exports) module.exports = exported;
+  else root.LineUtil = exported;
 })(typeof window !== 'undefined' ? window : globalThis);

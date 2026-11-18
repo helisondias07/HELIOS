@@ -74,7 +74,124 @@ function parseBatch(text, items) {
 const OUTRO_RULE = "Foque no que o(s) OUTRO(s) acabou de dizer ou perguntar. Se a última fala for sua, ajude a conduzir o próximo ponto.";
 const SCREEN_NOTE = "Um print da janela/tela da reunião está anexado, só porque o usuário ligou o contexto de tela. Use o que for visível e relevante à conversa. Não descreva o computador inteiro. Não trate a tela como prova, teste ou gabarito.";
 
-function suggest(lines, { myContext, lang, meeting, rollingSummary = "", more = false, withScreen = false } = {}) {
+const INTERVIEW_RULE = "Quem pergunta é o(a) entrevistador(a). Se a chamada estiver no viva-voz, a pergunta dele(a) pode aparecer rotulada como \"Você\" ou \"Voz misturada\": foque na ÚLTIMA PERGUNTA feita à pessoa entrevistada, seja qual for o rótulo.";
+
+const Q_START = /^(what|why|how|when|where|who|which|whose|do|does|did|are|is|was|were|can|could|would|will|should|have|has|tell|describe|walk|give|share|explain|talk|o que|por que|porque|como|quando|onde|quem|qual|quais|você|voce|vc|me conta|me fala|fala|conta|descreva|explique|tem|já|ja|pode|poderia|consegue)\b/i;
+
+function splitSentences(text) {
+  return String(text || "").replace(/\s+/g, " ").trim().split(/(?<=[.?!])\s+/).map((t) => t.trim()).filter(Boolean);
+}
+
+function isQuestionLike(sentence) {
+  const t = String(sentence || "").trim();
+  return /\?\s*$/.test(t) || Q_START.test(t);
+}
+
+/**
+ * Pega só a última pergunta do entrevistador, costurando pedaços que o corte de áudio separou.
+ * Viva-voz: tudo pode vir como "me"; então olha o último bloco de falas, de qualquer rótulo.
+ */
+function latestQuestion(lines) {
+  const list = (lines || []).filter((l) => l && String(l.text || "").trim());
+  if (!list.length) return "";
+  let end = list.length - 1;
+  if (list.some((l) => l.who === "them")) {
+    while (end >= 0 && list[end].who === "me") end--;
+  }
+  const lastWho = list[end].who;
+  const block = [];
+  for (let i = end; i >= 0 && block.length < 4; i--) {
+    if (list[i].who !== lastWho) break;
+    block.unshift(String(list[i].text).trim());
+  }
+  const sentences = splitSentences(block.join(" "));
+  let qi = -1;
+  for (let i = sentences.length - 1; i >= 0; i--) {
+    if (isQuestionLike(sentences[i])) { qi = i; break; }
+  }
+  if (qi < 0) return sentences.slice(-2).join(" ").slice(-400);
+  // Pergunta cortada no meio ("Can you tell me" + "about your Shopify experience?") ou com contexto curto antes.
+  let from = qi;
+  if (qi > 0 && !/[?]\s*$/.test(sentences[qi - 1]) && sentences[qi - 1].length < 140) from = qi - 1;
+  return sentences.slice(from).join(" ").slice(-400);
+}
+
+const SMALL_TALK = /^(hi|hello|hey|good (morning|afternoon|evening)|how are you|how's it going|can you hear me|are you there|nice to meet you|thanks?( you)?|oi|olá|ola|bom dia|boa tarde|boa noite|tudo bem|tudo bom|está me ouvindo|ta me ouvindo|consegue me ouvir|prazer)\b/i;
+function isSmallTalk(q) {
+  const t = String(q || "").trim();
+  return Boolean(t) && t.length < 90 && SMALL_TALK.test(t) && !/(tell me|experience|experiência|projeto|project|shopify|why|por que)/i.test(t);
+}
+
+function interviewSuggest(lines, { myContext, lang, meeting, rollingSummary = "", more = false, previous = [] } = {}) {
+  const english = lang !== "pt";
+  const question = latestQuestion(lines);
+  const small = isSmallTalk(question);
+  const prev = (previous || []).filter((p) => p && p.answer).slice(-3);
+  const length = small
+    ? "1 frase curta e simpática (é só conversa social, não é pergunta de entrevista)"
+    : more
+      ? "versão mais completa e aprofundada da resposta, com exemplo concreto e resultado"
+      : "tamanho definido pela pergunta: sim/não, horário ou disponibilidade = curto e direto; experiência, projeto, motivação ou comportamental = resposta completa, bem raciocinada, com exemplo real; sem enchimento";
+  const format = english
+    ? [
+        "Formato exato (estas seções, nesta ordem, sem preâmbulo). A resposta direta vem PRIMEIRO, pronta para ler em voz alta:",
+        "## Pergunta",
+        "PT: <a ÚLTIMA pergunta, em 1 linha em português>",
+        "## Responda",
+        `EN: <${length}; inglês falado natural e simples, 1ª pessoa, frases curtas e fáceis de pronunciar, sem travessões, sem listas>`,
+        "PT: <tradução fiel da resposta EN>",
+        small ? "" : "## Pontos de apoio",
+        small ? "" : "- EN: <fato concreto do perfil para usar se ela aprofundar> (PT: <tradução curta>)",
+        small ? "" : "- <1 a 3 itens; omita a seção se não houver nada útil além da resposta>",
+      ].filter(Boolean).join("\n")
+    : [
+        "Formato exato (estas seções, nesta ordem, sem preâmbulo). A resposta direta vem PRIMEIRO, pronta para falar:",
+        "## Pergunta",
+        "<a ÚLTIMA pergunta, em 1 linha>",
+        "## Responda",
+        `<${length}; português natural, 1ª pessoa>`,
+        small ? "" : "## Pontos de apoio",
+        small ? "" : "- <1 a 3 fatos concretos do perfil para usar se aprofundarem; omita se não houver>",
+      ].filter(Boolean).join("\n");
+  const rules = [
+    "Regras de qualidade (obrigatórias):",
+    "1. Responda SOMENTE a última pergunta indicada abaixo. Não responda perguntas antigas e não junte várias respostas numa só.",
+    "2. Não repita frases nem exemplos das respostas já sugeridas listadas abaixo. Se a pergunta for um follow-up da resposta anterior, aprofunde com detalhe NOVO (como fiz, ferramenta, resultado), sem recontar a mesma história.",
+    "3. Nunca raso: a resposta tem que fazer sentido sozinha, responder de verdade o que foi perguntado e trazer fatos concretos do Perfil (empresa, plataforma, número de lojas, projeto, ferramenta real) ligados à pergunta. Proibido frase genérica do tipo 'I am hardworking' ou resposta de uma linha sem conteúdo.",
+    "4. Pergunta comportamental (\"tell me about a time\", desafio, conflito, erro): estruture como situação, o que EU fiz e resultado, com um caso real do Perfil.",
+    "5. Se a fala não for pergunta (comentário, explicação longa da vaga), sugira uma reação curta + 1 pergunta pertinente sobre o que foi dito.",
+    "6. Se o perfil não comprovar algo, diga a verdade e mostre a experiência real mais próxima e como ela se transfere.",
+  ].join("\n");
+  const prevBlock = prev.length
+    ? `Respostas já sugeridas nesta entrevista (NÃO repetir):\n${prev.map((p, i) => `${i + 1}. Pergunta: ${String(p.question || "").slice(0, 160)}\n   Resposta: ${String(p.answer).replace(/\s+/g, " ").slice(0, 400)}`).join("\n")}`
+    : "";
+  return [
+    {
+      role: "system",
+      content: [
+        base(myContext, meeting),
+        "Você é o ponto eletrônico de uma ENTREVISTA DE EMPREGO: entrega a resposta que a pessoa entrevistada pode falar AGORA.",
+        "Use só fatos do Perfil, das notas e da conversa. Nunca invente empresa, cliente, número, prazo, salário ou ferramenta.",
+        "Tom: confiante, simpático, direto. Nada de 'Great question', 'Claro!' ou enrolação.",
+        rules,
+      ].join("\n"),
+    },
+    {
+      role: "user",
+      content: [
+        transcriptBlock(lines, { rollingSummary }),
+        INTERVIEW_RULE,
+        prevBlock,
+        question ? `ÚLTIMA PERGUNTA a responder (detectada; pode ter erro de reconhecimento): """${question}"""` : "Ainda não há pergunta clara: sugira uma frase curta de abertura.",
+        small ? "Isto é conversa social: responda curto e natural, sem pitch." : "",
+        format,
+      ].filter(Boolean).join("\n\n"),
+    },
+  ];
+}
+
+function suggest(lines, { myContext, lang, meeting, rollingSummary = "", more = false, withScreen = false, interview = false, previous = [] } = {}) {
+  if (interview && !withScreen) return interviewSuggest(lines, { myContext, lang, meeting, rollingSummary, more, previous });
   const english = lang === "en" || lang === "both";
   const style = english
     ? "Fala natural, direta e conversacional em 1ª pessoa, pronta para falar em voz alta na call."
@@ -233,6 +350,6 @@ function summary(lines, { myContext, meeting, rollingSummary = "" } = {}) {
 
 module.exports = {
   setPersonal, PERSONAL_MAX, MAX_CHARS, recent, transcriptBlock,
-  translateBatch, parseBatch, translate, suggest, researchTopic, liveCoding,
+  translateBatch, parseBatch, translate, suggest, interviewSuggest, latestQuestion, isSmallTalk, researchTopic, liveCoding,
   sayEn, followups, insights, explain, ask, summary, roteiro,
 };

@@ -131,7 +131,7 @@ test("generateWrapup sumariza em blocos quando transcrição passa de 12.000 car
 });
 
 test("playbooks, checklist e exportação Markdown funcionam para todos os perfis", () => {
-  assert.equal(PLAYBOOKS.length, 5);
+  assert.equal(PLAYBOOKS.length, 6);
   assert.equal(normalizePlaybook("ecommerce"), "ecommerce");
   assert.equal(normalizePlaybook("inexistente"), "geral");
   assert.match(getPlaybook("saas").liveHint, /dor real/i);

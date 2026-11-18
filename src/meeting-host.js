@@ -7,7 +7,7 @@ const providers = require("./providers");
 const prompts = require("./meeting-prompts");
 const mctx = require("./meeting-context");
 const rolling = require("./rolling-summary");
-const { PLAYBOOKS, getPlaybook } = require("./playbooks");
+const { PLAYBOOKS, getPlaybook, isInterview } = require("./playbooks");
 const { friendlyError } = require("./meeting-errors");
 const { redact } = require("../server/util");
 const mock_ = require("./meeting-mock");
@@ -437,7 +437,7 @@ function registerMeeting({ getWin, getMain, closeMeeting, settings, vault, meeti
       ...view,
       session,
       protected: process.env.HELIOS_NO_PROTECT !== "1",
-      playbooks: PLAYBOOKS.map(({ id, label, defaultLang, objectivePlaceholder, agendaTemplate }) => ({ id, label, defaultLang, objectivePlaceholder, agendaTemplate })),
+      playbooks: PLAYBOOKS.map(({ id, label, defaultLang, style, objectivePlaceholder, agendaTemplate }) => ({ id, label, defaultLang, style: style || "", objectivePlaceholder, agendaTemplate })),
     };
     if (mock) return { ...common, hasGroqKey: true, hasGeminiKey: true, mock: true };
     return { ...common, hasGroqKey: keys.hasGroqKey, hasGeminiKey: keys.hasGeminiKey, vaultBlocked: vault.isBlocked(), vaultBlockedMessage: vault.blockedMessage() };
@@ -536,19 +536,42 @@ function registerMeeting({ getWin, getMain, closeMeeting, settings, vault, meeti
   }));
 
   ipcMain.handle("rate:get", () => providers.getRate());
+  // Memória curta das últimas sugestões da entrevista, para o modelo não repetir nem colar respostas antigas.
+  const pastSuggestions = { sessionId: "", items: [] };
+  function suggestionsFor(sessionId) {
+    if (pastSuggestions.sessionId !== String(sessionId || "")) return [];
+    return pastSuggestions.items.slice(-3);
+  }
+  function rememberSuggestion(sessionId, question, text) {
+    const sid = String(sessionId || "");
+    if (pastSuggestions.sessionId !== sid) { pastSuggestions.sessionId = sid; pastSuggestions.items = []; }
+    const answer = (String(text || "").match(/##\s*Responda\s*\n([\s\S]*?)(?=\n##|$)/) || [])[1] || String(text || "");
+    if (!answer.trim()) return;
+    pastSuggestions.items.push({ question: String(question || "").slice(0, 200), answer: answer.trim().slice(0, 500) });
+    if (pastSuggestions.items.length > 6) pastSuggestions.items.shift();
+  }
+
   ipcMain.handle("ai:suggest", wrap(async (lines, lang, rid, more) => {
-    const image = await shotForSuggest();
-    return chat(
-      prompts.suggest(lines, {
-        myContext: settings.get("myContext"),
-        lang,
-        more: !!more,
-        meeting: meetingText(lines),
-        rollingSummary: rollingFor(lines),
-        withScreen: !!image,
-      }),
-      { fast: !more && !image, maxTokens: more ? 900 : 550, imageBase64: image, onDelta: stream(rid), search: true }
-    );
+    const session = activeSessionId ? meetings.get(activeSessionId) : null;
+    const interview = isInterview(session && session.playbook);
+    const image = interview ? null : await shotForSuggest();
+    const messages = prompts.suggest(lines, {
+      myContext: settings.get("myContext"),
+      lang,
+      more: !!more,
+      meeting: meetingText(lines),
+      rollingSummary: rollingFor(lines),
+      withScreen: !!image,
+      interview,
+      previous: interview ? suggestionsFor(session && session.id) : [],
+    });
+    // Entrevista: resposta vem do perfil, não da web. Sem busca = 1ª palavra bem mais rápida.
+    if (interview) {
+      const result = await chat(messages, { fast: false, maxTokens: more ? 1800 : 1300, temperature: 0.3, onDelta: stream(rid), search: false });
+      rememberSuggestion(session && session.id, prompts.latestQuestion(lines), result && result.text);
+      return result;
+    }
+    return chat(messages, { fast: !more && !image, maxTokens: more ? 900 : 550, imageBase64: image, onDelta: stream(rid), search: true });
   }));
 
   ipcMain.handle("ai:research", wrap(async (lines, topic, rid) => {
@@ -836,7 +859,7 @@ function registerMeeting({ getWin, getMain, closeMeeting, settings, vault, meeti
       micDeviceId: session.micDeviceId || settings.get("micDeviceId"),
       screenSourceId: session.screenSourceId || settings.get("screenSourceId"),
     };
-    if (pb && pb.id === "entrevista" && settings.get("meetingLang") === "pt") patch.meetingLang = "auto";
+    if (pb && pb.style === "interview" && settings.get("meetingLang") === "pt") patch.meetingLang = "auto";
     settings.update(patch);
     const win = getWin();
     if (win && win.webContents && !win.isDestroyed?.()) win.webContents.send("meeting:session", meetings.get(session.id));

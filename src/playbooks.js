@@ -41,6 +41,7 @@ const PLAYBOOKS = [
     id: "entrevista",
     label: "Entrevista Técnica (PT / EN)",
     defaultLang: "auto",
+    style: "interview",
     objectivePlaceholder: "Apresentar experiência real em frontend, e-commerce e automação com clareza",
     agendaTemplate: [
       "Apresentação objetiva da trajetória",
@@ -49,6 +50,25 @@ const PLAYBOOKS = [
     ].join("\n"),
     liveHint: "Conversa técnica profissional (PT ou EN): sugira falas diretas em 1ª pessoa conectando a pergunta apenas à experiência real descrita no perfil e na conversa. Se a fala vier em inglês, responda com EN: e PT:.",
     wrapupHint: "No Resumo e Decisões, registre os temas técnicos abordados, requisitos comentados pelo entrevistador e etapas futuras mencionadas.",
+  },
+  {
+    id: "entrevista-rh",
+    label: "Entrevista RH / Recrutador (EN)",
+    defaultLang: "auto",
+    style: "interview",
+    objectivePlaceholder: "Passar na triagem com respostas honestas, curtas e em inglês simples",
+    agendaTemplate: [
+      "Apresentação (pitch de 60s)",
+      "Experiência real em e-commerce e projetos",
+      "Inglês, disponibilidade part-time e modelo PJ",
+      "Minhas perguntas: plataforma, média de horas, próximos passos",
+    ].join("\n"),
+    liveHint: [
+      "Entrevista de RH/recrutador (pessoas e cultura), provavelmente em inglês. Sem live coding.",
+      "A pessoa entrevistada fala inglês avançado na leitura/escrita, mas está enferrujada na conversação: sugira frases curtas, simples e fáceis de falar em voz alta.",
+      "Use só experiências reais do perfil e das notas. Se o perfil não sustentar algo, responda com honestidade e mostre como a experiência real se transfere. Nunca invente empresa, cliente, número, tempo de casa ou ferramenta.",
+    ].join(" "),
+    wrapupHint: "No Resumo, registre o que a recrutadora contou da vaga e do cliente, horas/remuneração citadas, dúvidas em aberto e próximas etapas mencionadas.",
   },
   {
     id: "saas",
@@ -77,4 +97,9 @@ function getPlaybook(id) {
   return BY_ID.get(normalizePlaybook(id));
 }
 
-module.exports = { PLAYBOOKS, normalizePlaybook, getPlaybook };
+function isInterview(id) {
+  const pb = getPlaybook(id);
+  return Boolean(pb && pb.style === "interview");
+}
+
+module.exports = { PLAYBOOKS, normalizePlaybook, getPlaybook, isInterview };

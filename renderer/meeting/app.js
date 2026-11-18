@@ -231,11 +231,21 @@ async function runAI(title, fn, { more = null, asked = "" } = {}) {
 
 const linesForAI = () => state.lines.map(({ who, text }) => ({ who, text }));
 
+function isInterviewSession() {
+  const id = state.session && state.session.playbook;
+  if (!id) return false;
+  const pbs = Array.isArray(state.settings.playbooks) ? state.settings.playbooks : [];
+  const pb = pbs.find((p) => p.id === id);
+  return pb ? pb.style === "interview" : /^entrevista/.test(String(id));
+}
+
 function effectiveReplyLang() {
   const lang = currentLang();
   if (lang === "en") return "en";
   if (lang === "pt") return "pt";
-  const lastThem = [...state.lines].reverse().find((l) => l.who === "them");
+  const rev = [...state.lines].reverse();
+  // Entrevista no viva-voz: a fala da recrutadora pode chegar pelo microfone.
+  const lastThem = rev.find((l) => l.who === "them") || (isInterviewSession() ? rev.find((l) => l.lang) : null);
   return lastThem && lastThem.lang === "en" ? "en" : "pt";
 }
 
@@ -345,7 +355,9 @@ async function runVoiceAsk(question) {
 
 // Tradução ao vivo em lote quando idioma = EN ou fala detectada em inglês
 function shouldTranslateLine(line) {
-  if (!line || line.who !== "them" || line.pt) return false;
+  if (!line || line.pt) return false;
+  // Em entrevista, traduz também o microfone (chamada no viva-voz / celular perto do PC).
+  if (line.who !== "them" && !(isInterviewSession() && line.lang === "en")) return false;
   const lang = currentLang();
   if (lang === "pt") return false;
   if (lang === "en") return line.lang !== "pt";
@@ -904,6 +916,11 @@ function bind() {
     const q = $("askInput").value.trim();
     if (!q) return;
     $("askInput").value = "";
+    const sayMatch = q.match(/^(?:en|ingl[eê]s)\s*[:>]\s*([\s\S]+)$/i);
+    if (sayMatch && api.sayEn) {
+      runAI("Como falar em inglês", (rid) => api.sayEn(sayMatch[1].trim(), rid), { asked: `EN: ${sayMatch[1].trim()}` });
+      return;
+    }
     if (currentMode() === "livecoding" && /^(\/code|analise|corrija|otimize|explique o erro)/i.test(q)) {
       runLiveCode(q.replace(/^\/code\s*/i, ""));
       return;

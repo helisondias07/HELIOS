@@ -58,6 +58,18 @@ function mockChat(messages) {
     const said = (user.match(/"""([\s\S]*?)"""/) || ["", user])[1].trim();
     return `EN: (demo) ${said}\nPT: ${said}`;
   }
+  if (/ENTREVISTA DE EMPREGO/.test(system)) {
+    const q = (user.match(/ÚLTIMA PERGUNTA a responder[^"]*"""([\s\S]*?)"""/) || ["", ""])[1].trim();
+    return [
+      "## Pergunta",
+      `PT: (demonstração) ${q || "sem pergunta clara"}`,
+      "## Responda",
+      "EN: (demo) I maintain more than ten online stores at Agência Oásis. I update banners and pages, fix bugs, and integrate tools every week.",
+      "PT: (demo) Eu mantenho mais de dez lojas virtuais na Agência Oásis. Atualizo banners e páginas, corrijo bugs e integro ferramentas toda semana.",
+      "## Pontos de apoio",
+      "- EN: (demo) More than ten stores on Wake, plus Nuvemshop. (PT: mais de dez lojas na Wake, e Nuvemshop.)",
+    ].join("\n");
+  }
   if (/Sugestão de fala AGORA/.test(user) || /sugere o que a pessoa pode falar/.test(system)) {
     return [
       "## O que falar agora",
